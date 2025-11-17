@@ -13,9 +13,8 @@ impl Dsg {
         Self { raw }
     }
 
-    pub fn add_layer(&mut self, layer: u16, name: &str) -> bool {
-        let c = CString::new(name).unwrap();
-        unsafe { dsg_add_layer(self.raw.as_ptr(), layer, c.as_ptr()) }
+    pub fn add_layer(&mut self, layer: u16) -> bool {
+        unsafe { dsg_add_layer(self.raw.as_ptr(), layer) }
     }
 
     pub fn add_node(&mut self, layer: u16, id: u64, pos: [f64; 3]) -> bool {

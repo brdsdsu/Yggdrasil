@@ -4,8 +4,8 @@ fn main() {
     let mut g = Dsg::new();
 
     // Example: build two layers, two nodes, one edge.
-    assert!(g.add_layer(1, "PLACES"));
-    assert!(g.add_layer(2, "OBJECTS"));
+    assert!(g.add_layer(1));
+    assert!(g.add_layer(2));
 
     assert!(g.add_node(1, 1001, [0.0, 0.0, 0.0]));
     assert!(g.set_label(1, 1001, "place_0"));
