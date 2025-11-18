@@ -54,6 +54,23 @@ impl Node {
             .ok_or_else(|| AtlasError::FeatureNotFound(key.to_string()))
     }
 
+    /// Set or update a feature for the node.
+    pub fn set_feature(&mut self, feature: Feature) {
+        if !self.has_feature(&feature.key) {
+            self.features.push(feature);
+        } else {
+            for f in &mut self.features {
+                if f.key == feature.key {
+                    f.value = feature.value;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+impl Node {
+    /// Remote a child node by its ID.
     pub(super) fn remove_child(&mut self, nid: usize) -> Result<()> {
         let index = self
             .children
@@ -68,33 +85,6 @@ impl Node {
     pub(super) fn add_child(&mut self, nid: usize) {
         if !self.children.contains(&nid) {
             self.children.push(nid);
-        }
-    }
-
-    pub fn merge(&mut self, mergee: Node) -> Result<()> {
-        mergee.features.into_iter().for_each(|feature| {
-            self.set_feature(feature);
-        });
-        self.coordinates = mergee.coordinates;
-        for mergee_edge in mergee.edges {
-            match self.edges.iter_mut().find(|e| e.dst == mergee_edge.dst) {
-                Some(e) => e.desc = mergee_edge.desc,
-                None => self.edges.push(mergee_edge),
-            }
-        }
-        Ok(())
-    }
-
-    fn set_feature(&mut self, feature: Feature) {
-        if !self.has_feature(&feature.key) {
-            self.features.push(feature);
-        } else {
-            for f in &mut self.features {
-                if f.key == feature.key {
-                    f.value = feature.value;
-                    break;
-                }
-            }
         }
     }
 }
