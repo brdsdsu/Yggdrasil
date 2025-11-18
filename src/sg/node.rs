@@ -12,9 +12,9 @@ pub struct Node {
     /// Unique identifier for the node.
     pub id: usize,
     /// Parent node Id, if node is nested under another node.
-    pub(super) pid: Option<usize>,
+    pub pid: Option<usize>,
     /// Child node Ids from the lower layer, if node has nested nodes under it.
-    pub(super) children: Vec<usize>,
+    pub children: Vec<usize>,
     /// Edges to other nodes in the same layer.
     pub edges: Vec<Edge>,
     /// Features associated with the node.
