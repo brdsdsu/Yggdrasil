@@ -123,11 +123,20 @@ impl Layer {
     /// Merge another layer into this one.
     /// Nodes with the same ID will be merged, while new nodes will be added.
     /// Deleting Nodes and edges is not supported in this operation.
-    pub fn merge(&mut self, l2: Layer) -> std::result::Result<(), AtlasError> {
-        for node in l2.nodes {
+    pub fn merge(&mut self, mergee: Layer) -> std::result::Result<(), AtlasError> {
+        let node_ids: HashSet<usize> = mergee.nodes.iter().map(|n| n.id).collect();
+        for node in mergee.nodes {
             match self.node_mut(node.id) {
                 Ok(existing_node) => {
-                    existing_node.merge(node)?;
+                    existing_node.features = node.features;
+                    existing_node.coordinates = node.coordinates;
+                    // Merging edges:
+                    // Since mergee layer defines the connectivity between two nodes that are both
+                    // present in the mergee layer, for each edge such as A->B in the existing_node
+                    // node, the edge is retained only if B does not exist in the mergee layer.
+                    // Then all edges from the mergee node are added to the existing_node.
+                    existing_node.edges.retain(|e| !node_ids.contains(&e.dst));
+                    existing_node.edges.extend(node.edges);
                 }
                 Err(AtlasError::NodeNotFound) => {
                     self.push_node(node.clone());

@@ -14,7 +14,7 @@ use crate::error::{AtlasError, Result};
 pub struct SceneGraph {
     /// Layers of the scene graph, where each layer is either a Semantic or a Physical
     /// representation of the scene.
-    layers: Vec<Layer>,
+    pub(crate) layers: Vec<Layer>,
 
     /// Counter to assign unique IDs to nodes.
     node_counter: usize,
