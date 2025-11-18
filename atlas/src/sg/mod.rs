@@ -1,6 +1,7 @@
 mod fov;
 mod layer;
 mod node;
+pub mod parse;
 mod sg;
 
 pub use fov::Observer;
