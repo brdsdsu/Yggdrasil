@@ -7,3 +7,4 @@ use update::UpdatePipeline;
 
 pub use server::Server;
 pub use sg::{Layer, SceneGraph};
+pub use sg::parse;
