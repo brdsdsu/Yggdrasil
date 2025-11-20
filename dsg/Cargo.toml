@@ -1,0 +1,13 @@
+[package]
+name = "dsg"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dsg-sys = { path = "../dsg-sys" }
+libc = "0.2"
+
+[[example]]
+name = "snapshot"
+path = "examples/snapshot.rs"
+

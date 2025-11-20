@@ -1,0 +1,13 @@
+[package]
+name = "dsg-sys"
+version = "0.1.0"
+edition = "2021"
+links = "dsg_c_api"
+build = "build.rs"
+
+[build-dependencies]
+bindgen = "0.70"
+cmake = "0.1"
+
+[dependencies]
+libc = "0.2"
