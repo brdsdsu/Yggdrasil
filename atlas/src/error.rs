@@ -17,11 +17,14 @@ pub enum AtlasError {
     LayerOutOfBounds(usize, usize),
 
     #[error("invalid layers for nesting: cannot nest layer {0} within layer {1}")]
-    InvalidLayersForNesting(usize,usize),
+    InvalidLayersForNesting(usize, usize),
 
     #[error("feature '{0}' not found")]
     FeatureNotFound(String),
 
     #[error("coordinates are required for this layer")]
     CoordinatesRequired,
+
+    #[error("failed to parse scene graph: {0}")]
+    ParseError(String),
 }
