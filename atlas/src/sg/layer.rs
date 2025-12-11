@@ -1,4 +1,9 @@
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    ops::{Deref, DerefMut},
+};
+
+use kiddo::float::kdtree::KdTree;
 
 use super::{Edge, Node, Observer};
 use crate::error::{AtlasError, Result};
@@ -10,6 +15,7 @@ use crate::error::{AtlasError, Result};
 pub struct Layer {
     /// List of nodes in this layer.
     pub(super) nodes: Vec<Node>,
+    pos_index: Option<KdTree<f32, usize, 3, 32, u32>>,
 }
 
 /// Node Access and Modification
@@ -23,15 +29,27 @@ impl Layer {
     }
 
     /// Get a mutable reference to a node by its ID.
-    pub fn node_mut(&mut self, id: usize) -> Result<&mut Node> {
+    pub fn node_mut(&mut self, id: usize) -> Result<NodeMut<'_>> {
         self.nodes
             .iter_mut()
-            .find(|node| node.id == id)
+            .enumerate()
+            .find(|(_, node)| node.id == id)
+            .map(|(ptr, n)| (ptr, n.coordinates))
+            .map(|(node_ptr, prev_coords)| NodeMut {
+                prev_coords,
+                layer: self,
+                node_ptr,
+            })
             .ok_or(AtlasError::NodeNotFound)
     }
 
     /// Add a new node to the layer.
     pub fn push_node(&mut self, node: Node) {
+        if let Some(pos_index) = &mut self.pos_index
+            && let Some(coords) = node.coordinates
+        {
+            pos_index.add(&coords.into(), node.id);
+        }
         self.nodes.push(node);
     }
 
@@ -40,7 +58,7 @@ impl Layer {
     pub fn add_edge(&mut self, src: usize, dst: usize, desc: &str) -> Result<()> {
         // Ensure destination node exists
         let _ = self.node(dst)?;
-        let src_node = self.node_mut(src)?;
+        let mut src_node = self.node_mut(src)?;
         src_node.edges.push(Edge::new(src, dst, desc));
         Ok(())
     }
@@ -48,7 +66,7 @@ impl Layer {
     /// Delete an edge from source node to destination node.
     /// Returns an error if the edge does not exist.
     pub fn del_edge(&mut self, src: usize, dst: usize) -> Result<()> {
-        let src_node = self.node_mut(src)?;
+        let mut src_node = self.node_mut(src)?;
         let index = src_node
             .edges
             .iter()
@@ -111,7 +129,21 @@ impl Layer {
             .filter(|n| observer.observers(&n.coordinates.unwrap()))
             .cloned()
             .collect::<Vec<Node>>();
-        let mut l = Self { nodes };
+
+        let pos_index = match self.pos_index {
+            Some(_) => {
+                let mut pos_index = KdTree::new();
+                for node in &nodes {
+                    if let Some(coords) = node.coordinates {
+                        pos_index.add(&coords.into(), node.id);
+                    }
+                }
+                Some(pos_index)
+            }
+            None => None,
+        };
+
+        let mut l = Self { nodes, pos_index };
 
         // prune edges to out-of-view nodes
         l.prune();
@@ -126,8 +158,9 @@ impl Layer {
     pub fn merge(&mut self, mergee: Layer) -> std::result::Result<(), AtlasError> {
         let node_ids: HashSet<usize> = mergee.nodes.iter().map(|n| n.id).collect();
         for node in mergee.nodes {
-            match self.node_mut(node.id) {
-                Ok(existing_node) => {
+            let existing_node = self.node_mut(node.id);
+            match existing_node {
+                Ok(mut existing_node) => {
                     existing_node.features = node.features;
                     existing_node.coordinates = node.coordinates;
                     // Merging edges:
@@ -139,6 +172,7 @@ impl Layer {
                     existing_node.edges.extend(node.edges);
                 }
                 Err(AtlasError::NodeNotFound) => {
+                    drop(existing_node);
                     self.push_node(node.clone());
                 }
                 Err(e) => return Err(e),
@@ -158,7 +192,16 @@ impl Layer {
 
 impl Layer {
     pub(super) fn new() -> Self {
-        Self { nodes: Vec::new() }
+        Self {
+            nodes: Vec::new(),
+            pos_index: None,
+        }
+    }
+    pub(super) fn indexed() -> Self {
+        Self {
+            nodes: Vec::new(),
+            pos_index: Some(KdTree::new()),
+        }
     }
 
     /// Delete a node by its ID, removing all associated edges in the layer.
@@ -169,6 +212,11 @@ impl Layer {
             .position(|node| node.id == id)
             .ok_or(AtlasError::NodeNotFound)?;
         let node = self.nodes.remove(index);
+        if let Some(pos_index) = &mut self.pos_index
+            && let Some(coords) = node.coordinates
+        {
+            pos_index.remove(&coords.into(), node.id);
+        }
         self.nodes
             .iter_mut()
             .for_each(|node| node.edges.retain(|edge| edge.dst != id));
@@ -183,6 +231,45 @@ impl Layer {
     }
 }
 
+pub struct NodeMut<'a> {
+    prev_coords: Option<super::Coordinate>,
+    layer: &'a mut Layer,
+    node_ptr: usize,
+}
+
+impl Deref for NodeMut<'_> {
+    type Target = Node;
+
+    fn deref(&self) -> &Self::Target {
+        &self.layer.nodes[self.node_ptr]
+    }
+}
+
+impl DerefMut for NodeMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.layer.nodes[self.node_ptr]
+    }
+}
+
+impl Drop for NodeMut<'_> {
+    fn drop(&mut self) {
+        let node = &**self;
+        let new_coords = node.coordinates;
+        let node_id = node.id;
+
+        if self.prev_coords == new_coords {
+            return;
+        }
+        if let Some(pos_index) = &mut self.layer.pos_index {
+            if let Some(pos) = self.prev_coords {
+                pos_index.remove(&pos.into(), node_id);
+            }
+            if let Some(pos) = new_coords {
+                pos_index.add(&pos.into(), node_id);
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {

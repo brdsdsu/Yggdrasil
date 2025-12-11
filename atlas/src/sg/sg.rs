@@ -1,7 +1,10 @@
 use std::collections::HashSet;
 
 use super::{Coordinate, Edge, Feature, Layer, Node, Observer};
-use crate::error::{AtlasError, Result};
+use crate::{
+    error::{AtlasError, Result},
+    sg::layer::NodeMut,
+};
 
 /// A hierarchical representation of objects and their relationships in a 3D environment.
 /// The scene graph is organized into layers, where each layer contains nodes representing objects.
@@ -150,7 +153,7 @@ impl SceneGraph {
     }
 
     /// Get a mutable reference to a node by its ID.
-    pub fn node_mut(&mut self, nid: usize) -> Result<&mut Node> {
+    pub fn node_mut(&mut self, nid: usize) -> Result<NodeMut<'_>> {
         self.layers
             .iter_mut()
             .find_map(|layer| layer.node_mut(nid).ok())
@@ -331,14 +334,18 @@ impl<'a> NestUnder<'a> {
             ));
         }
 
-        let nestee = self.sg.node_mut(self.nestee)?;
+        let mut nestee = self.sg.node_mut(self.nestee)?;
         match nestee.pid {
             // Remove from old parent
             Some(parent_id) => {
                 nestee.pid = Some(nester);
+                drop(nestee);
                 self.sg.node_mut(parent_id)?.remove_child(self.nestee)?;
             }
-            None => nestee.pid = Some(nester),
+            None => {
+                nestee.pid = Some(nester);
+                drop(nestee);
+            }
         }
 
         self.sg.node_mut(nester)?.add_child(self.nestee);
