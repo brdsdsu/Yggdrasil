@@ -155,25 +155,6 @@ impl Layer {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
-    /// ```rust 
-    /// # use atlas::{Layer, Node, PosQueryCount};
-    /// # use atlas::Coordinate;
-    ///
-    /// let mut layer = Layer::with_pos_index();
-    /// layer.push_node(Node::new(1, vec![], Some(Coordinate::new(0.0, 0.0, 0.0))));
-    /// layer.push_node(Node::new(2, vec![], Some(Coordinate::new(1.0, 1.0, 1.0))));
-    /// layer.push_node(Node::new(3, vec![], Some(Coordinate::new(2.0, 2.0, 2.0))));
-    ///
-    /// let nearest = layer.nearest_nodes(&Coordinate::new(0.6, 0.6, 0.6), PosQueryCount::Count(2));
-    ///
-    /// assert_eq!(nearest.len(), 2);
-    ///
-    /// assert_eq!(nearest[0].id, 2);
-    /// assert_eq!(nearest[0].coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
-    ///
-    /// assert_eq!(nearest[1].id, 1);
-    /// assert_eq!(nearest[1].coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
-    /// ```
     pub fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<&Node> {
         let count = count.as_capped_usize(self.nodes.len());
         match &self.pos_index {
@@ -199,19 +180,6 @@ impl Layer {
 
     /// Retrieve at most `count` nodes within a specified radius to the given position.
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
-    /// ```rust
-    /// # use atlas::{Layer, Node, PosQueryCount};
-    /// # use atlas::Coordinate;
-    /// 
-    /// let mut layer = Layer::with_pos_index();
-    /// layer.push_node(Node::new(1, vec![], Some(Coordinate::new(0.0, 0.0, 0.0))));
-    /// layer.push_node(Node::new(2, vec![], Some(Coordinate::new(1.0, 1.0, 1.0))));
-    /// layer.push_node(Node::new(3, vec![], Some(Coordinate::new(2.0, 2.0, 2.0))));
-    /// 
-    /// let nearby = layer.nodes_within(&Coordinate::new(0.0, 0.0, 0.0), 1.8, PosQueryCount::All);
-    /// 
-    /// assert_eq!(nearby.len(), 2);
-    /// ```
     pub fn nodes_within(
         &self,
         pos: &super::Coordinate,
@@ -285,13 +253,25 @@ impl Layer {
 }
 
 impl Layer {
-    pub fn new() -> Self {
+    /// Create a new empty Layer without position indexing.
+    /// Consider enabling position indexing if the layer will be frequently queried by `nearest_nodes` or `nodes_within`.
+    ///
+    /// [`nearest_nodes`]: Layer::nearest_nodes
+    /// [`nodes_within`]: Layer::nodes_within
+    pub(super) fn new() -> Self {
         Self {
             nodes: Vec::new(),
             pos_index: None,
         }
     }
-    pub fn with_pos_index() -> Self {
+
+    /// Create a new empty Layer with position indexing enabled.
+    /// This allows for efficient spatial queries on node positions.
+    /// Consider enabling position indexing if the layer will be frequently queried by `nearest_nodes` or `nodes_within`.
+    ///
+    /// [`nearest_nodes`]: Layer::nearest_nodes
+    /// [`nodes_within`]: Layer::nodes_within
+    pub(super) fn with_pos_index() -> Self {
         Self {
             nodes: Vec::new(),
             pos_index: Some(KdTree::new()),
@@ -331,6 +311,8 @@ impl Default for Layer {
     }
 }
 
+/// A mutable reference to a Node within a Layer.
+/// Tracks previous coordinates to update the position index on drop.
 pub struct NodeMut<'a> {
     prev_coords: Option<super::Coordinate>,
     layer: &'a mut Layer,
@@ -371,11 +353,17 @@ impl Drop for NodeMut<'_> {
     }
 }
 
+/// Specifies the number of nodes to return in position-based queries.
+#[derive(Debug, Clone, Copy)]
 pub enum PosQueryCount {
+    /// Return All matching nodes.
     All,
+    /// Return a specific Count of matching nodes.
     Count(usize),
 }
+
 impl PosQueryCount {
+    /// Convert to usize, capping at the provided maximum value.
     fn as_capped_usize(&self, cap: usize) -> usize {
         match self {
             PosQueryCount::All => cap,
@@ -444,4 +432,62 @@ mod test {
             )
         }
     }
+
+    #[test]
+    fn nearest_query() {
+        let mut l = Layer::with_pos_index();
+        assert!(l.pos_index.is_some());
+
+        let pts = [
+            Coordinate::new(0.0, 0.0, 0.0),
+            Coordinate::new(1.0, 1.0, 1.0),
+            Coordinate::new(2.0, 2.0, 2.0),
+            Coordinate::new(3.0, 3.0, 3.0),
+            Coordinate::new(4.0, 4.0, 4.0),
+        ];
+        for (i, p) in pts.iter().enumerate() {
+            l.push_node(Node::new(i, Vec::new(), Some(*p)));
+        }
+
+        let query_pos = Coordinate::new(0.6, 0.6, 0.6);
+
+        let nearest_nodes = l.nearest_nodes(&query_pos, PosQueryCount::Count(3));
+        assert_eq!(nearest_nodes.len(), 3);
+        // first 3 nearest nodes should be [1.0,1.0,1.0], [0.0,0.0,0.0], [2.0,2.0,2.0]
+        assert_eq!(nearest_nodes[0].coordinates.unwrap(), pts[1]);
+        assert_eq!(nearest_nodes[1].coordinates.unwrap(), pts[0]);
+        assert_eq!(nearest_nodes[2].coordinates.unwrap(), pts[2]);
+    }
+
+    #[test]
+    fn radius_query() {
+        let mut l = Layer::with_pos_index();
+        assert!(l.pos_index.is_some());
+
+        let pts = [
+            Coordinate::new(0.0, 0.0, 0.0),
+            Coordinate::new(1.0, 1.0, 1.0),
+            Coordinate::new(2.0, 2.0, 2.0),
+            Coordinate::new(3.0, 3.0, 3.0),
+            Coordinate::new(4.0, 4.0, 4.0),
+        ];
+        for (i, p) in pts.iter().enumerate() {
+            l.push_node(Node::new(i, Vec::new(), Some(*p)));
+        }
+
+        let query_pos = Coordinate::new(2.0, 2.0, 2.0);
+
+        // only matching [1.0,1.0,1.0], [2.0,2.0,2.0], [3.0,3.0,3.0]
+        let nodes_within = l.nodes_within(&query_pos, 2.0, PosQueryCount::All);
+        assert_eq!(nodes_within.len(), 3);
+
+        // only matching [1.0,1.0,1.0], [2.0,2.0,2.0], [3.0,3.0,3.0], but limit to 2 results
+        let nodes_within_limited = l.nodes_within(&query_pos, 4.0, PosQueryCount::Count(2)); 
+        assert_eq!(nodes_within_limited.len(), 2);
+
+        // radius large enough to include all nodes
+        let nodes_within_none = l.nodes_within(&query_pos, 4.0, PosQueryCount::All);
+        assert_eq!(nodes_within_none.len(), 5);
+    }
+
 }

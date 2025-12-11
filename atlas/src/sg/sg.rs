@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use super::{Coordinate, Edge, Feature, Layer, Node, Observer};
 use crate::{
+    PosQueryCount,
     error::{AtlasError, Result},
     sg::layer::NodeMut,
 };
@@ -24,9 +25,26 @@ pub struct SceneGraph {
 }
 
 impl SceneGraph {
-    /// Create a new layer and add it to the scene graph.
+    /// Create a new layer without position indexing and add it to the scene graph.
+    ///
+    /// Consider enabling position indexing if the layer will be frequently queried by `nearest_nodes` or `nodes_within`.
+    ///
+    /// [`nearest_nodes`]: SceneGraph::nearest_nodes
+    /// [`nodes_within`]: SceneGraph::nodes_within
     pub fn new_layer(&mut self) -> &mut Layer {
         self.layers.push(Layer::new());
+        self.layers.last_mut().unwrap()
+    }
+
+    /// Create a new layer with position indexing enabled and add it to the scene graph.
+    ///
+    /// This allows for efficient spatial queries on node positions.
+    /// Consider enabling position indexing if the layer will be frequently queried by `nearest_nodes` or `nodes_within`.
+    ///
+    /// [`nearest_nodes`]: SceneGraph::nearest_nodes
+    /// [`nodes_within`]: SceneGraph::nodes_within
+    pub fn new_indexed_layer(&mut self) -> &mut Layer {
+        self.layers.push(Layer::with_pos_index());
         self.layers.last_mut().unwrap()
     }
 
@@ -288,6 +306,78 @@ impl SceneGraph {
             node_counter: self.node_counter,
             layers,
         })
+    }
+
+    /// Retrieve at most `count` nearest nodes to the given position.
+    /// The list is sorted by distance from nearest to farthest.
+    /// If this function is called frequently, consider creating the Layer with indexing enabled.
+    ///
+    /// ```rust
+    /// # use atlas::SceneGraph;
+    /// # use atlas::{Coordinate, PosQueryCount};
+    ///
+    /// let mut sg = atlas::SceneGraph::default();
+    ///
+    /// // Create nodes
+    /// let n1 = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
+    /// let n2 = sg.new_coordinates(1.0, 1.0, 1.0, vec![]);
+    /// let n3 = sg.new_coordinates(2.0, 2.0, 2.0, vec![]);
+    ///
+    /// // Create a layer and add nodes to it
+    /// sg.new_indexed_layer();
+    /// sg.layer_mut(0).unwrap().push_node(n1);
+    /// sg.layer_mut(0).unwrap().push_node(n2);
+    /// sg.layer_mut(0).unwrap().push_node(n3);
+    ///
+    /// let coord = Coordinate::new(0.6, 0.6, 0.6);
+    /// let nearest_nodes = sg.nearest_nodes(&coord, PosQueryCount::Count(2));
+    /// assert_eq!(nearest_nodes.len(), 2);
+    /// assert_eq!(nearest_nodes[0].coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
+    /// assert_eq!(nearest_nodes[1].coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
+    /// ```
+    pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<&Node> {
+        self.layers
+            .iter()
+            .flat_map(|l| l.nearest_nodes(coord, count))
+            .collect()
+    }
+
+    /// Retrieve at most `count` nodes within a specified radius to the given position.
+    /// If this function is called frequently, consider creating the Layer with indexing enabled.
+    /// ```rust
+    ///
+    /// # use atlas::SceneGraph;
+    /// # use atlas::{Coordinate, PosQueryCount};
+    ///
+    /// let mut sg = atlas::SceneGraph::default();
+    ///
+    /// // Create nodes
+    /// let n1 = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
+    /// let n2 = sg.new_coordinates(1.0, 1.0, 1.0, vec![]);
+    /// let n3 = sg.new_coordinates(2.0, 2.0, 2.0, vec![]);
+    ///
+    /// // Create a layer and add nodes to it
+    /// sg.new_indexed_layer();
+    /// sg.layer_mut(0).unwrap().push_node(n1);
+    /// sg.layer_mut(0).unwrap().push_node(n2);
+    /// sg.layer_mut(0).unwrap().push_node(n3);
+    ///
+    /// let coord = Coordinate::new(0.3, 0.3, 0.3);
+    /// let nodes_within_radius = sg.nodes_within(&coord, 2.0, PosQueryCount::All);
+    /// assert_eq!(nodes_within_radius.len(), 2);
+    /// assert!(nodes_within_radius.iter().any(|n| n.coordinates.unwrap() == Coordinate::new(0.0, 0.0, 0.0)));
+    /// assert!(nodes_within_radius.iter().any(|n| n.coordinates.unwrap() == Coordinate::new(1.0, 1.0, 1.0)));
+    /// ```
+    pub fn nodes_within(
+        &self,
+        coord: &Coordinate,
+        radius: f32,
+        count: PosQueryCount,
+    ) -> Vec<&Node> {
+        self.layers
+            .iter()
+            .flat_map(|l| l.nodes_within(coord, radius, count))
+            .collect()
     }
 
     /// Get List of all edges matching a specific description.
