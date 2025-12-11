@@ -1,4 +1,4 @@
-use crate::error::{AtlasError, Result};
+use crate::error::{SceneGraphError, Result};
 
 /// A node in the scene graph.
 /// Each node is designated to a unique layer in the scene graph and within that layer, it can have
@@ -51,7 +51,7 @@ impl Node {
             .iter()
             .find(|f| f.key == key)
             .map(|f| f.value.as_str())
-            .ok_or_else(|| AtlasError::FeatureNotFound(key.to_string()))
+            .ok_or_else(|| SceneGraphError::FeatureNotFound(key.to_string()))
     }
 
     /// Set or update a feature for the node.
@@ -76,7 +76,7 @@ impl Node {
             .children
             .iter()
             .position(|&id| id == nid)
-            .ok_or(AtlasError::NodeNotFound)?;
+            .ok_or(SceneGraphError::NodeNotFound)?;
         self.children.swap_remove(index);
         Ok(())
     }

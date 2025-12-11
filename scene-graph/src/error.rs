@@ -1,9 +1,9 @@
 use thiserror::Error;
 
-pub type Result<T, E = AtlasError> = core::result::Result<T, E>;
+pub type Result<T, E = SceneGraphError> = core::result::Result<T, E>;
 
 #[derive(Error, Debug)]
-pub enum AtlasError {
+pub enum SceneGraphError {
     #[error("edge not found")]
     EdgeNotFound,
 

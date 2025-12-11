@@ -1,11 +1,13 @@
+mod error;
 mod fov;
 mod layer;
 mod node;
 pub mod parse;
 mod sg;
 
+pub use error::{SceneGraphError, Result};
 pub use fov::Observer;
-pub use layer::{Layer,PosQueryCount};
+pub use layer::{Layer, PosQueryCount};
 pub use node::{Coordinate, Edge, Feature, Node};
 pub use sg::SceneGraph;
 
@@ -13,8 +15,8 @@ pub use sg::SceneGraph;
 mod test {
     use std::collections::HashSet;
 
+    use super::error::Result;
     use super::*;
-    use crate::error::Result;
 
     #[test]
     fn api() -> Result<()> {

@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
-use super::{Coordinate, Edge, Feature, Layer, Node, Observer};
 use crate::{
-    PosQueryCount,
-    error::{AtlasError, Result},
-    sg::layer::NodeMut,
+    error::{SceneGraphError, Result},
+    fov::Observer,
+    layer::{Layer, NodeMut, PosQueryCount},
+    node::{Coordinate, Edge, Feature, Node},
 };
 
 /// A hierarchical representation of objects and their relationships in a 3D environment.
@@ -126,19 +126,19 @@ impl SceneGraph {
     pub fn top_layer_mut(&mut self) -> Result<&mut Layer> {
         self.layers
             .last_mut()
-            .ok_or(AtlasError::LayerOutOfBounds(0, 0))
+            .ok_or(SceneGraphError::LayerOutOfBounds(0, 0))
     }
 
     /// Get an immutable reference to the top layer.
     pub fn top_layer(&self) -> Result<&Layer> {
-        self.layers.last().ok_or(AtlasError::LayerOutOfBounds(0, 0))
+        self.layers.last().ok_or(SceneGraphError::LayerOutOfBounds(0, 0))
     }
 
     /// Get an immutable reference to a layer by its index.
     pub fn layer(&self, index: usize) -> Result<&Layer> {
         self.layers
             .get(index)
-            .ok_or(AtlasError::LayerOutOfBounds(index, self.layers.len()))
+            .ok_or(SceneGraphError::LayerOutOfBounds(index, self.layers.len()))
     }
 
     /// Get a mutable reference to a layer by its index.
@@ -146,16 +146,16 @@ impl SceneGraph {
         let layers_count = self.layers.len();
         self.layers
             .get_mut(index)
-            .ok_or(AtlasError::LayerOutOfBounds(index, layers_count))
+            .ok_or(SceneGraphError::LayerOutOfBounds(index, layers_count))
     }
 
     /// Get the layer index of a node by its ID.
-    pub fn layer_of(&self, nid: usize) -> Result<usize, AtlasError> {
+    pub fn layer_of(&self, nid: usize) -> Result<usize, SceneGraphError> {
         let nestee_layer_id = self
             .layers
             .iter()
             .position(|l| l.node(nid).is_ok())
-            .ok_or(AtlasError::NodeNotFound)?;
+            .ok_or(SceneGraphError::NodeNotFound)?;
         Ok(nestee_layer_id)
     }
 }
@@ -167,7 +167,7 @@ impl SceneGraph {
         self.layers
             .iter()
             .find_map(|layer| layer.node(nid).ok())
-            .ok_or(AtlasError::NodeNotFound)
+            .ok_or(SceneGraphError::NodeNotFound)
     }
 
     /// Get a mutable reference to a node by its ID.
@@ -175,7 +175,7 @@ impl SceneGraph {
         self.layers
             .iter_mut()
             .find_map(|layer| layer.node_mut(nid).ok())
-            .ok_or(AtlasError::NodeNotFound)
+            .ok_or(SceneGraphError::NodeNotFound)
     }
 }
 
@@ -418,7 +418,7 @@ impl<'a> NestUnder<'a> {
         let nestee_layer_id = self.sg.layer_of(self.nestee)?;
 
         if nester_layer_id - 1 != nestee_layer_id {
-            return Err(AtlasError::InvalidLayersForNesting(
+            return Err(SceneGraphError::InvalidLayersForNesting(
                 nestee_layer_id,
                 nester_layer_id,
             ));

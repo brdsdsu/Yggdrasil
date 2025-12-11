@@ -1,0 +1,11 @@
+[package]
+name = "scene-graph"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dsg = { path = "../dsg" }
+glam = "0.30.9"
+kiddo = "5.2.3"
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.17"
