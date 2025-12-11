@@ -5,7 +5,7 @@ pub mod parse;
 mod sg;
 
 pub use fov::Observer;
-pub use layer::Layer;
+pub use layer::{Layer,PosQueryCount};
 pub use node::{Coordinate, Edge, Feature, Node};
 pub use sg::SceneGraph;
 

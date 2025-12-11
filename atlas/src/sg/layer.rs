@@ -1,9 +1,11 @@
 use std::{
     collections::HashSet,
+    num::NonZero,
     ops::{Deref, DerefMut},
+    result,
 };
 
-use kiddo::float::kdtree::KdTree;
+use kiddo::{SquaredEuclidean, float::kdtree::KdTree};
 
 use super::{Edge, Node, Observer};
 use crate::error::{AtlasError, Result};
@@ -149,6 +151,98 @@ impl Layer {
         l.prune();
         l
     }
+
+    /// Retrieve at most `count` nearest nodes to the given position.
+    /// The list is sorted by distance from nearest to farthest.
+    /// If this function is called frequently, consider creating the Layer with indexing enabled.
+    /// ```rust 
+    /// # use atlas::{Layer, Node, PosQueryCount};
+    /// # use atlas::Coordinate;
+    ///
+    /// let mut layer = Layer::with_pos_index();
+    /// layer.push_node(Node::new(1, vec![], Some(Coordinate::new(0.0, 0.0, 0.0))));
+    /// layer.push_node(Node::new(2, vec![], Some(Coordinate::new(1.0, 1.0, 1.0))));
+    /// layer.push_node(Node::new(3, vec![], Some(Coordinate::new(2.0, 2.0, 2.0))));
+    ///
+    /// let nearest = layer.nearest_nodes(&Coordinate::new(0.6, 0.6, 0.6), PosQueryCount::Count(2));
+    ///
+    /// assert_eq!(nearest.len(), 2);
+    ///
+    /// assert_eq!(nearest[0].id, 2);
+    /// assert_eq!(nearest[0].coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
+    ///
+    /// assert_eq!(nearest[1].id, 1);
+    /// assert_eq!(nearest[1].coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
+    /// ```
+    pub fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<&Node> {
+        let count = count.as_capped_usize(self.nodes.len());
+        match &self.pos_index {
+            Some(pos_index) => {
+                let results = pos_index.nearest_n::<SquaredEuclidean>(&(*pos).into(), count);
+                results
+                    .into_iter()
+                    .filter_map(|n| self.node(n.item).ok())
+                    .collect()
+            }
+            None => {
+                let mut distances = self
+                    .nodes
+                    .iter()
+                    .filter(|n| n.coordinates.is_some())
+                    .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
+                    .collect::<Vec<(&Node, f32)>>();
+                distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+                distances.into_iter().take(count).map(|(n, _)| n).collect()
+            }
+        }
+    }
+
+    /// Retrieve at most `count` nodes within a specified radius to the given position.
+    /// If this function is called frequently, consider creating the Layer with indexing enabled.
+    /// ```rust
+    /// # use atlas::{Layer, Node, PosQueryCount};
+    /// # use atlas::Coordinate;
+    /// 
+    /// let mut layer = Layer::with_pos_index();
+    /// layer.push_node(Node::new(1, vec![], Some(Coordinate::new(0.0, 0.0, 0.0))));
+    /// layer.push_node(Node::new(2, vec![], Some(Coordinate::new(1.0, 1.0, 1.0))));
+    /// layer.push_node(Node::new(3, vec![], Some(Coordinate::new(2.0, 2.0, 2.0))));
+    /// 
+    /// let nearby = layer.nodes_within(&Coordinate::new(0.0, 0.0, 0.0), 1.8, PosQueryCount::All);
+    /// 
+    /// assert_eq!(nearby.len(), 2);
+    /// ```
+    pub fn nodes_within(
+        &self,
+        pos: &super::Coordinate,
+        radius: f32,
+        count: PosQueryCount,
+    ) -> Vec<&Node> {
+        let count = count.as_capped_usize(self.nodes.len());
+        match &self.pos_index {
+            Some(pos_index) => {
+                let results = pos_index.nearest_n_within::<SquaredEuclidean>(
+                    &(*pos).into(),
+                    radius * radius,
+                    unsafe { NonZero::new_unchecked(std::cmp::max(1, count)) },
+                    false,
+                );
+                results
+                    .iter()
+                    .filter_map(|n| self.node(n.item).ok())
+                    .collect()
+            }
+            None => self
+                .nodes
+                .iter()
+                .filter(|n| n.coordinates.is_some())
+                .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
+                .filter(|(_, d)| *d <= radius * radius)
+                .map(|(n, _)| n)
+                .take(count)
+                .collect::<Vec<&Node>>(),
+        }
+    }
 }
 
 impl Layer {
@@ -191,13 +285,13 @@ impl Layer {
 }
 
 impl Layer {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
             pos_index: None,
         }
     }
-    pub(super) fn indexed() -> Self {
+    pub fn with_pos_index() -> Self {
         Self {
             nodes: Vec::new(),
             pos_index: Some(KdTree::new()),
@@ -228,6 +322,12 @@ impl Layer {
     pub(super) fn retain_nodes(&mut self, retain_nodes: &[usize]) {
         self.nodes.retain(|node| retain_nodes.contains(&node.id));
         self.prune();
+    }
+}
+
+impl Default for Layer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -267,6 +367,19 @@ impl Drop for NodeMut<'_> {
             if let Some(pos) = new_coords {
                 pos_index.add(&pos.into(), node_id);
             }
+        }
+    }
+}
+
+pub enum PosQueryCount {
+    All,
+    Count(usize),
+}
+impl PosQueryCount {
+    fn as_capped_usize(&self, cap: usize) -> usize {
+        match self {
+            PosQueryCount::All => cap,
+            PosQueryCount::Count(k) => *k,
         }
     }
 }
