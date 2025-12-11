@@ -226,7 +226,7 @@ impl SceneGraph {
     /// The `nester` node will have the `nestee` node added to its list of children.
     ///
     /// ```rust
-    /// # use atlas::SceneGraph;
+    /// # use scene_graph::SceneGraph;
     /// # let mut sg = SceneGraph::default();
     ///
     /// // Create nodes
@@ -313,10 +313,10 @@ impl SceneGraph {
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
     ///
     /// ```rust
-    /// # use atlas::SceneGraph;
-    /// # use atlas::{Coordinate, PosQueryCount};
+    /// # use scene_graph::SceneGraph;
+    /// # use scene_graph::{Coordinate, PosQueryCount};
     ///
-    /// let mut sg = atlas::SceneGraph::default();
+    /// let mut sg = SceneGraph::default();
     ///
     /// // Create nodes
     /// let n1 = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
@@ -346,10 +346,10 @@ impl SceneGraph {
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
     /// ```rust
     ///
-    /// # use atlas::SceneGraph;
-    /// # use atlas::{Coordinate, PosQueryCount};
+    /// # use scene_graph::SceneGraph;
+    /// # use scene_graph::{Coordinate, PosQueryCount};
     ///
-    /// let mut sg = atlas::SceneGraph::default();
+    /// let mut sg = SceneGraph::default();
     ///
     /// // Create nodes
     /// let n1 = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
