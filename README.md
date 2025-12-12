@@ -1,2 +1,3 @@
-# 3D-atlas
-Like the Titan Atlas bearing the world, 3D-atlas carries, serves, and sustains entire 3D scenes. Independent, self-reliant, and ready to deploy.
+# Yggdrasil: the world-tree for distributed 3D scene graphs
+![/rsc/logo.png](Yggdrasil logo)
+Like Yggdrasil binding the Nine Realms, this system maintains the ‘world-tree’ of 3D scene data, reconciling distributed updates and serving coherent subgraphs across heterogeneous agents.
