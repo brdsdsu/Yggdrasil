@@ -1,4 +1,11 @@
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    num::NonZero,
+    ops::{Deref, DerefMut},
+    result,
+};
+
+use kiddo::{SquaredEuclidean, float::kdtree::KdTree};
 
 use super::{Edge, Node, Observer};
 use crate::error::{AtlasError, Result};
@@ -10,6 +17,7 @@ use crate::error::{AtlasError, Result};
 pub struct Layer {
     /// List of nodes in this layer.
     pub(super) nodes: Vec<Node>,
+    pos_index: Option<KdTree<f32, usize, 3, 32, u32>>,
 }
 
 /// Node Access and Modification
@@ -23,15 +31,27 @@ impl Layer {
     }
 
     /// Get a mutable reference to a node by its ID.
-    pub fn node_mut(&mut self, id: usize) -> Result<&mut Node> {
+    pub fn node_mut(&mut self, id: usize) -> Result<NodeMut<'_>> {
         self.nodes
             .iter_mut()
-            .find(|node| node.id == id)
+            .enumerate()
+            .find(|(_, node)| node.id == id)
+            .map(|(ptr, n)| (ptr, n.coordinates))
+            .map(|(node_ptr, prev_coords)| NodeMut {
+                prev_coords,
+                layer: self,
+                node_ptr,
+            })
             .ok_or(AtlasError::NodeNotFound)
     }
 
     /// Add a new node to the layer.
     pub fn push_node(&mut self, node: Node) {
+        if let Some(pos_index) = &mut self.pos_index
+            && let Some(coords) = node.coordinates
+        {
+            pos_index.add(&coords.into(), node.id);
+        }
         self.nodes.push(node);
     }
 
@@ -40,7 +60,7 @@ impl Layer {
     pub fn add_edge(&mut self, src: usize, dst: usize, desc: &str) -> Result<()> {
         // Ensure destination node exists
         let _ = self.node(dst)?;
-        let src_node = self.node_mut(src)?;
+        let mut src_node = self.node_mut(src)?;
         src_node.edges.push(Edge::new(src, dst, desc));
         Ok(())
     }
@@ -48,7 +68,7 @@ impl Layer {
     /// Delete an edge from source node to destination node.
     /// Returns an error if the edge does not exist.
     pub fn del_edge(&mut self, src: usize, dst: usize) -> Result<()> {
-        let src_node = self.node_mut(src)?;
+        let mut src_node = self.node_mut(src)?;
         let index = src_node
             .edges
             .iter()
@@ -111,11 +131,85 @@ impl Layer {
             .filter(|n| observer.observers(&n.coordinates.unwrap()))
             .cloned()
             .collect::<Vec<Node>>();
-        let mut l = Self { nodes };
+
+        let pos_index = match self.pos_index {
+            Some(_) => {
+                let mut pos_index = KdTree::new();
+                for node in &nodes {
+                    if let Some(coords) = node.coordinates {
+                        pos_index.add(&coords.into(), node.id);
+                    }
+                }
+                Some(pos_index)
+            }
+            None => None,
+        };
+
+        let mut l = Self { nodes, pos_index };
 
         // prune edges to out-of-view nodes
         l.prune();
         l
+    }
+
+    /// Retrieve at most `count` nearest nodes to the given position.
+    /// The list is sorted by distance from nearest to farthest.
+    /// If this function is called frequently, consider creating the Layer with indexing enabled.
+    pub fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<&Node> {
+        let count = count.as_capped_usize(self.nodes.len());
+        match &self.pos_index {
+            Some(pos_index) => {
+                let results = pos_index.nearest_n::<SquaredEuclidean>(&(*pos).into(), count);
+                results
+                    .into_iter()
+                    .filter_map(|n| self.node(n.item).ok())
+                    .collect()
+            }
+            None => {
+                let mut distances = self
+                    .nodes
+                    .iter()
+                    .filter(|n| n.coordinates.is_some())
+                    .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
+                    .collect::<Vec<(&Node, f32)>>();
+                distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+                distances.into_iter().take(count).map(|(n, _)| n).collect()
+            }
+        }
+    }
+
+    /// Retrieve at most `count` nodes within a specified radius to the given position.
+    /// If this function is called frequently, consider creating the Layer with indexing enabled.
+    pub fn nodes_within(
+        &self,
+        pos: &super::Coordinate,
+        radius: f32,
+        count: PosQueryCount,
+    ) -> Vec<&Node> {
+        let count = count.as_capped_usize(self.nodes.len());
+        match &self.pos_index {
+            Some(pos_index) => {
+                let results = pos_index.nearest_n_within::<SquaredEuclidean>(
+                    &(*pos).into(),
+                    radius * radius,
+                    unsafe { NonZero::new_unchecked(std::cmp::max(1, count)) },
+                    false,
+                );
+                results
+                    .iter()
+                    .filter_map(|n| self.node(n.item).ok())
+                    .collect()
+            }
+            None => self
+                .nodes
+                .iter()
+                .filter(|n| n.coordinates.is_some())
+                .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
+                .filter(|(_, d)| *d <= radius * radius)
+                .map(|(n, _)| n)
+                .take(count)
+                .collect::<Vec<&Node>>(),
+        }
     }
 }
 
@@ -126,8 +220,9 @@ impl Layer {
     pub fn merge(&mut self, mergee: Layer) -> std::result::Result<(), AtlasError> {
         let node_ids: HashSet<usize> = mergee.nodes.iter().map(|n| n.id).collect();
         for node in mergee.nodes {
-            match self.node_mut(node.id) {
-                Ok(existing_node) => {
+            let existing_node = self.node_mut(node.id);
+            match existing_node {
+                Ok(mut existing_node) => {
                     existing_node.features = node.features;
                     existing_node.coordinates = node.coordinates;
                     // Merging edges:
@@ -139,6 +234,7 @@ impl Layer {
                     existing_node.edges.extend(node.edges);
                 }
                 Err(AtlasError::NodeNotFound) => {
+                    drop(existing_node);
                     self.push_node(node.clone());
                 }
                 Err(e) => return Err(e),
@@ -157,8 +253,29 @@ impl Layer {
 }
 
 impl Layer {
+    /// Create a new empty Layer without position indexing.
+    /// Consider enabling position indexing if the layer will be frequently queried by `nearest_nodes` or `nodes_within`.
+    ///
+    /// [`nearest_nodes`]: Layer::nearest_nodes
+    /// [`nodes_within`]: Layer::nodes_within
     pub(super) fn new() -> Self {
-        Self { nodes: Vec::new() }
+        Self {
+            nodes: Vec::new(),
+            pos_index: None,
+        }
+    }
+
+    /// Create a new empty Layer with position indexing enabled.
+    /// This allows for efficient spatial queries on node positions.
+    /// Consider enabling position indexing if the layer will be frequently queried by `nearest_nodes` or `nodes_within`.
+    ///
+    /// [`nearest_nodes`]: Layer::nearest_nodes
+    /// [`nodes_within`]: Layer::nodes_within
+    pub(super) fn with_pos_index() -> Self {
+        Self {
+            nodes: Vec::new(),
+            pos_index: Some(KdTree::new()),
+        }
     }
 
     /// Delete a node by its ID, removing all associated edges in the layer.
@@ -169,6 +286,11 @@ impl Layer {
             .position(|node| node.id == id)
             .ok_or(AtlasError::NodeNotFound)?;
         let node = self.nodes.remove(index);
+        if let Some(pos_index) = &mut self.pos_index
+            && let Some(coords) = node.coordinates
+        {
+            pos_index.remove(&coords.into(), node.id);
+        }
         self.nodes
             .iter_mut()
             .for_each(|node| node.edges.retain(|edge| edge.dst != id));
@@ -183,6 +305,72 @@ impl Layer {
     }
 }
 
+impl Default for Layer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A mutable reference to a Node within a Layer.
+/// Tracks previous coordinates to update the position index on drop.
+pub struct NodeMut<'a> {
+    prev_coords: Option<super::Coordinate>,
+    layer: &'a mut Layer,
+    node_ptr: usize,
+}
+
+impl Deref for NodeMut<'_> {
+    type Target = Node;
+
+    fn deref(&self) -> &Self::Target {
+        &self.layer.nodes[self.node_ptr]
+    }
+}
+
+impl DerefMut for NodeMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.layer.nodes[self.node_ptr]
+    }
+}
+
+impl Drop for NodeMut<'_> {
+    fn drop(&mut self) {
+        let node = &**self;
+        let new_coords = node.coordinates;
+        let node_id = node.id;
+
+        if self.prev_coords == new_coords {
+            return;
+        }
+        if let Some(pos_index) = &mut self.layer.pos_index {
+            if let Some(pos) = self.prev_coords {
+                pos_index.remove(&pos.into(), node_id);
+            }
+            if let Some(pos) = new_coords {
+                pos_index.add(&pos.into(), node_id);
+            }
+        }
+    }
+}
+
+/// Specifies the number of nodes to return in position-based queries.
+#[derive(Debug, Clone, Copy)]
+pub enum PosQueryCount {
+    /// Return All matching nodes.
+    All,
+    /// Return a specific Count of matching nodes.
+    Count(usize),
+}
+
+impl PosQueryCount {
+    /// Convert to usize, capping at the provided maximum value.
+    fn as_capped_usize(&self, cap: usize) -> usize {
+        match self {
+            PosQueryCount::All => cap,
+            PosQueryCount::Count(k) => *k,
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -244,4 +432,62 @@ mod test {
             )
         }
     }
+
+    #[test]
+    fn nearest_query() {
+        let mut l = Layer::with_pos_index();
+        assert!(l.pos_index.is_some());
+
+        let pts = [
+            Coordinate::new(0.0, 0.0, 0.0),
+            Coordinate::new(1.0, 1.0, 1.0),
+            Coordinate::new(2.0, 2.0, 2.0),
+            Coordinate::new(3.0, 3.0, 3.0),
+            Coordinate::new(4.0, 4.0, 4.0),
+        ];
+        for (i, p) in pts.iter().enumerate() {
+            l.push_node(Node::new(i, Vec::new(), Some(*p)));
+        }
+
+        let query_pos = Coordinate::new(0.6, 0.6, 0.6);
+
+        let nearest_nodes = l.nearest_nodes(&query_pos, PosQueryCount::Count(3));
+        assert_eq!(nearest_nodes.len(), 3);
+        // first 3 nearest nodes should be [1.0,1.0,1.0], [0.0,0.0,0.0], [2.0,2.0,2.0]
+        assert_eq!(nearest_nodes[0].coordinates.unwrap(), pts[1]);
+        assert_eq!(nearest_nodes[1].coordinates.unwrap(), pts[0]);
+        assert_eq!(nearest_nodes[2].coordinates.unwrap(), pts[2]);
+    }
+
+    #[test]
+    fn radius_query() {
+        let mut l = Layer::with_pos_index();
+        assert!(l.pos_index.is_some());
+
+        let pts = [
+            Coordinate::new(0.0, 0.0, 0.0),
+            Coordinate::new(1.0, 1.0, 1.0),
+            Coordinate::new(2.0, 2.0, 2.0),
+            Coordinate::new(3.0, 3.0, 3.0),
+            Coordinate::new(4.0, 4.0, 4.0),
+        ];
+        for (i, p) in pts.iter().enumerate() {
+            l.push_node(Node::new(i, Vec::new(), Some(*p)));
+        }
+
+        let query_pos = Coordinate::new(2.0, 2.0, 2.0);
+
+        // only matching [1.0,1.0,1.0], [2.0,2.0,2.0], [3.0,3.0,3.0]
+        let nodes_within = l.nodes_within(&query_pos, 2.0, PosQueryCount::All);
+        assert_eq!(nodes_within.len(), 3);
+
+        // only matching [1.0,1.0,1.0], [2.0,2.0,2.0], [3.0,3.0,3.0], but limit to 2 results
+        let nodes_within_limited = l.nodes_within(&query_pos, 4.0, PosQueryCount::Count(2)); 
+        assert_eq!(nodes_within_limited.len(), 2);
+
+        // radius large enough to include all nodes
+        let nodes_within_none = l.nodes_within(&query_pos, 4.0, PosQueryCount::All);
+        assert_eq!(nodes_within_none.len(), 5);
+    }
+
 }
