@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AtlasError, Result};
-use crate::sg::{Feature, SceneGraph};
+use crate::error::{SceneGraphError, Result};
+use crate::{SceneGraph, node::Feature};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConceptGraph {
@@ -29,7 +29,7 @@ pub struct ConceptGraphEdgeMeta {
 }
 
 impl TryFrom<ConceptGraph> for SceneGraph {
-    type Error = AtlasError;
+    type Error = SceneGraphError;
 
     /// Converts a ConceptGraph into a SceneGraph.
     /// The resulting SceneGraph will have two layers:
@@ -67,7 +67,7 @@ impl TryFrom<ConceptGraph> for SceneGraph {
 
             let new_node = sg.new_node(features);
             let new_nod_id = new_node.id;
-            id_map.insert(node.node_id,new_nod_id);
+            id_map.insert(node.node_id, new_nod_id);
             // push to the semantic layer
             sg.layer_mut(1)?.push_node(new_node);
 
@@ -91,8 +91,8 @@ impl TryFrom<ConceptGraph> for SceneGraph {
             .iter()
             .map(|e| (id_map.get(&e.0), id_map.get(&e.1), &e.2))
         {
-            let src = src.ok_or(AtlasError::NodeNotFound)?;
-            let dst = dst.ok_or(AtlasError::NodeNotFound)?;
+            let src = src.ok_or(SceneGraphError::NodeNotFound)?;
+            let dst = dst.ok_or(SceneGraphError::NodeNotFound)?;
             sg.layer_mut(1)?.add_edge(*src, *dst, &meta.desc)?
         }
 

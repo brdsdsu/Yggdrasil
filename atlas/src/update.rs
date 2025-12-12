@@ -1,5 +1,4 @@
-use crate::error::Result;
-use crate::sg::SceneGraph;
+use scene_graph::{Result, SceneGraph};
 
 #[derive(Default)]
 pub struct UpdatePipeline {

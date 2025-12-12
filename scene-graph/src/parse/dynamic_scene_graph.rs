@@ -1,9 +1,9 @@
-use crate::error::AtlasError;
+use crate::error::SceneGraphError;
 use crate::sg::SceneGraph;
 use dsg::DynamicSceneGraph;
 
 impl TryFrom<SceneGraph> for DynamicSceneGraph {
-    type Error = AtlasError;
+    type Error = SceneGraphError;
 
     /// Converts a SceneGraph into a DynamicSceneGraph.
     /// Note that edge descriptions are lost in the conversion.
@@ -27,6 +27,6 @@ impl TryFrom<SceneGraph> for DynamicSceneGraph {
             }
             Ok(dsg.build())
         }
-        try_from(sg).map_err(AtlasError::ParseError)
+        try_from(sg).map_err(SceneGraphError::ParseError)
     }
 }

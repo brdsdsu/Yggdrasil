@@ -1,5 +1,5 @@
-use crate::error::Result;
-use crate::{UpdatePipeline, sg::SceneGraph};
+use crate::{UpdatePipeline};
+use scene_graph::{Result, SceneGraph};
 
 #[derive(Default)]
 pub struct Server {

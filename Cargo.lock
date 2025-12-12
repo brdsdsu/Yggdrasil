@@ -30,9 +30,9 @@ checksum = "3d62b7694a562cdf5a74227903507c56ab2cc8bdd1f781ed5cb4cf9c9f810bfc"
 name = "atlas"
 version = "0.1.0"
 dependencies = [
- "dsg",
  "glam",
  "kiddo",
+ "scene-graph",
  "serde",
  "serde_json",
  "thiserror",
@@ -443,6 +443,17 @@ name = "ryu"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
+
+[[package]]
+name = "scene-graph"
+version = "0.1.0"
+dependencies = [
+ "dsg",
+ "glam",
+ "kiddo",
+ "serde",
+ "thiserror",
+]
 
 [[package]]
 name = "serde"

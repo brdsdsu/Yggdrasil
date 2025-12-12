@@ -2,13 +2,12 @@ use std::{
     collections::HashSet,
     num::NonZero,
     ops::{Deref, DerefMut},
-    result,
 };
 
 use kiddo::{SquaredEuclidean, float::kdtree::KdTree};
 
 use super::{Edge, Node, Observer};
-use crate::error::{AtlasError, Result};
+use crate::error::{SceneGraphError, Result};
 
 /// A Layer in the Scene Graph containing multiple Nodes and their Edges.
 /// Each Layer is a well-defined Graph structure representing a specific aspect of the scene,
@@ -27,7 +26,7 @@ impl Layer {
         self.nodes
             .iter()
             .find(|node| node.id == id)
-            .ok_or(AtlasError::NodeNotFound)
+            .ok_or(SceneGraphError::NodeNotFound)
     }
 
     /// Get a mutable reference to a node by its ID.
@@ -42,7 +41,7 @@ impl Layer {
                 layer: self,
                 node_ptr,
             })
-            .ok_or(AtlasError::NodeNotFound)
+            .ok_or(SceneGraphError::NodeNotFound)
     }
 
     /// Add a new node to the layer.
@@ -73,7 +72,7 @@ impl Layer {
             .edges
             .iter()
             .position(|edge| edge.dst == dst)
-            .ok_or(AtlasError::EdgeNotFound)?;
+            .ok_or(SceneGraphError::EdgeNotFound)?;
         src_node.edges.swap_remove(index);
         Ok(())
     }
@@ -217,7 +216,7 @@ impl Layer {
     /// Merge another layer into this one.
     /// Nodes with the same ID will be merged, while new nodes will be added.
     /// Deleting Nodes and edges is not supported in this operation.
-    pub fn merge(&mut self, mergee: Layer) -> std::result::Result<(), AtlasError> {
+    pub fn merge(&mut self, mergee: Layer) -> std::result::Result<(), SceneGraphError> {
         let node_ids: HashSet<usize> = mergee.nodes.iter().map(|n| n.id).collect();
         for node in mergee.nodes {
             let existing_node = self.node_mut(node.id);
@@ -233,7 +232,7 @@ impl Layer {
                     existing_node.edges.retain(|e| !node_ids.contains(&e.dst));
                     existing_node.edges.extend(node.edges);
                 }
-                Err(AtlasError::NodeNotFound) => {
+                Err(SceneGraphError::NodeNotFound) => {
                     drop(existing_node);
                     self.push_node(node.clone());
                 }
@@ -284,7 +283,7 @@ impl Layer {
             .nodes
             .iter()
             .position(|node| node.id == id)
-            .ok_or(AtlasError::NodeNotFound)?;
+            .ok_or(SceneGraphError::NodeNotFound)?;
         let node = self.nodes.remove(index);
         if let Some(pos_index) = &mut self.pos_index
             && let Some(coords) = node.coordinates
@@ -482,12 +481,11 @@ mod test {
         assert_eq!(nodes_within.len(), 3);
 
         // only matching [1.0,1.0,1.0], [2.0,2.0,2.0], [3.0,3.0,3.0], but limit to 2 results
-        let nodes_within_limited = l.nodes_within(&query_pos, 4.0, PosQueryCount::Count(2)); 
+        let nodes_within_limited = l.nodes_within(&query_pos, 4.0, PosQueryCount::Count(2));
         assert_eq!(nodes_within_limited.len(), 2);
 
         // radius large enough to include all nodes
         let nodes_within_none = l.nodes_within(&query_pos, 4.0, PosQueryCount::All);
         assert_eq!(nodes_within_none.len(), 5);
     }
-
 }
