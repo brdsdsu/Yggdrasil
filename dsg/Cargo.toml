@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 dsg-sys = { path = "../dsg-sys" }
+glam = "0.30.9"
 libc = "0.2"
 
 [[example]]

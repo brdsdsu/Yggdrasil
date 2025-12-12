@@ -10,7 +10,7 @@ extern "C" {
 typedef struct dsg_graph_t dsg_graph_t;
 
 typedef uint64_t dsg_node_id_t;
-typedef uint16_t dsg_layer_id_t;
+typedef uint64_t dsg_layer_id_t;
 
 typedef struct {
   double x, y, z;

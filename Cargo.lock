@@ -15,6 +15,7 @@ dependencies = [
 name = "atlas"
 version = "0.1.0"
 dependencies = [
+ "dsg",
  "glam",
  "serde",
  "serde_json",
@@ -97,6 +98,7 @@ name = "dsg"
 version = "0.1.0"
 dependencies = [
  "dsg-sys",
+ "glam",
  "libc",
 ]
 
