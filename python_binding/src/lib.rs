@@ -10,7 +10,7 @@ mod python_binding {
     #[pymodule_export]
     use crate::layer::{PyLayerRef, PyObserver, PyPosQueryCount};
     #[pymodule_export]
-    use crate::node::{PyEdgeRef, PyFeature, PyNode, PyNodeRef};
+    use crate::node::{PyEdge, PyFeature, PyNode, PyNodeRef};
     #[pymodule_export]
     use crate::sg::PySceneGraphRef;
 }

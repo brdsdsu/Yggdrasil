@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     layer::{PyLayerRef, PyObserver, PyPosQueryCount},
-    node::{PyEdgeRef, PyFeature, PyNode, PyNodeRef},
+    node::{PyEdge, PyFeature, PyNode, PyNodeRef},
 };
 
 use super::error::Result;
@@ -278,7 +278,7 @@ impl PySceneGraphRef {
     }
 
     /// Get List of all edges matching a specific description.
-    pub fn edges_matching(&self, desc: &str) -> Vec<Vec<PyEdgeRef>> {
+    pub fn edges_matching(&self, desc: &str) -> Vec<Vec<PyEdge>> {
         self.inner
             .lock()
             .unwrap()
@@ -288,13 +288,13 @@ impl PySceneGraphRef {
                 layer_edges
                     .into_iter()
                     .map(Into::into)
-                    .collect::<Vec<PyEdgeRef>>()
+                    .collect::<Vec<PyEdge>>()
             })
             .collect()
     }
 
     /// Get List of all edges from a specific source node.
-    pub fn edges_from(&self, src: usize) -> Vec<PyEdgeRef> {
+    pub fn edges_from(&self, src: usize) -> Vec<PyEdge> {
         self.inner
             .lock()
             .unwrap()
@@ -305,7 +305,7 @@ impl PySceneGraphRef {
     }
 
     /// Get List of all edges to a specific destination node.
-    pub fn edges_to(&self, dst: usize) -> Vec<PyEdgeRef> {
+    pub fn edges_to(&self, dst: usize) -> Vec<PyEdge> {
         self.inner
             .lock()
             .unwrap()

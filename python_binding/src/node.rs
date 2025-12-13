@@ -60,7 +60,7 @@ impl PyNodeRef {
 
     /// Edges to other nodes in the same layer.
     #[getter]
-    pub fn edges(&self) -> Result<Vec<PyEdgeRef>> {
+    pub fn edges(&self) -> Result<Vec<PyEdge>> {
         Ok(self
             .sg
             .lock()
@@ -135,7 +135,7 @@ impl PyNodeRef {
 /// An edge connecting two nodes in the same layer.
 #[derive(Debug, Clone)]
 #[pyclass(name = "Edge")]
-pub struct PyEdgeRef {
+pub struct PyEdge {
     /// Source node ID.
     pub src: usize,
     /// Destination node ID.
@@ -144,9 +144,9 @@ pub struct PyEdgeRef {
     pub desc: String,
 }
 
-impl From<scene_graph::Edge> for PyEdgeRef {
+impl From<scene_graph::Edge> for PyEdge {
     fn from(e: scene_graph::Edge) -> Self {
-        PyEdgeRef {
+        PyEdge {
             src: e.src,
             dst: e.dst,
             desc: e.desc,
@@ -154,9 +154,9 @@ impl From<scene_graph::Edge> for PyEdgeRef {
     }
 }
 
-impl From<&scene_graph::Edge> for PyEdgeRef {
+impl From<&scene_graph::Edge> for PyEdge {
     fn from(e: &scene_graph::Edge) -> Self {
-        PyEdgeRef {
+        PyEdge {
             src: e.src,
             dst: e.dst,
             desc: e.desc.clone(),
@@ -164,8 +164,8 @@ impl From<&scene_graph::Edge> for PyEdgeRef {
     }
 }
 
-impl From<PyEdgeRef> for scene_graph::Edge {
-    fn from(e: PyEdgeRef) -> Self {
+impl From<PyEdge> for scene_graph::Edge {
+    fn from(e: PyEdge) -> Self {
         scene_graph::Edge::new(e.src, e.dst, &e.desc)
     }
 }

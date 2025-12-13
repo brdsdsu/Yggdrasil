@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::node::{PyEdgeRef, PyNode, PyNodeRef};
+use crate::node::{PyEdge, PyNode, PyNodeRef};
 use glam::{Vec3};
 
 use pyo3::prelude::*;
@@ -91,7 +91,7 @@ impl PyLayerRef {
     }
 
     /// Get List of all edges matching a specific description.
-    pub fn edges_matching(&self, desc: &str) -> Result<Vec<PyEdgeRef>> {
+    pub fn edges_matching(&self, desc: &str) -> Result<Vec<PyEdge>> {
         Ok(self
             .sg
             .lock()
@@ -104,7 +104,7 @@ impl PyLayerRef {
     }
 
     /// Get List of all edges from a specific source node.
-    pub fn edges_from(&self, src: usize) -> Result<Vec<PyEdgeRef>> {
+    pub fn edges_from(&self, src: usize) -> Result<Vec<PyEdge>> {
         Ok(self
             .sg
             .lock()
@@ -117,7 +117,7 @@ impl PyLayerRef {
     }
 
     /// Get List of all edges to a specific destination node.
-    pub fn edges_to(&self, dst: usize) -> Result<Vec<PyEdgeRef>> {
+    pub fn edges_to(&self, dst: usize) -> Result<Vec<PyEdge>> {
         Ok(self
             .sg
             .lock()
