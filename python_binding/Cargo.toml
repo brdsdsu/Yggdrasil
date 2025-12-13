@@ -1,5 +1,5 @@
 [package]
-name = "python-binding"
+name = "python_binding"
 version = "0.1.0"
 edition = "2024"
 
@@ -11,3 +11,4 @@ crate-type = ["cdylib"]
 [dependencies]
 scene-graph = { path = "../scene-graph" }
 pyo3 = "0.27.0"
+glam = "0.30.9"

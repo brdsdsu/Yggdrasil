@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    error::{SceneGraphError, Result},
+    error::{Result, SceneGraphError},
     fov::Observer,
     layer::{Layer, NodeMut, PosQueryCount},
     node::{Coordinate, Edge, Feature, Node},
@@ -47,7 +47,6 @@ impl SceneGraph {
         self.layers.push(Layer::with_pos_index());
         self.layers.last_mut().unwrap()
     }
-
 
     /// Get the number of layers in the scene graph.
     pub fn layers_count(&self) -> usize {
@@ -137,7 +136,9 @@ impl SceneGraph {
 
     /// Get an immutable reference to the top layer.
     pub fn top_layer(&self) -> Result<&Layer> {
-        self.layers.last().ok_or(SceneGraphError::LayerOutOfBounds(0, 0))
+        self.layers
+            .last()
+            .ok_or(SceneGraphError::LayerOutOfBounds(0, 0))
     }
 
     /// Get an immutable reference to a layer by its index.
@@ -156,7 +157,7 @@ impl SceneGraph {
     }
 
     /// Get the layer index of a node by its ID.
-    pub fn layer_of(&self, nid: usize) -> Result<usize, SceneGraphError> {
+    pub fn layer_of(&self, nid: usize) -> Result<usize> {
         let nestee_layer_id = self
             .layers
             .iter()

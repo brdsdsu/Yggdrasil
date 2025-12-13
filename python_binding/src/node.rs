@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use super::error::Result;
 use pyo3::prelude::*;
-use scene_graph::SceneGraph;
+use scene_graph::{Node, SceneGraph};
 
 /// A node in the scene graph.
 /// Each node is designated to a unique layer in the scene graph and within that layer, it can have
@@ -11,20 +11,35 @@ use scene_graph::SceneGraph;
 /// Each node can hold a set of features, which are key-value pairs that provide additional
 /// information about the node. Nodes also support storeing 3D coordinates which can be used for
 /// Field-of-View calculations or spatial queries.
-#[pyclass]
-pub struct PyNode {
+#[pyclass(name = "Node")]
+pub struct PyNodeRef {
     sg: Arc<Mutex<SceneGraph>>,
     nid: usize,
 }
 
+#[pyclass(name = "__Node")]
+#[derive(Debug, Clone)]
+pub struct PyNode {
+    inner: Node,
+}
 impl PyNode {
+    pub fn new(inner: Node) -> Self {
+        Self { inner }
+    }
+
+    pub fn into_inner(self) -> Node {
+        self.inner
+    }
+}
+
+impl PyNodeRef {
     pub fn new(sg: Arc<Mutex<SceneGraph>>, nid: usize) -> Self {
         Self { sg, nid }
     }
 }
 
 #[pymethods]
-impl PyNode {
+impl PyNodeRef {
     /// Unique identifier for the node.
     #[getter]
     pub fn id(&self) -> usize {
@@ -45,7 +60,7 @@ impl PyNode {
 
     /// Edges to other nodes in the same layer.
     #[getter]
-    pub fn edges(&self) -> Result<Vec<PyEdge>> {
+    pub fn edges(&self) -> Result<Vec<PyEdgeRef>> {
         Ok(self
             .sg
             .lock()
@@ -59,7 +74,7 @@ impl PyNode {
 
     /// Features associated with the node.
     #[getter]
-    pub fn features(&self) -> Result<Vec<Feature>> {
+    pub fn features(&self) -> Result<Vec<PyFeature>> {
         let sg = self.sg.lock().unwrap();
         let node = sg.node(self.nid)?;
         Ok(node.features.iter().cloned().map(|f| f.into()).collect())
@@ -79,10 +94,7 @@ impl PyNode {
 
     #[setter]
     pub fn set_coordinates(&mut self, coords: Option<(f32, f32, f32)>) -> Result<()> {
-        let coords = match coords {
-            Some((x, y, z)) => Some(scene_graph::Coordinate::new(x, y, z)),
-            None => None,
-        };
+        let coords = coords.map(|(x, y, z)| scene_graph::Coordinate::new(x, y, z));
         self.sg.lock().unwrap().node_mut(self.nid)?.coordinates = coords;
         Ok(())
     }
@@ -93,7 +105,7 @@ impl PyNode {
     }
 
     /// Check if the node has the exact key-value pair as a feature.
-    pub fn match_feature(&self, f: &Feature) -> Result<bool> {
+    pub fn match_feature(&self, f: &PyFeature) -> Result<bool> {
         Ok(self
             .sg
             .lock()
@@ -104,12 +116,13 @@ impl PyNode {
 
     /// Get the value of a feature by its key.
     pub fn feature(&self, key: &str) -> Result<String> {
-        let f = self.sg.lock().unwrap().node(self.nid)?.feature(key)?;
+        let sg = self.sg.lock().unwrap();
+        let f = sg.node(self.nid)?.feature(key)?;
         Ok(String::from(f))
     }
 
     /// Set or update a feature for the node.
-    pub fn set_feature(&mut self, feature: Feature) -> Result<()> {
+    pub fn set_feature(&mut self, feature: PyFeature) -> Result<()> {
         self.sg
             .lock()
             .unwrap()
@@ -119,10 +132,10 @@ impl PyNode {
     }
 }
 
-#[pyclass]
 /// An edge connecting two nodes in the same layer.
 #[derive(Debug, Clone)]
-pub struct PyEdge {
+#[pyclass(name = "Edge")]
+pub struct PyEdgeRef {
     /// Source node ID.
     pub src: usize,
     /// Destination node ID.
@@ -131,9 +144,9 @@ pub struct PyEdge {
     pub desc: String,
 }
 
-impl From<scene_graph::Edge> for PyEdge {
+impl From<scene_graph::Edge> for PyEdgeRef {
     fn from(e: scene_graph::Edge) -> Self {
-        PyEdge {
+        PyEdgeRef {
             src: e.src,
             dst: e.dst,
             desc: e.desc,
@@ -141,9 +154,9 @@ impl From<scene_graph::Edge> for PyEdge {
     }
 }
 
-impl From<&scene_graph::Edge> for PyEdge {
+impl From<&scene_graph::Edge> for PyEdgeRef {
     fn from(e: &scene_graph::Edge) -> Self {
-        PyEdge {
+        PyEdgeRef {
             src: e.src,
             dst: e.dst,
             desc: e.desc.clone(),
@@ -151,46 +164,46 @@ impl From<&scene_graph::Edge> for PyEdge {
     }
 }
 
-impl From<PyEdge> for scene_graph::Edge {
-    fn from(e: PyEdge) -> Self {
+impl From<PyEdgeRef> for scene_graph::Edge {
+    fn from(e: PyEdgeRef) -> Self {
         scene_graph::Edge::new(e.src, e.dst, &e.desc)
     }
 }
 
 /// A feature associated with a node, represented as a key-value pair.
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[pyclass]
-pub struct Feature {
+#[pyclass(name = "Feature")]
+pub struct PyFeature {
     /// Key of the feature.
     key: String,
     /// Value of the feature.
     value: String,
 }
 
-impl From<Feature> for scene_graph::Feature {
-    fn from(f: Feature) -> Self {
+impl From<PyFeature> for scene_graph::Feature {
+    fn from(f: PyFeature) -> Self {
         scene_graph::Feature::new(&f.key, &f.value)
     }
 }
 
-impl From<&Feature> for scene_graph::Feature {
-    fn from(f: &Feature) -> Self {
+impl From<&PyFeature> for scene_graph::Feature {
+    fn from(f: &PyFeature) -> Self {
         scene_graph::Feature::new(&f.key, &f.value)
     }
 }
 
-impl From<scene_graph::Feature> for Feature {
+impl From<scene_graph::Feature> for PyFeature {
     fn from(f: scene_graph::Feature) -> Self {
-        Feature {
+        PyFeature {
             key: f.key().to_string(),
             value: f.value().to_string(),
         }
     }
 }
 
-impl From<&scene_graph::Feature> for Feature {
+impl From<&scene_graph::Feature> for PyFeature {
     fn from(f: &scene_graph::Feature) -> Self {
-        Feature {
+        PyFeature {
             key: f.key().to_string(),
             value: f.value().to_string(),
         }

@@ -480,9 +480,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "python-binding"
+name = "python_binding"
 version = "0.1.0"
 dependencies = [
+ "glam",
  "pyo3",
  "scene-graph",
 ]
