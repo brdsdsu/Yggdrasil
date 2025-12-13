@@ -17,6 +17,12 @@ pub struct PyNode {
     nid: usize,
 }
 
+impl PyNode {
+    pub fn new(sg: Arc<Mutex<SceneGraph>>, nid: usize) -> Self {
+        Self { sg, nid }
+    }
+}
+
 #[pymethods]
 impl PyNode {
     /// Unique identifier for the node.
@@ -142,6 +148,12 @@ impl From<&scene_graph::Edge> for PyEdge {
             dst: e.dst,
             desc: e.desc.clone(),
         }
+    }
+}
+
+impl From<PyEdge> for scene_graph::Edge {
+    fn from(e: PyEdge) -> Self {
+        scene_graph::Edge::new(e.src, e.dst, &e.desc)
     }
 }
 
