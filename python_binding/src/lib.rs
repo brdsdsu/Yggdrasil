@@ -6,7 +6,7 @@ mod sg;
 
 /// A Python module implemented in Rust.
 #[pymodule]
-mod python_binding {
+mod yggdrasil {
     #[pymodule_export]
     use crate::layer::{PyLayerRef, PyObserver, PyPosQueryCount};
     #[pymodule_export]
