@@ -48,6 +48,12 @@ impl SceneGraph {
         self.layers.last_mut().unwrap()
     }
 
+
+    /// Get the number of layers in the scene graph.
+    pub fn layers_count(&self) -> usize {
+        self.layers.len()
+    }
+
     /// Create a subgraph rooted at the specified node ID.
     /// The subgraph includes the specified node and all its descendants.
     /// If the node is not found, an error is returned.

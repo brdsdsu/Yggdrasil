@@ -1,0 +1,13 @@
+[package]
+name = "python-binding"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "python_binding"
+crate-type = ["cdylib"]
+
+[dependencies]
+scene-graph = { path = "../scene-graph" }
+pyo3 = "0.27.0"

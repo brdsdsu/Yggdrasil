@@ -109,6 +109,16 @@ impl Feature {
             value: value.to_string(),
         }
     }
+
+    #[inline]
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    #[inline]
+    pub fn value(&self) -> &str {
+        &self.value
+    }
 }
 
 /// An edge connecting two nodes in the same layer.
