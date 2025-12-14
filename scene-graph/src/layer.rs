@@ -1,10 +1,10 @@
+use crate::pos::PositionQuery;
 use std::{
     collections::HashSet,
-    num::NonZero,
     ops::{Deref, DerefMut},
 };
 
-use kiddo::{SquaredEuclidean, float::kdtree::KdTree};
+use kiddo::float::kdtree::KdTree;
 
 use super::{Edge, Node, Observer};
 use crate::error::{Result, SceneGraphError};
@@ -16,6 +16,8 @@ use crate::error::{Result, SceneGraphError};
 pub struct Layer {
     /// List of nodes in this layer.
     pub(super) nodes: Vec<Node>,
+    /// Position index which keeps track of the coordinates of the sub tree of this node.
+    /// This is used for efficient spatial queries.
     pos_index: Option<KdTree<f32, usize, 3, 32, u32>>,
 }
 
@@ -159,26 +161,13 @@ impl Layer {
         pos: &super::Coordinate,
         count: PosQueryCount,
     ) -> Vec<(&Node, f32)> {
-        let count = count.as_capped_usize(self.nodes.len());
         match &self.pos_index {
-            Some(pos_index) => {
-                let results = pos_index.nearest_n::<SquaredEuclidean>(&(*pos).into(), count);
-                results
-                    .into_iter()
-                    .filter_map(|n| self.node(n.item).map(|node| (node, n.distance)).ok())
-                    .collect()
-            }
-            None => {
-                let mut distances = self
-                    .nodes
-                    .iter()
-                    .filter(|n| n.coordinates.is_some())
-                    .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
-                    .collect::<Vec<(&Node, f32)>>();
-                distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-                distances.into_iter().take(count).collect()
-            }
+            Some(pos_index) => pos_index.nearest_nodes(pos, count),
+            None => self.nodes.nearest_nodes(pos, count),
         }
+        .into_iter()
+        .filter_map(|(id, dist)| self.node(id).map(|node| (node, dist)).ok())
+        .collect()
     }
 
     /// Retrieve at most `count` nodes within a specified radius to the given position.
@@ -189,29 +178,13 @@ impl Layer {
         radius: f32,
         count: PosQueryCount,
     ) -> Vec<(&Node, f32)> {
-        let count = count.as_capped_usize(self.nodes.len());
         match &self.pos_index {
-            Some(pos_index) => {
-                let results = pos_index.nearest_n_within::<SquaredEuclidean>(
-                    &(*pos).into(),
-                    radius * radius,
-                    unsafe { NonZero::new_unchecked(std::cmp::max(1, count)) },
-                    false,
-                );
-                results
-                    .iter()
-                    .filter_map(|n| self.node(n.item).map(|node| (node, n.distance)).ok())
-                    .collect()
-            }
-            None => self
-                .nodes
-                .iter()
-                .filter(|n| n.coordinates.is_some())
-                .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
-                .filter(|(_, d)| *d <= radius * radius)
-                .take(count)
-                .collect::<Vec<_>>(),
+            Some(pos_index) => pos_index.nodes_within(pos, radius, count),
+            None => self.nodes.nodes_within(pos, radius, count),
         }
+        .into_iter()
+        .filter_map(|(id, dist)| self.node(id).map(|node| (node, dist)).ok())
+        .collect()
     }
 }
 
@@ -307,6 +280,23 @@ impl Layer {
     }
 }
 
+impl Layer {
+    /// Get an unsynced mutable reference to the Node, preventing syncronization between the
+    /// `Layer` and the `Node`.
+    ///
+    /// # Safety
+    /// This function is unsafe because it allows modification of the Node without updating
+    /// the Layer's position index. The caller must ensure that any changes to the Node's
+    /// coordinates are properly reflected in the Layer's position index to maintain consistency.
+    /// Get a mutable reference to a node by its ID.
+    pub(crate) unsafe fn node_mut_unsynced(&mut self, id: usize) -> Result<&mut Node> {
+        self.nodes
+            .iter_mut()
+            .find(|node| node.id == id)
+            .ok_or(SceneGraphError::NodeNotFound)
+    }
+}
+
 impl Default for Layer {
     fn default() -> Self {
         Self::new()
@@ -366,9 +356,9 @@ pub enum PosQueryCount {
 
 impl PosQueryCount {
     /// Convert to usize, capping at the provided maximum value.
-    fn as_capped_usize(&self, cap: usize) -> usize {
+    pub(crate) fn as_capped_usize(&self) -> usize {
         match self {
-            PosQueryCount::All => cap,
+            PosQueryCount::All => usize::MAX,
             PosQueryCount::Count(k) => *k,
         }
     }
@@ -407,10 +397,10 @@ mod test {
         ];
         let mut layer = Layer::new();
         for (i, p) in pts.iter().enumerate() {
-            layer.push_node(Node::new(i, Vec::new(), Some(*p)));
+            layer.push_node(Node::new(i, Vec::new(), Some(*p),false));
         }
         // Node with no coordinates
-        layer.push_node(Node::new(pts.len(), Vec::new(), None));
+        layer.push_node(Node::new(pts.len(), Vec::new(), None,false));
 
         // fully connecting nodes to each other
         for src in 0..layer.nodes.len() {
@@ -448,7 +438,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(Node::new(i, Vec::new(), Some(*p)));
+            l.push_node(Node::new(i, Vec::new(), Some(*p),false));
         }
 
         let query_pos = Coordinate::new(0.6, 0.6, 0.6);
@@ -456,9 +446,9 @@ mod test {
         let nearest_nodes = l.nearest_nodes(&query_pos, PosQueryCount::Count(3));
         assert_eq!(nearest_nodes.len(), 3);
         // first 3 nearest nodes should be [1.0,1.0,1.0], [0.0,0.0,0.0], [2.0,2.0,2.0]
-        assert_eq!(nearest_nodes[0].coordinates.unwrap(), pts[1]);
-        assert_eq!(nearest_nodes[1].coordinates.unwrap(), pts[0]);
-        assert_eq!(nearest_nodes[2].coordinates.unwrap(), pts[2]);
+        assert_eq!(nearest_nodes[0].0.coordinates.unwrap(), pts[1]);
+        assert_eq!(nearest_nodes[1].0.coordinates.unwrap(), pts[0]);
+        assert_eq!(nearest_nodes[2].0.coordinates.unwrap(), pts[2]);
     }
 
     #[test]
@@ -474,7 +464,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(Node::new(i, Vec::new(), Some(*p)));
+            l.push_node(Node::new(i, Vec::new(), Some(*p), false));
         }
 
         let query_pos = Coordinate::new(2.0, 2.0, 2.0);
