@@ -342,7 +342,7 @@ impl SceneGraph {
     /// assert_eq!(nearest_nodes[0].coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
     /// assert_eq!(nearest_nodes[1].coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
     /// ```
-    pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<&Node> {
+    pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<(&Node, f32)> {
         self.layers
             .iter()
             .flat_map(|l| l.nearest_nodes(coord, count))
@@ -380,7 +380,7 @@ impl SceneGraph {
         coord: &Coordinate,
         radius: f32,
         count: PosQueryCount,
-    ) -> Vec<&Node> {
+    ) -> Vec<(&Node, f32)> {
         self.layers
             .iter()
             .flat_map(|l| l.nodes_within(coord, radius, count))
@@ -421,15 +421,16 @@ impl<'a> NestUnder<'a> {
     ///
     /// [`nest`](SceneGraph::nest)
     pub fn under(&mut self, nester: usize) -> Result<&mut SceneGraph> {
-        let nester_layer_id = self.sg.layer_of(nester)?;
-        let nestee_layer_id = self.sg.layer_of(self.nestee)?;
-
-        if nester_layer_id - 1 != nestee_layer_id {
-            return Err(SceneGraphError::InvalidLayersForNesting(
-                nestee_layer_id,
-                nester_layer_id,
-            ));
-        }
+        //! TODO: diccuss bringing back layer check for nesting
+        // let nester_layer_id = self.sg.layer_of(nester)?;
+        // let nestee_layer_id = self.sg.layer_of(self.nestee)?;
+        //
+        // if nester_layer_id - 1 != nestee_layer_id {
+        //     return Err(SceneGraphError::InvalidLayersForNesting(
+        //         nestee_layer_id,
+        //         nester_layer_id,
+        //     ));
+        // }
 
         let mut nestee = self.sg.node_mut(self.nestee)?;
         match nestee.pid {

@@ -1,9 +1,9 @@
 use crate::error::Result;
 use crate::node::{PyEdge, PyNode, PyNodeRef};
-use glam::{Vec3};
+use glam::Vec3;
 
 use pyo3::prelude::*;
-use scene_graph::SceneGraph;
+use scene_graph::{Coordinate, SceneGraph};
 use std::sync::{Arc, Mutex};
 
 #[pyclass(name = "Layer")]
@@ -70,6 +70,38 @@ impl PyLayerRef {
             .into_iter()
             .map(|n| PyNodeRef::new(Arc::clone(&self.sg), n.id))
             .collect())
+    }
+
+    /// Retrieve at most `count` nearest nodes to the given position.
+    /// The list is sorted by distance from nearest to farthest.
+    /// If this function is called frequently, consider creating the Layer with indexing enabled.
+    pub fn nearest_nodes(&self, coord: (f32, f32, f32), count: PyPosQueryCount) -> Vec<(PyNodeRef, f32)> {
+        let (x, y, z) = coord;
+        self.sg
+            .lock()
+            .unwrap()
+            .nearest_nodes(&Coordinate::new(x, y, z), count.into())
+            .into_iter()
+            .map(|(n,d)| (PyNodeRef::new(Arc::clone(&self.sg), n.id),d))
+            .collect::<Vec<_>>()
+    }
+
+    /// Retrieve at most `count` nodes within a specified radius to the given position.
+    /// If this function is called frequently, consider creating the Layer with indexing enabled.
+    pub fn nodes_within(
+        &self,
+        coord: (f32, f32, f32),
+        radius: f32,
+        count: PyPosQueryCount,
+    ) -> Vec<(PyNodeRef, f32)> {
+        let (x, y, z) = coord;
+        self.sg
+            .lock()
+            .unwrap()
+            .nodes_within(&Coordinate::new(x, y, z), radius, count.into())
+            .into_iter()
+            .map(|(n,d)| (PyNodeRef::new(Arc::clone(&self.sg), n.id),d))
+            .collect::<Vec<_>>()
     }
 
     /// Get List of all nodes matching a specific node features.

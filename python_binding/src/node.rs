@@ -32,6 +32,72 @@ impl PyNode {
     }
 }
 
+#[pymethods]
+impl PyNode {
+    /// Unique identifier for the node.
+    #[getter]
+    pub fn id(&self) -> usize {
+        self.inner.id
+    }
+
+    /// Parent node Id, if node is nested under another node.
+    #[getter]
+    pub fn pid(&self) -> Option<usize> {
+        self.inner.pid
+    }
+
+    /// Child node Ids from the lower layer, if node has nested nodes under it.
+    #[getter]
+    pub fn children(&self) -> Vec<usize> {
+        self.inner.children.clone()
+    }
+
+    /// Edges to other nodes in the same layer.
+    #[getter]
+    pub fn edges(&self) -> Vec<PyEdge> {
+        self.inner.edges.iter().map(Into::into).collect()
+    }
+
+    /// Features associated with the node.
+    #[getter]
+    pub fn features(&self) -> Vec<PyFeature> {
+        self.inner.features.iter().map(Into::into).collect()
+    }
+
+    /// Optional 3D coordinates of the node.
+    #[getter]
+    pub fn coordinates(&self) -> Option<(f32, f32, f32)> {
+        self.inner
+            .coordinates
+            .map(|c| (c.x, c.y, c.z))
+    }
+
+    #[setter]
+    pub fn set_coordinates(&mut self, coords: Option<(f32, f32, f32)>)  {
+        self.inner.coordinates = coords.map(|(x, y, z)| scene_graph::Coordinate::new(x, y, z));
+    }
+
+    /// Check if the node has a feature with the specified key.
+    pub fn has_feature(&self, key: &str) -> bool {
+        self.inner.has_feature(key)
+    }
+
+    /// Check if the node has the exact key-value pair as a feature.
+    pub fn match_feature(&self, f: &PyFeature) -> bool {
+        self.inner.match_feature(&f.into())
+    }
+
+    /// Get the value of a feature by its key.
+    pub fn feature(&self, key: &str) -> Result<String> {
+        Ok(self.inner.feature(key)?.to_string())
+    }
+
+    /// Set or update a feature for the node.
+    pub fn set_feature(&mut self, feature: PyFeature)  {
+        self.inner.set_feature(feature.into())
+    }
+}
+
 impl PyNodeRef {
     pub fn new(sg: Arc<Mutex<SceneGraph>>, nid: usize) -> Self {
         Self { sg, nid }

@@ -7,7 +7,7 @@ use std::{
 use kiddo::{SquaredEuclidean, float::kdtree::KdTree};
 
 use super::{Edge, Node, Observer};
-use crate::error::{SceneGraphError, Result};
+use crate::error::{Result, SceneGraphError};
 
 /// A Layer in the Scene Graph containing multiple Nodes and their Edges.
 /// Each Layer is a well-defined Graph structure representing a specific aspect of the scene,
@@ -154,14 +154,18 @@ impl Layer {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
-    pub fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<&Node> {
+    pub fn nearest_nodes(
+        &self,
+        pos: &super::Coordinate,
+        count: PosQueryCount,
+    ) -> Vec<(&Node, f32)> {
         let count = count.as_capped_usize(self.nodes.len());
         match &self.pos_index {
             Some(pos_index) => {
                 let results = pos_index.nearest_n::<SquaredEuclidean>(&(*pos).into(), count);
                 results
                     .into_iter()
-                    .filter_map(|n| self.node(n.item).ok())
+                    .filter_map(|n| self.node(n.item).map(|node| (node, n.distance)).ok())
                     .collect()
             }
             None => {
@@ -172,7 +176,7 @@ impl Layer {
                     .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
                     .collect::<Vec<(&Node, f32)>>();
                 distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-                distances.into_iter().take(count).map(|(n, _)| n).collect()
+                distances.into_iter().take(count).collect()
             }
         }
     }
@@ -184,7 +188,7 @@ impl Layer {
         pos: &super::Coordinate,
         radius: f32,
         count: PosQueryCount,
-    ) -> Vec<&Node> {
+    ) -> Vec<(&Node, f32)> {
         let count = count.as_capped_usize(self.nodes.len());
         match &self.pos_index {
             Some(pos_index) => {
@@ -196,7 +200,7 @@ impl Layer {
                 );
                 results
                     .iter()
-                    .filter_map(|n| self.node(n.item).ok())
+                    .filter_map(|n| self.node(n.item).map(|node| (node, n.distance)).ok())
                     .collect()
             }
             None => self
@@ -205,9 +209,8 @@ impl Layer {
                 .filter(|n| n.coordinates.is_some())
                 .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
                 .filter(|(_, d)| *d <= radius * radius)
-                .map(|(n, _)| n)
                 .take(count)
-                .collect::<Vec<&Node>>(),
+                .collect::<Vec<_>>(),
         }
     }
 }

@@ -224,14 +224,15 @@ impl PySceneGraphRef {
     /// assert_eq!(nearest_nodes[0].coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
     /// assert_eq!(nearest_nodes[1].coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
     /// ```
-    pub fn nearest_nodes(&self, coord: (f32, f32, f32), count: PyPosQueryCount) -> Vec<PyNodeRef> {
+    pub fn nearest_nodes(&self, coord: (f32, f32, f32), count: PyPosQueryCount
+    ) -> Vec<(PyNodeRef, f32)> {
         let (x, y, z) = coord;
         self.inner
             .lock()
             .unwrap()
             .nearest_nodes(&Coordinate::new(x, y, z), count.into())
             .into_iter()
-            .map(|n| PyNodeRef::new(Arc::clone(&self.inner), n.id))
+            .map(|(n,d)| (PyNodeRef::new(Arc::clone(&self.inner), n.id),d))
             .collect::<Vec<_>>()
     }
 
@@ -266,14 +267,14 @@ impl PySceneGraphRef {
         coord: (f32, f32, f32),
         radius: f32,
         count: PyPosQueryCount,
-    ) -> Vec<PyNodeRef> {
+    ) -> Vec<(PyNodeRef, f32)> {
         let (x, y, z) = coord;
         self.inner
             .lock()
             .unwrap()
             .nodes_within(&Coordinate::new(x, y, z), radius, count.into())
             .into_iter()
-            .map(|n| PyNodeRef::new(Arc::clone(&self.inner), n.id))
+            .map(|(n,d)| (PyNodeRef::new(Arc::clone(&self.inner), n.id),d))
             .collect::<Vec<_>>()
     }
 
