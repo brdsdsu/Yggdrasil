@@ -5,6 +5,7 @@ use std::{
 };
 
 use kiddo::float::kdtree::KdTree;
+use serde::{Deserialize, Serialize};
 
 use super::{Edge, Node, Observer};
 use crate::error::{Result, SceneGraphError};
@@ -13,11 +14,13 @@ use crate::error::{Result, SceneGraphError};
 /// Each Layer is a well-defined Graph structure representing a specific aspect of the scene,
 /// such as semantic relationships or physical connections between objects.
 #[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Layer {
     /// List of nodes in this layer.
     pub(super) nodes: Vec<Node>,
     /// Position index which keeps track of the coordinates of the sub tree of this node.
     /// This is used for efficient spatial queries.
+    #[serde(skip)]
     pos_index: Option<KdTree<f32, usize, 3, 32, u32>>,
 }
 
@@ -397,10 +400,10 @@ mod test {
         ];
         let mut layer = Layer::new();
         for (i, p) in pts.iter().enumerate() {
-            layer.push_node(Node::new(i, Vec::new(), Some(*p),false));
+            layer.push_node(Node::new(i, Vec::new(), Some(*p), false));
         }
         // Node with no coordinates
-        layer.push_node(Node::new(pts.len(), Vec::new(), None,false));
+        layer.push_node(Node::new(pts.len(), Vec::new(), None, false));
 
         // fully connecting nodes to each other
         for src in 0..layer.nodes.len() {
@@ -438,7 +441,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(Node::new(i, Vec::new(), Some(*p),false));
+            l.push_node(Node::new(i, Vec::new(), Some(*p), false));
         }
 
         let query_pos = Coordinate::new(0.6, 0.6, 0.6);

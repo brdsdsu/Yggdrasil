@@ -2,30 +2,30 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{SceneGraphError, Result};
+use crate::error::{Result, SceneGraphError};
 use crate::{SceneGraph, node::Feature};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConceptGraph {
-    nodes: Vec<ConceptGraphNode>,
-    edges: Vec<ConceptGraphEdge>,
+    pub nodes: Vec<ConceptGraphNode>,
+    pub edges: Vec<ConceptGraphEdge>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct ConceptGraphNode {
-    node_id: usize,
-    label: Vec<String>,
-    label_affordance: Vec<String>,
-    pcd_points: Vec<[f32; 3]>,
-    pcd_colors: Vec<[f32; 3]>,
+pub struct ConceptGraphNode {
+    pub node_id: usize,
+    pub label: Vec<String>,
+    pub label_affordance: Option<Vec<String>>,
+    pub pcd_points: Vec<[f32; 3]>,
+    pub pcd_colors: Vec<[f32; 3]>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct ConceptGraphEdge(usize, usize, ConceptGraphEdgeMeta);
+pub struct ConceptGraphEdge(pub usize, pub usize, pub ConceptGraphEdgeMeta);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConceptGraphEdgeMeta {
-    desc: String,
+    pub desc: String,
 }
 
 impl TryFrom<ConceptGraph> for SceneGraph {
@@ -59,11 +59,9 @@ impl TryFrom<ConceptGraph> for SceneGraph {
                 .collect();
 
             // create a (<AFFORDANCE>,affordance) feature for each affordance label in the node
-            features.extend(
-                node.label_affordance
-                    .iter()
-                    .map(|l| Feature::new(l, "affordance")),
-            );
+            if let Some(affordances) = &node.label_affordance {
+                features.extend(affordances.iter().map(|l| Feature::new(l, "affordance")));
+            }
 
             let new_node = sg.new_node(features);
             let new_nod_id = new_node.id;
@@ -114,7 +112,7 @@ mod test {
             .map(|i| ConceptGraphNode {
                 node_id: i,
                 label: vec![format!("Node_{i}")],
-                label_affordance: vec![format!("Affordance_{i}")],
+                label_affordance: Some(vec![format!("Affordance_{i}")]),
                 pcd_points: pcd_points.clone(),
                 pcd_colors: pcd_colors.clone(),
             })

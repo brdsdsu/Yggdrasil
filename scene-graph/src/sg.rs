@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     error::{Result, SceneGraphError},
@@ -16,6 +17,7 @@ use crate::{
 /// The scene graph supports operations such as adding/removing nodes and edges,
 /// nesting nodes under other nodes, and querying nodes by their IDs.
 #[derive(Debug, Default, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct SceneGraph {
     /// Layers of the scene graph, where each layer is either a Semantic or a Physical
     /// representation of the scene.
