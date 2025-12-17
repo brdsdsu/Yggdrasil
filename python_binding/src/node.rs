@@ -67,13 +67,11 @@ impl PyNode {
     /// Optional 3D coordinates of the node.
     #[getter]
     pub fn coordinates(&self) -> Option<(f32, f32, f32)> {
-        self.inner
-            .coordinates
-            .map(|c| (c.x, c.y, c.z))
+        self.inner.coordinates.map(|c| (c.x, c.y, c.z))
     }
 
     #[setter]
-    pub fn set_coordinates(&mut self, coords: Option<(f32, f32, f32)>)  {
+    pub fn set_coordinates(&mut self, coords: Option<(f32, f32, f32)>) {
         self.inner.coordinates = coords.map(|(x, y, z)| scene_graph::Coordinate::new(x, y, z));
     }
 
@@ -93,7 +91,7 @@ impl PyNode {
     }
 
     /// Set or update a feature for the node.
-    pub fn set_feature(&mut self, feature: PyFeature)  {
+    pub fn set_feature(&mut self, feature: PyFeature) {
         self.inner.set_feature(feature.into())
     }
 }
@@ -244,6 +242,14 @@ pub struct PyFeature {
     key: String,
     /// Value of the feature.
     value: String,
+}
+
+#[pymethods]
+impl PyFeature {
+    #[new]
+    pub fn new(key: String, value: String) -> Self {
+        Self { key, value }
+    }
 }
 
 impl From<PyFeature> for scene_graph::Feature {

@@ -1,9 +1,9 @@
+# yggdrasil/__init__.pyi
 from __future__ import annotations
 
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
-# Simple alias for readability
-Coordinate = tuple[float, float, float]
+Coordinate = Tuple[float, float, float]
 
 
 class Feature:
@@ -24,7 +24,6 @@ class Edge:
     An edge connecting two nodes in the same layer.
     """
 
-    # Public fields
     src: int
     dst: int
     desc: str
@@ -50,25 +49,26 @@ class PosQueryCount:
 
 class Observer:
     """
-    A field-of-view cone frustum in 3D space, defined by position, yaw, pitch, roll,
-    half-angle, near and far distances.
+    A field-of-view cone frustum in 3D space, defined by position, yaw, pitch,
+    roll, half-angle, near and far distances.
     """
 
-    # NOTE: actual constructor is defined in Rust; this is intentionally minimal.
-    def __init__(self) -> None: ...
+    # Constructor details are implemented in Rust; this is intentionally minimal.
+    def __init__(self, *args, **kwargs) -> None: ...
+    def __repr__(self) -> str: ...
+    def __str__(self) -> str: ...
 
 
 class __Node:
     """
-    Internal node value used when constructing nodes before inserting them into layers.
+    Internal node value used when constructing nodes before inserting them
+    into layers.
 
     Instances of this class are typically created via SceneGraph.new_node()
     or SceneGraph.new_coordinates() and then passed to Layer.push_node().
     """
 
-    def __init__(self) -> None: ...
-    # You usually don't manipulate __Node directly from Python; you pass it around.
-    # ---- Read-only properties ----
+    # ---- Read-only properties taken directly from the underlying Node ----
 
     @property
     def id(self) -> int:
@@ -103,12 +103,13 @@ class __Node:
     @coordinates.setter
     def coordinates(self, coords: Optional[Coordinate]) -> None: ...
 
-    # ---- Feature operations ----
+    # ---- Feature operations (direct, no graph access) ----
 
     def has_feature(self, key: str) -> bool: ...
     def match_feature(self, feature: Feature) -> bool: ...
     def feature(self, key: str) -> str: ...
     def set_feature(self, feature: Feature) -> None: ...
+
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...
 
@@ -122,7 +123,7 @@ class Node:
     relationships across layers.
     """
 
-    # ---- Read-only properties ----
+    # ---- Read-only properties via graph access ----
 
     @property
     def id(self) -> int:
@@ -173,10 +174,10 @@ class Layer:
     A layer within the scene graph.
 
     Provides node access and modification within that layer, as well as
-    edge and feature-based queries.
+    edge, feature-based, and spatial queries.
     """
 
-    # Node access / modification
+    # ---- Node access / modification ----
 
     def node(self, id: int) -> Node:
         """Get a reference to a node by its ID (raises on error)."""
@@ -200,30 +201,14 @@ class Layer:
         """
         ...
 
-    # Distance-based node queries
+    # ---- Feature-based node queries ----
 
-    def nearest_nodes(
-        self,
-        coord: Coordinate,
-        count: PosQueryCount,
-    ) -> List[Tuple[Node, float]]:
+    def nodes(self) -> List[Node]:
         """
-        Retrieve up to `count` nearest nodes to the given position.
+        Get List of all nodes in the layer.
         """
         ...
 
-    def nodes_within(
-        self,
-        coord: Coordinate,
-        radius: float,
-        count: PosQueryCount,
-    ) -> List[Tuple[Node, float]]:
-        """
-        Retrieve up to `count` nodes within `radius` of the given position.
-        """
-        ...
-
-    # Feature-based node queries
 
     def nodes_having(self, keys: List[str]) -> List[Node]:
         """
@@ -237,7 +222,35 @@ class Layer:
         """
         ...
 
-    # Edge queries
+    # ---- Spatial queries (per-layer) ----
+
+    def nearest_nodes(
+        self,
+        coord: Coordinate,
+        count: PosQueryCount,
+    ) -> List[Tuple[Node, float]]:
+        """
+        Retrieve up to `count` nearest nodes to the given position in this layer.
+
+        Returns a list of (node, distance) sorted from nearest to farthest.
+        """
+        ...
+
+    def nodes_within(
+        self,
+        coord: Coordinate,
+        radius: float,
+        count: PosQueryCount,
+    ) -> List[Tuple[Node, float]]:
+        """
+        Retrieve up to `count` nodes within `radius` of the given position
+        in this layer.
+
+        Returns a list of (node, distance).
+        """
+        ...
+
+    # ---- Edge queries ----
 
     def edges_matching(self, desc: str) -> List[Edge]:
         """Get list of all edges matching a specific description."""
@@ -314,6 +327,18 @@ class SceneGraph:
     ) -> __Node:
         """
         Create a new metric node with coordinates and features.
+
+        The returned __Node should be inserted into a Layer via push_node().
+        """
+        ...
+
+
+    def new_indexed_node(self, features: List[Feature]) -> __Node:
+        """
+        Create a new Indexed Semantic Node with specified features.
+        This node will have position indexing enabled and will track of the coordinates of its
+        sub-tree for efficient spatial queries.
+
         The returned __Node should be inserted into a Layer via push_node().
         """
         ...
@@ -321,6 +346,7 @@ class SceneGraph:
     def new_node(self, features: List[Feature]) -> __Node:
         """
         Create a new semantic node with the given features.
+
         The returned __Node should be inserted into a Layer via push_node().
         """
         ...
@@ -353,7 +379,7 @@ class SceneGraph:
         """
         ...
 
-    # ---- Visibility / spatial queries ----
+    # ---- Visibility / spatial queries across graph ----
 
     def visible_subgraph(self, observer: Observer, root_node_id: int) -> SceneGraph:
         """
@@ -368,7 +394,9 @@ class SceneGraph:
         count: PosQueryCount,
     ) -> List[Tuple[Node, float]]:
         """
-        Retrieve up to `count` nearest nodes to the given position.
+        Retrieve up to `count` nearest nodes to the given position in the graph.
+
+        Returns a list of (node, distance) sorted from nearest to farthest.
         """
         ...
 
@@ -379,11 +407,28 @@ class SceneGraph:
         count: PosQueryCount,
     ) -> List[Tuple[Node, float]]:
         """
-        Retrieve up to `count` nodes within `radius` of the given position.
+        Retrieve up to `count` nodes within `radius` of the given position
+        in the graph.
+
+        Returns a list of (node, distance).
         """
         ...
 
-    # ---- Edge queries ----
+    def nearest_in_subtree(
+        self,
+        coord: Coordinate,
+        root: int,
+        count: PosQueryCount,
+    ) -> List[Tuple[Node, float]]:
+        """
+        Retrieve up to `count` nearest nodes to the given position within
+        the subtree rooted at `root`.
+
+        Returns a list of (node, distance).
+        """
+        ...
+
+    # ---- Edge queries across graph ----
 
     def edges_matching(self, desc: str) -> List[List[Edge]]:
         """

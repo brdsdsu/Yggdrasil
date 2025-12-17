@@ -85,6 +85,11 @@ impl Layer {
 
 /// Query
 impl Layer {
+    /// Get List of all nodes in the layer.
+    pub fn all_nodes(&self) -> impl ExactSizeIterator<Item = &Node> {
+        self.nodes.iter()
+    }
+
     /// Get List of all nodes matching a specific node features.
     pub fn nodes_having(&self, keys: &[&str]) -> Vec<&Node> {
         self.nodes

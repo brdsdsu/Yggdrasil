@@ -100,6 +100,15 @@ impl PySceneGraphRef {
         PyNode::new(node)
     }
 
+    /// Create a new Indexed Semantic Node with specified features.
+    /// This node will have position indexing enabled and will track of the coordinates of its
+    /// sub-tree for efficient spatial queries.
+    pub fn new_indexed_node(&mut self, features: Vec<PyFeature>) -> PyNode {
+        let features = features.iter().map(Into::into).collect();
+        let node = self.inner.lock().unwrap().new_indexed_node(features);
+        PyNode::new(node)
+    }
+
     /// Create a new Semantic Node with specified features.
     pub fn new_node(&mut self, features: Vec<PyFeature>) -> PyNode {
         let features = features.iter().map(Into::into).collect();
@@ -224,7 +233,10 @@ impl PySceneGraphRef {
     /// assert_eq!(nearest_nodes[0].coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
     /// assert_eq!(nearest_nodes[1].coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
     /// ```
-    pub fn nearest_nodes(&self, coord: (f32, f32, f32), count: PyPosQueryCount
+    pub fn nearest_nodes(
+        &self,
+        coord: (f32, f32, f32),
+        count: PyPosQueryCount,
     ) -> Vec<(PyNodeRef, f32)> {
         let (x, y, z) = coord;
         self.inner
@@ -232,7 +244,7 @@ impl PySceneGraphRef {
             .unwrap()
             .nearest_nodes(&Coordinate::new(x, y, z), count.into())
             .into_iter()
-            .map(|(n,d)| (PyNodeRef::new(Arc::clone(&self.inner), n.id),d))
+            .map(|(n, d)| (PyNodeRef::new(Arc::clone(&self.inner), n.id), d))
             .collect::<Vec<_>>()
     }
 
@@ -274,8 +286,67 @@ impl PySceneGraphRef {
             .unwrap()
             .nodes_within(&Coordinate::new(x, y, z), radius, count.into())
             .into_iter()
-            .map(|(n,d)| (PyNodeRef::new(Arc::clone(&self.inner), n.id),d))
+            .map(|(n, d)| (PyNodeRef::new(Arc::clone(&self.inner), n.id), d))
             .collect::<Vec<_>>()
+    }
+
+    /// Retrieve at most `count` nearest nodes to the given position within the sub-tree rooted at the specified node ID.
+    /// If this function is called frequently, consider creating the Node with indexing enabled.
+    /// ```rust
+    ///
+    /// # use scene_graph::SceneGraph;
+    /// # use scene_graph::{Coordinate, PosQueryCount};
+    ///
+    /// let mut sg = SceneGraph::default();
+    ///
+    /// // Create nodes
+    /// let n1 = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
+    /// let n2 = sg.new_coordinates(1.0, 1.0, 1.0, vec![]);
+    /// let n3 = sg.new_coordinates(2.0, 2.0, 2.0, vec![]);
+    ///
+    /// let n1_id = n1.id;
+    /// let n2_id = n2.id;
+    /// let n3_id = n3.id;
+    ///
+    /// // Create a layer and add nodes to it
+    /// sg.new_indexed_layer();
+    /// sg.layer_mut(0).unwrap().push_node(n1);
+    /// sg.layer_mut(0).unwrap().push_node(n2);
+    /// sg.layer_mut(0).unwrap().push_node(n3);
+    ///
+    /// // create new semantic layer and nest all nodes under a new parent node
+    /// sg.new_layer();
+    /// let parent_node = sg.new_indexed_node(vec![]);
+    /// let pid = parent_node.id;
+    /// sg.top_layer_mut().unwrap().push_node(parent_node);
+    /// sg.nest(n1_id).under(pid).unwrap();
+    /// sg.nest(n2_id).under(pid).unwrap();
+    /// sg.nest(n3_id).under(pid).unwrap();
+    ///
+    /// let coord = Coordinate::new(0.6, 0.6, 0.6);
+    /// let nearest_in_subtree = sg.nearest_in_subtree(&coord, pid, PosQueryCount::Count(2)).unwrap();
+    /// assert_eq!(nearest_in_subtree.len(), 2);
+    /// assert_eq!(nearest_in_subtree[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
+    /// assert_eq!(nearest_in_subtree[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
+    /// ```
+    pub fn nearest_in_subtree(
+        &self,
+        coord: (f32, f32, f32),
+        root: usize,
+        count: PyPosQueryCount,
+    ) -> Result<Vec<(PyNodeRef, f32)>> {
+        let coords = coord.into();
+        self.inner
+            .lock()
+            .unwrap()
+            .nearest_in_subtree(&coords, root, count.into())
+            .map(|nodes| {
+                nodes
+                    .into_iter()
+                    .map(|(n, d)| (PyNodeRef::new(Arc::clone(&self.inner), n.id), d))
+                    .collect::<Vec<_>>()
+            })
+            .map_err(Into::into)
     }
 
     /// Get List of all edges matching a specific description.

@@ -58,19 +58,6 @@ impl PyLayerRef {
         Ok(())
     }
 
-    /// Get List of all nodes matching a specific node features.
-    pub fn nodes_having(&self, keys: Vec<String>) -> Result<Vec<PyNodeRef>> {
-        let keys = keys.iter().map(|k| k.as_str()).collect::<Vec<&str>>();
-        Ok(self
-            .sg
-            .lock()
-            .unwrap()
-            .layer(self.lid)?
-            .nodes_having(&keys)
-            .into_iter()
-            .map(|n| PyNodeRef::new(Arc::clone(&self.sg), n.id))
-            .collect())
-    }
 
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
@@ -102,6 +89,33 @@ impl PyLayerRef {
             .into_iter()
             .map(|(n,d)| (PyNodeRef::new(Arc::clone(&self.sg), n.id),d))
             .collect::<Vec<_>>()
+    }
+
+    /// Get List of all nodes in the layer.
+    pub fn nodes(&self) -> Result<Vec<PyNodeRef>> {
+        Ok(self
+            .sg
+            .lock()
+            .unwrap()
+            .layer(self.lid)?
+            .all_nodes()
+            .map(|n| PyNodeRef::new(Arc::clone(&self.sg), n.id))
+            .collect())
+    }
+        
+
+    /// Get List of all nodes having a specific node features.
+    pub fn nodes_having(&self, keys: Vec<String>) -> Result<Vec<PyNodeRef>> {
+        let keys = keys.iter().map(|k| k.as_str()).collect::<Vec<&str>>();
+        Ok(self
+            .sg
+            .lock()
+            .unwrap()
+            .layer(self.lid)?
+            .nodes_having(&keys)
+            .into_iter()
+            .map(|n| PyNodeRef::new(Arc::clone(&self.sg), n.id))
+            .collect())
     }
 
     /// Get List of all nodes matching a specific node features.
