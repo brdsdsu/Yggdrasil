@@ -13,8 +13,7 @@ use crate::error::{Result, SceneGraphError};
 /// A Layer in the Scene Graph containing multiple Nodes and their Edges.
 /// Each Layer is a well-defined Graph structure representing a specific aspect of the scene,
 /// such as semantic relationships or physical connections between objects.
-#[derive(Debug, Clone)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Layer {
     /// List of nodes in this layer.
     pub(super) nodes: Vec<Node>,
@@ -28,25 +27,26 @@ pub struct Layer {
 impl Layer {
     /// Get a reference to a node by its ID.
     pub fn node(&self, id: usize) -> Result<&Node> {
-        self.nodes
-            .iter()
-            .find(|node| node.id == id)
-            .ok_or(SceneGraphError::NodeNotFound)
+        // Nodes are inserted in order, so binary search is safe here
+        let ptr = self
+            .nodes
+            .binary_search_by_key(&id, |node| node.id)
+            .map_err(|_| SceneGraphError::NodeNotFound)?;
+        Ok(&self.nodes[ptr])
     }
 
     /// Get a mutable reference to a node by its ID.
     pub fn node_mut(&mut self, id: usize) -> Result<NodeMut<'_>> {
-        self.nodes
-            .iter_mut()
-            .enumerate()
-            .find(|(_, node)| node.id == id)
-            .map(|(ptr, n)| (ptr, n.coordinates))
-            .map(|(node_ptr, prev_coords)| NodeMut {
-                prev_coords,
-                layer: self,
-                node_ptr,
-            })
-            .ok_or(SceneGraphError::NodeNotFound)
+        // Nodes are inserted in order, so binary search is safe here
+        let ptr = self
+            .nodes
+            .binary_search_by_key(&id, |node| node.id)
+            .map_err(|_| SceneGraphError::NodeNotFound)?;
+        Ok(NodeMut {
+            prev_coords: self.nodes[ptr].coordinates,
+            layer: self,
+            node_ptr: ptr,
+        })
     }
 
     /// Add a new node to the layer.
@@ -298,10 +298,12 @@ impl Layer {
     /// coordinates are properly reflected in the Layer's position index to maintain consistency.
     /// Get a mutable reference to a node by its ID.
     pub(crate) unsafe fn node_mut_unsynced(&mut self, id: usize) -> Result<&mut Node> {
-        self.nodes
-            .iter_mut()
-            .find(|node| node.id == id)
-            .ok_or(SceneGraphError::NodeNotFound)
+        // Nodes are inserted in order, so binary search is safe here
+        let ptr = self
+            .nodes
+            .binary_search_by_key(&id, |node| node.id)
+            .map_err(|_| SceneGraphError::NodeNotFound)?;
+        Ok(&mut self.nodes[ptr])
     }
 }
 

@@ -103,9 +103,13 @@ impl Node {
 
     /// Add a child node by its ID.
     pub(super) fn add_child(&mut self, nid: usize) {
-        if !self.children.contains(&nid) {
-            self.children.push(nid);
+        match self.children.binary_search(&nid) {
+            Ok(_) => (),
+            Err(ptr) => self.children.insert(ptr, nid),
         }
+        // if !self.children.contains(&nid) {
+        //     self.children.push(nid);
+        // }
     }
 }
 
