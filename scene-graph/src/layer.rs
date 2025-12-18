@@ -56,7 +56,11 @@ impl Layer {
         {
             pos_index.add(&coords.into(), node.id);
         }
-        self.nodes.push(node);
+        let ptr = match self.nodes.binary_search_by_key(&node.id, |n|n.id) {
+            Ok(ptr) => ptr,
+            Err(ptr) => ptr,
+        };
+        self.nodes.insert(ptr,node);
     }
 
     /// Add an edge from source node to destination node with a description.
