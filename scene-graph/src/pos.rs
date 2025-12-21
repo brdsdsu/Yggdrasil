@@ -26,11 +26,15 @@ impl PositionQuery for KdTree<f32, usize, 3, 128, u32> {
             PosQueryCount::All => self
                 .iter()
                 .map(|(id, coords)| (id, SquaredEuclidean::dist(&coords, &(*pos).into())))
+                .map(|(id, d)| (id, d.sqrt()))
                 .collect(),
             PosQueryCount::Count(_) => {
                 let count = count.as_capped_usize();
                 let results = self.nearest_n::<SquaredEuclidean>(&(*pos).into(), count);
-                results.into_iter().map(|n| (n.item, n.distance)).collect()
+                results
+                    .into_iter()
+                    .map(|n| (n.item, n.distance.sqrt()))
+                    .collect()
             }
         }
     }
@@ -50,7 +54,10 @@ impl PositionQuery for KdTree<f32, usize, 3, 128, u32> {
             unsafe { NonZero::new_unchecked(std::cmp::max(1, count)) },
             false,
         );
-        results.into_iter().map(|n| (n.item, n.distance)).collect()
+        results
+            .into_iter()
+            .map(|n| (n.item, n.distance.sqrt()))
+            .collect()
     }
 }
 
@@ -63,17 +70,20 @@ impl PositionQuery for Vec<Node> {
                 .iter()
                 .filter(|n| n.coordinates.is_some())
                 .map(|n| (n.id, n.coordinates.unwrap().distance_squared(*pos)))
+                .map(|(id, d)| (id, d.sqrt()))
                 .collect(),
             PosQueryCount::Count(c) => {
                 let mut distances = self
                     .iter()
                     .filter(|n| n.coordinates.is_some())
                     .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
+                    .map(|(id, d)| (id, d.sqrt()))
                     .collect::<Vec<(&Node, f32)>>();
                 distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
                 distances
                     .into_iter()
                     .map(|(node, dist)| (node.id, dist))
+                    .map(|(id, d)| (id, d.sqrt()))
                     .take(c)
                     .collect()
             }
@@ -94,6 +104,7 @@ impl PositionQuery for Vec<Node> {
             .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
             .filter(|(_, d)| *d <= radius * radius)
             .map(|(node, dist)| (node.id, dist))
+            .map(|(id, d)| (id, d.sqrt()))
             .take(count)
             .collect::<Vec<_>>()
     }
@@ -112,6 +123,7 @@ impl PositionQuery for Vec<(Coordinate, usize)> {
                 let mut distances = self
                     .iter()
                     .map(|(c, id)| (*id, c.distance_squared(*pos)))
+                    .map(|(id, d)| (id, d.sqrt()))
                     .collect::<Vec<(usize, f32)>>();
                 distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
                 distances.into_iter().take(c).collect()
@@ -130,6 +142,7 @@ impl PositionQuery for Vec<(Coordinate, usize)> {
         let count = count.as_capped_usize();
         self.iter()
             .map(|(c, id)| (*id, c.distance_squared(*pos)))
+            .map(|(id, d)| (id, d.sqrt()))
             .filter(|(_, d)| *d <= radius * radius)
             .take(count)
             .collect::<Vec<_>>()
