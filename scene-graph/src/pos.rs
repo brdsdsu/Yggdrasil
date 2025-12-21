@@ -18,7 +18,7 @@ pub(crate) trait PositionQuery {
     ) -> Vec<(usize, f32)>;
 }
 
-impl PositionQuery for KdTree<f32, usize, 3, 32, u32> {
+impl PositionQuery for KdTree<f32, usize, 3, 128, u32> {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(usize, f32)> {

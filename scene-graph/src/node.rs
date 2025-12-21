@@ -28,7 +28,7 @@ pub struct Node {
     /// Position index which keeps track of the coordinates of the sub tree of this node.
     /// This is used for efficient spatial queries.
     #[serde(skip)]
-    pub(crate) pos_index: Option<KdTree<f32, usize, 3, 32, u32>>,
+    pub(crate) pos_index: Option<KdTree<f32, usize, 3, 128, u32>>,
 }
 
 impl Node {

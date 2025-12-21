@@ -20,7 +20,7 @@ pub struct Layer {
     /// Position index which keeps track of the coordinates of the sub tree of this node.
     /// This is used for efficient spatial queries.
     #[serde(skip)]
-    pos_index: Option<KdTree<f32, usize, 3, 32, u32>>,
+    pos_index: Option<KdTree<f32, usize, 3, 128, u32>>,
 }
 
 /// Node Access and Modification
