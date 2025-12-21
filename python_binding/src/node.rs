@@ -239,8 +239,10 @@ impl From<PyEdge> for scene_graph::Edge {
 #[pyclass(name = "Feature")]
 pub struct PyFeature {
     /// Key of the feature.
+    #[pyo3(get)]
     key: String,
     /// Value of the feature.
+    #[pyo3(get)]
     value: String,
 }
 
