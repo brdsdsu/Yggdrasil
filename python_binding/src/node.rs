@@ -201,10 +201,13 @@ impl PyNodeRef {
 #[pyclass(name = "Edge")]
 pub struct PyEdge {
     /// Source node ID.
+    #[pyo3(get)]
     pub src: usize,
     /// Destination node ID.
+    #[pyo3(get)]
     pub dst: usize,
     /// Description of the edge.
+    #[pyo3(get)]
     pub desc: String,
 }
 
