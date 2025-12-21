@@ -349,6 +349,44 @@ impl PySceneGraphRef {
             .map_err(Into::into)
     }
 
+    /// Same as `nearest_in_subtree` but for multiple points.
+    pub fn nearest_in_subtree_for_each(
+        &self,
+        points: Vec<(f32, f32, f32)>,
+        root: usize,
+        count: PyPosQueryCount,
+    ) -> Result<Vec<Vec<(PyNodeRef, f32)>>> {
+        points
+            .iter()
+            .map(|c| self.nearest_in_subtree(*c, root,count))
+            .collect()
+    }
+
+    /// Same as `nearest_nodes` but for multiple points.
+    pub fn nearest_nodes_for_each(
+        &self,
+        points: Vec<(f32, f32, f32)>,
+        count: PyPosQueryCount,
+    ) -> Vec<Vec<(PyNodeRef, f32)>> {
+        points
+            .iter()
+            .map(|c| self.nearest_nodes(*c, count))
+            .collect()
+    }
+
+    /// Same as `nodes_within` but for multiple points.
+    pub fn nodes_within_for_each(
+        &self,
+        points: Vec<(f32, f32, f32)>,
+        radius: f32,
+        count: PyPosQueryCount,
+    ) -> Vec<Vec<(PyNodeRef, f32)>> {
+        points
+            .iter()
+            .map(|c| self.nodes_within(*c, radius, count))
+            .collect()
+    }
+
     /// Get List of all edges matching a specific description.
     pub fn edges_matching(&self, desc: &str) -> Vec<Vec<PyEdge>> {
         self.inner

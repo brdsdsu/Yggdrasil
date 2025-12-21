@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 Coordinate = Tuple[float, float, float]
+QueryResult = List[Tuple[Node, float]]
 
 
 class Feature:
@@ -28,7 +29,6 @@ class Edge:
     dst: int
     desc: str
 
-    def __init__(self, src: int, dst: int, desc: str) -> None: ...
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...
 
@@ -392,7 +392,7 @@ class SceneGraph:
         self,
         coord: Coordinate,
         count: PosQueryCount,
-    ) -> List[Tuple[Node, float]]:
+    ) -> QueryResult:
         """
         Retrieve up to `count` nearest nodes to the given position in the graph.
 
@@ -405,7 +405,7 @@ class SceneGraph:
         coord: Coordinate,
         radius: float,
         count: PosQueryCount,
-    ) -> List[Tuple[Node, float]]:
+    ) -> QueryResult:
         """
         Retrieve up to `count` nodes within `radius` of the given position
         in the graph.
@@ -419,13 +419,39 @@ class SceneGraph:
         coord: Coordinate,
         root: int,
         count: PosQueryCount,
-    ) -> List[Tuple[Node, float]]:
+    ) -> QueryResult:
         """
         Retrieve up to `count` nearest nodes to the given position within
         the subtree rooted at `root`.
 
         Returns a list of (node, distance).
         """
+        ...
+
+    def nearest_in_subtree_for_each(
+        self, 
+        points: List[Coordinate], 
+        root: int, 
+        count: PosQueryCount
+    ) -> List[QueryResult]:
+        """Same as `nearest_in_subtree` but for multiple points."""
+        ...
+
+    def nearest_nodes_for_each(
+        self, 
+        points: List[Coordinate], 
+        count: PosQueryCount
+    ) -> List[QueryResult]:
+        """Same as `nearest_nodes` but for multiple points."""
+        ...
+
+    def nodes_within_for_each(
+        self, 
+        points: List[Coordinate], 
+        radius: float, 
+        count: PosQueryCount
+    ) -> List[QueryResult]:
+        """Same as `nodes_within` but for multiple points."""
         ...
 
     # ---- Edge queries across graph ----
