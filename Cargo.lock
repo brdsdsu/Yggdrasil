@@ -483,7 +483,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "python_binding"
+name = "python-binding"
 version = "0.1.0"
 dependencies = [
  "glam",
