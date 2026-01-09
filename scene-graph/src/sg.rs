@@ -1,17 +1,17 @@
-use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::{
     error::{Result, SceneGraphError},
     fov::Observer,
     layer::{Layer, NodeMut},
     node::{Coordinate, Edge, Feature, Node},
-    pos::{PositionQuery,PosQueryCount},
+    pos::{PosQueryCount, PositionQuery},
 };
 
 /// A hierarchical representation of objects and their relationships in a 3D environment.
 /// The scene graph is organized into layers, where each layer contains nodes representing objects.
-/// The layers together form a DAG Structure, with the top layer representing the root layer 
+/// The layers together form a DAG Structure, with the top layer representing the root layer
 /// of the scene.
 /// Within each layer, nodes can have edges connecting them to other nodes in the same layer,
 /// forming a graph structure.
@@ -20,8 +20,7 @@ use crate::{
 ///
 /// The SceneGraph is optimized for executing spatical queries that are used in 3D environments
 /// such as navigation, localization, and mapping.
-#[derive(Debug, Default, Clone)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SceneGraph {
     /// Layers of the scene graph, where each layer is either a Semantic or a Physical
     /// representation of the scene.
@@ -39,7 +38,7 @@ impl SceneGraph {
     /// [`nearest_nodes`]: SceneGraph::nearest_nodes
     /// [`nodes_within`]: SceneGraph::nodes_within
     pub fn new_layer(&mut self) -> &mut Layer {
-        self.layers.push(Layer::new());
+        self.layers.push(Layer::new(self.layers.len()));
         self.layers.last_mut().unwrap()
     }
 
@@ -51,7 +50,7 @@ impl SceneGraph {
     /// [`nearest_nodes`]: SceneGraph::nearest_nodes
     /// [`nodes_within`]: SceneGraph::nodes_within
     pub fn new_indexed_layer(&mut self) -> &mut Layer {
-        self.layers.push(Layer::with_pos_index());
+        self.layers.push(Layer::with_pos_index(self.layers.len()));
         self.layers.last_mut().unwrap()
     }
 
@@ -73,7 +72,7 @@ impl SceneGraph {
         // at each layer, collecting nodes that are children of the nodes in the previous layer
         // and adding their children to the next layer to visit.
         while !nodes_to_visit.is_empty() {
-            let mut layer = Layer::new();
+            let mut layer = Layer::new(root_layer_id);
             let mut next_nodes_to_visit = Vec::new();
             for nid in nodes_to_visit {
                 if let Ok(node) = cur_layer.node(nid) {
