@@ -11,11 +11,15 @@ use crate::{
 
 /// A hierarchical representation of objects and their relationships in a 3D environment.
 /// The scene graph is organized into layers, where each layer contains nodes representing objects.
-/// Nodes on adjacent layers can have parent-child relationships, and edges can represent various
-/// types of connections between nodes.
+/// The layers together form a DAG Structure, with the top layer representing the root layer 
+/// of the scene.
+/// Within each layer, nodes can have edges connecting them to other nodes in the same layer,
+/// forming a graph structure.
+/// Nodes on a layer can also have parent-child relationships with nodes of layers that are
+/// children of the layer they belong to.
 ///
-/// The scene graph supports operations such as adding/removing nodes and edges,
-/// nesting nodes under other nodes, and querying nodes by their IDs.
+/// The SceneGraph is optimized for executing spatical queries that are used in 3D environments
+/// such as navigation, localization, and mapping.
 #[derive(Debug, Default, Clone)]
 #[derive(Serialize, Deserialize)]
 pub struct SceneGraph {

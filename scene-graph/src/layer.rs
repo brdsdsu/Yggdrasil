@@ -10,18 +10,23 @@ use serde::{Deserialize, Serialize};
 use super::{Edge, Node, Observer};
 use crate::error::{Result, SceneGraphError};
 
-/// A Layer in the Scene Graph containing multiple Nodes and their Edges.
+/// A Layer in the Scene Graph containing multiple Nodes and their Edges, as weel as the
+/// relationships with other layers in the Scene Graph.
 /// Each Layer is a well-defined Graph structure representing a specific aspect of the scene,
 /// such as semantic relationships or physical connections between objects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Layer {
+    /// Unique identifier for the layer.
+    id: usize,
     /// List of nodes in this layer.
     pub(super) nodes: Vec<Node>,
-    /// Position index which keeps track of the coordinates of the sub tree of this node.
-    /// This is used for efficient spatial queries.
+    /// List of child layer IDs.
+    children: Vec<usize>,
+    /// Optional spatial index for node positions.
     #[serde(skip)]
     pos_index: Option<KdTree<f32, usize, 3, 128, u32>>,
 }
+
 
 /// Node Access and Modification
 impl Layer {
