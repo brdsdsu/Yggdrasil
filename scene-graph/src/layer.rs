@@ -27,7 +27,6 @@ pub struct Layer {
     pos_index: Option<KdTree<f32, usize, 3, 128, u32>>,
 }
 
-
 /// Node Access and Modification
 impl Layer {
     /// Get a reference to a node by its ID.
@@ -61,11 +60,11 @@ impl Layer {
         {
             pos_index.add(&coords.into(), node.id);
         }
-        let ptr = match self.nodes.binary_search_by_key(&node.id, |n|n.id) {
+        let ptr = match self.nodes.binary_search_by_key(&node.id, |n| n.id) {
             Ok(ptr) => ptr,
             Err(ptr) => ptr,
         };
-        self.nodes.insert(ptr,node);
+        self.nodes.insert(ptr, node);
     }
 
     /// Add an edge from source node to destination node with a description.
