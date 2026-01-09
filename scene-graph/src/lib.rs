@@ -8,8 +8,9 @@ mod sg;
 
 pub use error::{Result, SceneGraphError};
 pub use fov::Observer;
-pub use layer::{Layer, PosQueryCount};
+pub use layer::Layer;
 pub use node::{Coordinate, Edge, Feature, Node};
+pub use pos::PosQueryCount;
 pub use sg::SceneGraph;
 
 #[cfg(test)]

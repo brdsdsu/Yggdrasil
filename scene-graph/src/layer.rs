@@ -1,4 +1,4 @@
-use crate::pos::PositionQuery;
+use crate::pos::{PosQueryCount, PositionQuery};
 use std::{
     collections::HashSet,
     ops::{Deref, DerefMut},
@@ -14,7 +14,7 @@ use crate::error::{Result, SceneGraphError};
 /// relationships with other layers in the Scene Graph.
 /// Each Layer is a well-defined Graph structure representing a specific aspect of the scene,
 /// such as semantic relationships or physical connections between objects.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Layer {
     /// Unique identifier for the layer.
     id: usize,
@@ -249,9 +249,11 @@ impl Layer {
     ///
     /// [`nearest_nodes`]: Layer::nearest_nodes
     /// [`nodes_within`]: Layer::nodes_within
-    pub(super) fn new() -> Self {
+    pub(super) fn new(id: usize) -> Self {
         Self {
+            id,
             nodes: Vec::new(),
+            children: Vec::new(),
             pos_index: None,
         }
     }
@@ -262,9 +264,11 @@ impl Layer {
     ///
     /// [`nearest_nodes`]: Layer::nearest_nodes
     /// [`nodes_within`]: Layer::nodes_within
-    pub(super) fn with_pos_index() -> Self {
+    pub(super) fn with_pos_index(id: usize) -> Self {
         Self {
+            id,
             nodes: Vec::new(),
+            children: Vec::new(),
             pos_index: Some(KdTree::new()),
         }
     }
@@ -315,12 +319,6 @@ impl Layer {
     }
 }
 
-impl Default for Layer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// A mutable reference to a Node within a Layer.
 /// Tracks previous coordinates to update the position index on drop.
 pub struct NodeMut<'a> {
@@ -363,25 +361,6 @@ impl Drop for NodeMut<'_> {
     }
 }
 
-/// Specifies the number of nodes to return in position-based queries.
-#[derive(Debug, Clone, Copy)]
-pub enum PosQueryCount {
-    /// Return All matching nodes.
-    All,
-    /// Return a specific Count of matching nodes.
-    Count(usize),
-}
-
-impl PosQueryCount {
-    /// Convert to usize, capping at the provided maximum value.
-    pub(crate) fn as_capped_usize(&self) -> usize {
-        match self {
-            PosQueryCount::All => usize::MAX,
-            PosQueryCount::Count(k) => *k,
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::super::Coordinate;
@@ -413,7 +392,7 @@ mod test {
             Coordinate::new(6.0, 6.0, 6.0), // outside
             Coordinate::new(6.0, 6.0, 6.0), // outside
         ];
-        let mut layer = Layer::new();
+        let mut layer = Layer::default();
         for (i, p) in pts.iter().enumerate() {
             layer.push_node(Node::new(i, Vec::new(), Some(*p), false));
         }
@@ -445,7 +424,7 @@ mod test {
 
     #[test]
     fn nearest_query() {
-        let mut l = Layer::with_pos_index();
+        let mut l = Layer::with_pos_index(0);
         assert!(l.pos_index.is_some());
 
         let pts = [
@@ -471,7 +450,7 @@ mod test {
 
     #[test]
     fn radius_query() {
-        let mut l = Layer::with_pos_index();
+        let mut l = Layer::with_pos_index(0);
         assert!(l.pos_index.is_some());
 
         let pts = [

@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     error::{Result, SceneGraphError},
     fov::Observer,
-    layer::{Layer, NodeMut, PosQueryCount},
+    layer::{Layer, NodeMut},
     node::{Coordinate, Edge, Feature, Node},
-    pos::PositionQuery,
+    pos::{PositionQuery,PosQueryCount},
 };
 
 /// A hierarchical representation of objects and their relationships in a 3D environment.
