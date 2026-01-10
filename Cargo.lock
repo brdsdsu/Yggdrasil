@@ -554,6 +554,7 @@ dependencies = [
  "dsg",
  "glam",
  "kiddo",
+ "num-traits",
  "serde",
  "thiserror",
 ]

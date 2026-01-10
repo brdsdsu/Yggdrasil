@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use kiddo::{SquaredEuclidean, float::kdtree::KdTree, traits::DistanceMetric};
 
-use crate::{Coordinate, Node};
+use super::{Coordinate, Node};
 
 /// Specifies the number of nodes to return in position-based queries.
 #[derive(Debug, Clone, Copy)]

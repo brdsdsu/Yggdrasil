@@ -1,4 +1,3 @@
-use crate::pos::{PosQueryCount, PositionQuery};
 use std::{
     collections::HashSet,
     ops::{Deref, DerefMut},
@@ -7,8 +6,9 @@ use std::{
 use kiddo::float::kdtree::KdTree;
 use serde::{Deserialize, Serialize};
 
+use super::error::{Result, SceneGraphError};
+use super::pos::{PosQueryCount, PositionQuery};
 use super::{Edge, Node, Observer};
-use crate::error::{Result, SceneGraphError};
 
 /// A Layer in the Scene Graph containing multiple Nodes and their Edges, as weel as the
 /// relationships with other layers in the Scene Graph.
@@ -17,7 +17,7 @@ use crate::error::{Result, SceneGraphError};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Layer {
     /// Unique identifier for the layer.
-    id: usize,
+    id: u32,
     /// List of nodes in this layer.
     pub(super) nodes: Vec<Node>,
     /// List of child layer IDs.
@@ -72,6 +72,7 @@ impl Layer {
     pub fn add_edge(&mut self, src: usize, dst: usize, desc: &str) -> Result<()> {
         // Ensure destination node exists
         let _ = self.node(dst)?;
+
         let mut src_node = self.node_mut(src)?;
         src_node.edges.push(Edge::new(src, dst, desc));
         Ok(())
@@ -249,7 +250,7 @@ impl Layer {
     ///
     /// [`nearest_nodes`]: Layer::nearest_nodes
     /// [`nodes_within`]: Layer::nodes_within
-    pub(super) fn new(id: usize) -> Self {
+    pub(super) fn new(id: u32) -> Self {
         Self {
             id,
             nodes: Vec::new(),
@@ -264,7 +265,7 @@ impl Layer {
     ///
     /// [`nearest_nodes`]: Layer::nearest_nodes
     /// [`nodes_within`]: Layer::nodes_within
-    pub(super) fn with_pos_index(id: usize) -> Self {
+    pub(super) fn with_pos_index(id: u32) -> Self {
         Self {
             id,
             nodes: Vec::new(),
