@@ -311,10 +311,9 @@ impl SceneGraph {
     /// The check is done using the nodes' coordinates and nodes without coordinates are pruned.
     /// nodes from upper layers that have no descendants within the field of view are also pruned.
     pub fn visible_subgraph(&self, observer: Observer, root_node_id: usize) -> Result<Self> {
-        let subgraph_layers = self.subgraph(root_node_id)?.layers;
-
-        if subgraph_layers.is_empty() {
-            return Ok(Default::default());
+        let mut subgraph = self.subgraph(root_node_id)?;
+        if subgraph.layers.is_empty() {
+            return Ok(SceneGraph::default());
         }
         let first_layer = subgraph_layers[0].observable_nodes(observer);
 
@@ -326,23 +325,34 @@ impl SceneGraph {
             .into_iter()
             .collect::<Vec<_>>();
 
-        let mut layers = vec![first_layer];
-
-        for mut layer in subgraph_layers.into_iter().skip(1) {
-            layer.retain_nodes(&retain_nodes.into_iter().collect::<Vec<_>>());
-            retain_nodes = layer
-                .nodes
-                .iter()
-                .filter_map(|n| n.pid)
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            layers.push(layer);
+        let mut should_retain_nodes = HashMap::new();
+        for layer in &subgraph.layers {
+            should_retain_nodes.insert(layer.id, HashSet::new());
         }
-        Ok(Self {
-            node_counter: self.node_counter,
-            layers,
-        })
+        let mut layers = Vec::new();
+        for layer in &subgraph.layers {
+            let mut observed = match should_retain_nodes.remove(&layer.id) {
+                Some(nodes) => nodes,
+                None => HashSet::new(),
+            };
+            observed.extend(layer.observable_nodes(observer).nodes.iter().map(|n| n.id));
+            let observed: Vec<usize> = observed.into_iter().collect();
+            let l = layer.subset(&observed);
+            for node in &l.nodes {
+                if let Some(pid) = node.pid {
+                    let parent_layer_id = subgraph.layer_of(pid)?;
+                    should_retain_nodes
+                        .entry(parent_layer_id)
+                        .and_modify(|nodes| {
+                            nodes.insert(pid);
+                        });
+                }
+            }
+            layers.push(l);
+        }
+
+        subgraph.layers = layers;
+        Ok(subgraph)
     }
 
     /// Retrieve at most `count` nearest nodes to the given position.

@@ -176,7 +176,12 @@ impl Layer {
             None => None,
         };
 
-        let mut l = Self { nodes, pos_index };
+        let mut l = Self {
+            id: self.id,
+            nodes,
+            pos_index,
+            children: self.children.clone(),
+        };
 
         // prune edges to out-of-view nodes
         l.prune();
