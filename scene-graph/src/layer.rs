@@ -17,11 +17,11 @@ use super::{Edge, Node, Observer};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Layer {
     /// Unique identifier for the layer.
-    id: u32,
+    pub id: u32,
     /// List of nodes in this layer.
-    pub(super) nodes: Vec<Node>,
+    pub(crate) nodes: Vec<Node>,
     /// List of child layer IDs.
-    children: Vec<usize>,
+    pub(crate) children: Vec<u32>,
     /// Optional spatial index for node positions.
     #[serde(skip)]
     pos_index: Option<KdTree<f32, usize, 3, 128, u32>>,
@@ -54,7 +54,8 @@ impl Layer {
     }
 
     /// Add a new node to the layer.
-    pub fn push_node(&mut self, node: Node) {
+    /// Returns the ID of the newly added node.
+    pub fn push_node(&mut self, node: Node) -> usize{
         if let Some(pos_index) = &mut self.pos_index
             && let Some(coords) = node.coordinates
         {
@@ -64,7 +65,9 @@ impl Layer {
             Ok(ptr) => ptr,
             Err(ptr) => ptr,
         };
+        let nid = node.id;
         self.nodes.insert(ptr, node);
+        nid
     }
 
     /// Add an edge from source node to destination node with a description.
@@ -88,6 +91,16 @@ impl Layer {
             .position(|edge| edge.dst == dst)
             .ok_or(SceneGraphError::EdgeNotFound)?;
         src_node.edges.swap_remove(index);
+        Ok(())
+    }
+
+    pub fn add_child(&mut self, child_id: u32) -> Result<()> {
+        if child_id >= self.id {
+            return Err(SceneGraphError::InvalidLayersForNesting(child_id, self.id));
+        }
+        if !self.children.contains(&child_id) {
+            self.children.push(child_id);
+        }
         Ok(())
     }
 }
@@ -234,14 +247,6 @@ impl Layer {
         }
         Ok(())
     }
-
-    /// Prune edges that point to non-existing nodes in the layer.
-    pub(super) fn prune(&mut self) {
-        let node_ids: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
-        self.nodes
-            .iter_mut()
-            .for_each(|n| n.edges.retain(|e| node_ids.contains(&e.dst)));
-    }
 }
 
 impl Layer {
@@ -295,9 +300,47 @@ impl Layer {
 
     /// Retain only the nodes specified in the retain_nodes list.
     /// All other nodes and their associated edges will be removed from the layer.
-    pub(super) fn retain_nodes(&mut self, retain_nodes: &[usize]) {
+    pub(crate) fn retain_nodes(&mut self, retain_nodes: &[usize]) {
         self.nodes.retain(|node| retain_nodes.contains(&node.id));
         self.prune();
+    }
+
+    /// Prune edges that point to non-existing nodes in the layer.
+    pub(crate) fn prune(&mut self) {
+        let node_ids: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        self.nodes
+            .iter_mut()
+            .for_each(|n| n.edges.retain(|e| node_ids.contains(&e.dst)));
+    }
+
+    /// Create a subset Layer containing only the specified nodes.
+    pub(crate) fn subset(&self, nodes: &[usize]) -> Self {
+        let nodes: Vec<Node> = self
+            .nodes
+            .iter()
+            .filter(|n| nodes.contains(&n.id))
+            .cloned()
+            .collect();
+        let pos_index = match self.pos_index {
+            Some(_) => {
+                let mut pos_index = KdTree::new();
+                for node in &nodes {
+                    if let Some(coords) = node.coordinates {
+                        pos_index.add(&coords.into(), node.id);
+                    }
+                }
+                Some(pos_index)
+            }
+            None => None,
+        };
+        let mut l = Self {
+            id: self.id,
+            nodes,
+            pos_index,
+            children: self.children.clone(),
+        };
+        l.prune();
+        l
     }
 }
 
