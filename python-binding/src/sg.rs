@@ -39,9 +39,8 @@ impl PySceneGraphRef {
     /// [`nodes_within`]: SceneGraph::nodes_within
     pub fn new_layer(&mut self) -> PyLayerRef {
         let sg = &mut self.inner.lock().unwrap();
-        let _ = sg.new_layer();
-        let lid = sg.layers_count() - 1;
-        PyLayerRef::new(Arc::clone(&self.inner), lid)
+        let layer = sg.new_layer();
+        PyLayerRef::new(Arc::clone(&self.inner), layer.id)
     }
 
     /// Create a new layer with position indexing enabled and add it to the scene graph.
@@ -53,9 +52,8 @@ impl PySceneGraphRef {
     /// [`nodes_within`]: SceneGraph::nodes_within
     pub fn new_indexed_layer(&mut self) -> PyLayerRef {
         let sg = &mut self.inner.lock().unwrap();
-        let _ = sg.new_indexed_layer();
-        let lid = sg.layers_count() - 1;
-        PyLayerRef::new(Arc::clone(&self.inner), lid)
+        let layer = sg.new_indexed_layer();
+        PyLayerRef::new(Arc::clone(&self.inner), layer.id)
     }
 
     /// Merge another SceneGraph into this one.
@@ -69,18 +67,18 @@ impl PySceneGraphRef {
     }
 
     /// Get a reference to the top layer.
-    pub fn top_layer(&self) -> PyLayerRef {
+    pub fn top_layer(&self) -> Result<PyLayerRef> {
         let sg = &self.inner.lock().unwrap();
-        PyLayerRef::new(Arc::clone(&self.inner), sg.layers_count() - 1)
+        Ok(PyLayerRef::new(Arc::clone(&self.inner), sg.top_layer()?.id))
     }
 
-    /// Get a reference to a layer by its index.
-    pub fn layer(&self, index: usize) -> PyLayerRef {
-        PyLayerRef::new(Arc::clone(&self.inner), index)
+    /// Get a reference to a layer by its id.
+    pub fn layer(&self, id: u32) -> PyLayerRef {
+        PyLayerRef::new(Arc::clone(&self.inner), id)
     }
 
     /// Get the layer index of a node by its ID.
-    pub fn layer_of(&self, nid: usize) -> Result<usize> {
+    pub fn layer_of(&self, nid: usize) -> Result<u32> {
         self.inner.lock().unwrap().layer_of(nid).map_err(Into::into)
     }
 
@@ -358,7 +356,7 @@ impl PySceneGraphRef {
     ) -> Result<Vec<Vec<(PyNodeRef, f32)>>> {
         points
             .iter()
-            .map(|c| self.nearest_in_subtree(*c, root,count))
+            .map(|c| self.nearest_in_subtree(*c, root, count))
             .collect()
     }
 
