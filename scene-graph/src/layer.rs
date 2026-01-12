@@ -55,7 +55,7 @@ impl Layer {
 
     /// Add a new node to the layer.
     /// Returns the ID of the newly added node.
-    pub fn push_node(&mut self, node: Node) -> usize{
+    pub fn push_node(&mut self, node: Node) -> usize {
         if let Some(pos_index) = &mut self.pos_index
             && let Some(coords) = node.coordinates
         {

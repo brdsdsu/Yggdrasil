@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
     error::{Result, SceneGraphError},
@@ -83,15 +83,6 @@ impl SceneGraph {
             for &clid in layer.children.iter() {
                 layers_queue.push_back(clid);
             }
-            cur_layer = match self.layer(root_layer_id - layers.len()) {
-                Ok(l) => l,
-                Err(_) => break, // No more layers to process
-            };
-            nodes_to_visit = next_nodes_to_visit;
-        }
-        // Ensure the subgraph has the same number of layers as the original up to the root layer
-        if root_layer_id > layers.len() {
-            layers.extend(std::iter::repeat_with(Layer::new).take(root_layer_id - layers.len()));
         }
         let mut layers = layers.into_iter().collect::<Vec<u32>>();
         layers.sort();
@@ -315,15 +306,6 @@ impl SceneGraph {
         if subgraph.layers.is_empty() {
             return Ok(SceneGraph::default());
         }
-        let first_layer = subgraph_layers[0].observable_nodes(observer);
-
-        let mut retain_nodes = first_layer
-            .nodes
-            .iter()
-            .filter_map(|n| n.pid)
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
 
         let mut should_retain_nodes = HashMap::new();
         for layer in &subgraph.layers {
@@ -331,12 +313,14 @@ impl SceneGraph {
         }
         let mut layers = Vec::new();
         for layer in &subgraph.layers {
-            let mut observed = match should_retain_nodes.remove(&layer.id) {
-                Some(nodes) => nodes,
-                None => HashSet::new(),
-            };
-            observed.extend(layer.observable_nodes(observer).nodes.iter().map(|n| n.id));
-            let observed: Vec<usize> = observed.into_iter().collect();
+            let observed = should_retain_nodes.remove(&layer.id).unwrap_or_default();
+            let observed: Vec<usize> = layer
+                .observable_nodes(observer)
+                .nodes
+                .iter()
+                .map(|n| n.id)
+                .chain(observed.into_iter())
+                .collect();
             let l = layer.subset(&observed);
             for node in &l.nodes {
                 if let Some(pid) = node.pid {
