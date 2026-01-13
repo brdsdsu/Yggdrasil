@@ -165,6 +165,7 @@ impl SceneGraph {
     }
 
     /// Get the layer index of a node by its ID.
+    #[inline]
     pub fn layer_of(&self, nid: NodeId) -> u32 {
         nid.layer_id()
     }
