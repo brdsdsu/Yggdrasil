@@ -42,9 +42,11 @@ impl TryFrom<ConceptGraph> for SceneGraph {
     fn try_from(cg: ConceptGraph) -> Result<Self, Self::Error> {
         let mut sg = Self::default();
         // pointcloud layer
-        sg.new_layer();
+        let pcd_lid = sg.new_layer().id;
         // semantic layer
-        sg.new_layer();
+        let semantic_layer = sg.new_layer();
+        semantic_layer.add_child(pcd_lid)?;
+
 
         // keeps track of id mapping between concept graph and scene graph
         let mut id_map = HashMap::new();

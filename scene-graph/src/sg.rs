@@ -260,25 +260,30 @@ impl SceneGraph {
     ///
     /// ```rust
     /// # use scene_graph::SceneGraph;
+    /// # use scene_graph::Result;
+    ///
+    /// # fn main() -> Result<()> {
     /// # let mut sg = SceneGraph::default();
     ///
     /// // Create nodes
     /// let node1 = sg.new_node(vec![]);
     /// let node2 = sg.new_node(vec![]);
-    /// let id1 = node1.id;
-    /// let id2 = node2.id;
     ///
     /// // Create a layer and add nodes to it
-    /// sg.new_layer();
-    /// sg.new_layer();
-    /// sg.layer_mut(0).unwrap().push_node(node1);
-    /// sg.layer_mut(1).unwrap().push_node(node2);
+    /// let lid0 = sg.new_layer().id;
+    /// let layer = sg.new_layer();
+    /// layer.add_child(lid0)?;
+    /// let id1 = sg.layer_mut(0)?.push_node(node1);
+    /// let id2 = sg.layer_mut(1)?.push_node(node2);
     ///
     /// // Nest node1 under node2
-    /// sg.nest(id1).under(id2).unwrap();
+    /// sg.nest(id1).under(id2)?;
     ///
-    /// assert_eq!(sg.node(id2).unwrap().children, vec![id1]);
-    /// assert_eq!(sg.node(id1).unwrap().pid, Some(id2));
+    /// assert_eq!(sg.node(id2)?.children, vec![id1]);
+    /// assert_eq!(sg.node(id1)?.pid, Some(id2));
+    ///
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn nest(&mut self, nid: usize) -> NestUnder<'_> {
         NestUnder {
@@ -422,7 +427,9 @@ impl SceneGraph {
     ///
     /// # use scene_graph::SceneGraph;
     /// # use scene_graph::{Coordinate, PosQueryCount};
+    /// # use scene_graph::Result;
     ///
+    /// # fn main() -> Result<()> {
     /// let mut sg = SceneGraph::default();
     ///
     /// // Create nodes
@@ -430,30 +437,29 @@ impl SceneGraph {
     /// let n2 = sg.new_coordinates(1.0, 1.0, 1.0, vec![]);
     /// let n3 = sg.new_coordinates(2.0, 2.0, 2.0, vec![]);
     ///
-    /// let n1_id = n1.id;
-    /// let n2_id = n2.id;
-    /// let n3_id = n3.id;
-    ///
     /// // Create a layer and add nodes to it
-    /// sg.new_indexed_layer();
-    /// sg.layer_mut(0).unwrap().push_node(n1);
-    /// sg.layer_mut(0).unwrap().push_node(n2);
-    /// sg.layer_mut(0).unwrap().push_node(n3);
+    /// let first_layer_id = sg.new_indexed_layer().id;
+    /// let n1_id = sg.layer_mut(0)?.push_node(n1);
+    /// let n2_id = sg.layer_mut(0)?.push_node(n2);
+    /// let n3_id = sg.layer_mut(0)?.push_node(n3);
     ///
     /// // create new semantic layer and nest all nodes under a new parent node
-    /// sg.new_layer();
+    /// let semantic_layer = sg.new_layer();
+    /// semantic_layer.add_child(first_layer_id)?;
     /// let parent_node = sg.new_indexed_node(vec![]);
-    /// let pid = parent_node.id;
-    /// sg.top_layer_mut().unwrap().push_node(parent_node);
-    /// sg.nest(n1_id).under(pid).unwrap();
-    /// sg.nest(n2_id).under(pid).unwrap();
-    /// sg.nest(n3_id).under(pid).unwrap();
+    /// let pid = sg.top_layer_mut()?.push_node(parent_node);
+    /// sg.nest(n1_id).under(pid)?;
+    /// sg.nest(n2_id).under(pid)?;
+    /// sg.nest(n3_id).under(pid)?;
     ///
     /// let coord = Coordinate::new(0.6, 0.6, 0.6);
-    /// let nearest_in_subtree = sg.nearest_in_subtree(&coord, pid, PosQueryCount::Count(2)).unwrap();
+    /// let nearest_in_subtree = sg.nearest_in_subtree(&coord, pid, PosQueryCount::Count(2))?;
     /// assert_eq!(nearest_in_subtree.len(), 2);
     /// assert_eq!(nearest_in_subtree[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
     /// assert_eq!(nearest_in_subtree[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
+    ///
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn nearest_in_subtree(
         &self,

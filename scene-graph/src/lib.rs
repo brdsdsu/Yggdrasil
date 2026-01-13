@@ -39,6 +39,7 @@ mod test {
         // create the second semantic layer
         let semantic_layer = sg.new_layer();
         semantic_layer.push_node(node1);
+        semantic_layer.add_child(0)?;
 
         // nesting
         assert!(sg.nest(id2).under(id1).is_ok());
