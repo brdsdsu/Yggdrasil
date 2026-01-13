@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use super::error::Result;
 use pyo3::prelude::*;
-use scene_graph::{Node, SceneGraph};
+use scene_graph::{AnonNode, NodeId, SceneGraph};
 
 /// A node in the scene graph.
 /// Each node is designated to a unique layer in the scene graph and within that layer, it can have
@@ -14,48 +14,30 @@ use scene_graph::{Node, SceneGraph};
 #[pyclass(name = "Node")]
 pub struct PyNodeRef {
     sg: Arc<Mutex<SceneGraph>>,
-    nid: usize,
+    nid: NodeId,
 }
 
 #[pyclass(name = "__Node")]
 #[derive(Debug, Clone)]
-pub struct PyNode {
-    inner: Node,
+pub struct PyAnonNode {
+    inner: AnonNode,
 }
-impl PyNode {
-    pub fn new(inner: Node) -> Self {
+impl PyAnonNode {
+    pub fn new(inner: AnonNode) -> Self {
         Self { inner }
     }
 
-    pub fn into_inner(self) -> Node {
+    pub fn into_inner(self) -> AnonNode {
         self.inner
     }
 }
 
 #[pymethods]
-impl PyNode {
-    /// Unique identifier for the node.
-    #[getter]
-    pub fn id(&self) -> usize {
-        self.inner.id
-    }
-
+impl PyAnonNode {
     /// Parent node Id, if node is nested under another node.
     #[getter]
-    pub fn pid(&self) -> Option<usize> {
-        self.inner.pid
-    }
-
-    /// Child node Ids from the lower layer, if node has nested nodes under it.
-    #[getter]
-    pub fn children(&self) -> Vec<usize> {
-        self.inner.children.clone()
-    }
-
-    /// Edges to other nodes in the same layer.
-    #[getter]
-    pub fn edges(&self) -> Vec<PyEdge> {
-        self.inner.edges.iter().map(Into::into).collect()
+    pub fn pid(&self) -> Option<PyNodeId> {
+        self.inner.pid.map(Into::into)
     }
 
     /// Features associated with the node.
@@ -97,7 +79,7 @@ impl PyNode {
 }
 
 impl PyNodeRef {
-    pub fn new(sg: Arc<Mutex<SceneGraph>>, nid: usize) -> Self {
+    pub fn new(sg: Arc<Mutex<SceneGraph>>, nid: NodeId) -> Self {
         Self { sg, nid }
     }
 }
@@ -106,20 +88,28 @@ impl PyNodeRef {
 impl PyNodeRef {
     /// Unique identifier for the node.
     #[getter]
-    pub fn id(&self) -> usize {
-        self.nid
+    pub fn id(&self) -> PyNodeId {
+        self.nid.into()
     }
 
     /// Parent node Id, if node is nested under another node.
     #[getter]
-    pub fn pid(&self) -> Result<Option<usize>> {
-        Ok(self.sg.lock().unwrap().node(self.nid)?.pid)
+    pub fn pid(&self) -> Result<Option<PyNodeId>> {
+        Ok(self.sg.lock().unwrap().node(self.nid)?.pid.map(Into::into))
     }
 
     /// Child node Ids from the lower layer, if node has nested nodes under it.
     #[getter]
-    pub fn children(&self) -> Result<Vec<usize>> {
-        Ok(self.sg.lock().unwrap().node(self.nid)?.children.clone())
+    pub fn children(&self) -> Result<Vec<PyNodeId>> {
+        Ok(self
+            .sg
+            .lock()
+            .unwrap()
+            .node(self.nid)?
+            .children
+            .iter()
+            .map(Into::into)
+            .collect())
     }
 
     /// Edges to other nodes in the same layer.
@@ -202,10 +192,10 @@ impl PyNodeRef {
 pub struct PyEdge {
     /// Source node ID.
     #[pyo3(get)]
-    pub src: usize,
+    pub src: PyNodeId,
     /// Destination node ID.
     #[pyo3(get)]
-    pub dst: usize,
+    pub dst: PyNodeId,
     /// Description of the edge.
     #[pyo3(get)]
     pub desc: String,
@@ -214,8 +204,8 @@ pub struct PyEdge {
 impl From<scene_graph::Edge> for PyEdge {
     fn from(e: scene_graph::Edge) -> Self {
         PyEdge {
-            src: e.src,
-            dst: e.dst,
+            src: e.src.into(),
+            dst: e.dst.into(),
             desc: e.desc,
         }
     }
@@ -224,8 +214,8 @@ impl From<scene_graph::Edge> for PyEdge {
 impl From<&scene_graph::Edge> for PyEdge {
     fn from(e: &scene_graph::Edge) -> Self {
         PyEdge {
-            src: e.src,
-            dst: e.dst,
+            src: e.src.into(),
+            dst: e.dst.into(),
             desc: e.desc.clone(),
         }
     }
@@ -233,7 +223,7 @@ impl From<&scene_graph::Edge> for PyEdge {
 
 impl From<PyEdge> for scene_graph::Edge {
     fn from(e: PyEdge) -> Self {
-        scene_graph::Edge::new(e.src, e.dst, &e.desc)
+        scene_graph::Edge::new(e.src.into(), e.dst.into(), &e.desc)
     }
 }
 
@@ -284,5 +274,30 @@ impl From<&scene_graph::Feature> for PyFeature {
             key: f.key().to_string(),
             value: f.value().to_string(),
         }
+    }
+}
+
+/// Unique identifier for a node in the scene graph.
+#[derive(Debug,Copy, Clone)]
+#[pyclass(name = "NodeId")]
+pub struct PyNodeId(u64);
+
+impl From<scene_graph::NodeId> for PyNodeId {
+    fn from(value: scene_graph::NodeId) -> Self {
+        PyNodeId(value.as_u64())
+    }
+}
+
+impl From<&scene_graph::NodeId> for PyNodeId {
+    fn from(value: &scene_graph::NodeId) -> Self {
+        PyNodeId(value.as_u64())
+    }
+}
+
+impl From<PyNodeId> for scene_graph::NodeId {
+    fn from(value: PyNodeId) -> Self {
+        let nid = value.0 as u32;
+        let lid = (value.0 >> 32) as u32;
+        scene_graph::NodeId::new(nid, lid)
     }
 }

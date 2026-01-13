@@ -2,6 +2,8 @@ use std::num::NonZero;
 
 use kiddo::{SquaredEuclidean, float::kdtree::KdTree, traits::DistanceMetric};
 
+use crate::NodeId;
+
 use super::{Coordinate, Node};
 
 /// Specifies the number of nodes to return in position-based queries.
@@ -26,7 +28,7 @@ impl PosQueryCount {
 pub(crate) trait PositionQuery {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
-    fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(usize, f32)>;
+    fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)>;
 
     /// Retrieve at most `count` nodes within a specified radius to the given position.
     fn nodes_within(
@@ -34,13 +36,13 @@ pub(crate) trait PositionQuery {
         pos: &super::Coordinate,
         radius: f32,
         count: PosQueryCount,
-    ) -> Vec<(usize, f32)>;
+    ) -> Vec<(NodeId, f32)>;
 }
 
-impl PositionQuery for KdTree<f32, usize, 3, 128, u32> {
+impl PositionQuery for KdTree<f32, NodeId, 3, 128, u32> {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
-    fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(usize, f32)> {
+    fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)> {
         match count {
             PosQueryCount::All => self
                 .iter()
@@ -65,7 +67,7 @@ impl PositionQuery for KdTree<f32, usize, 3, 128, u32> {
         pos: &super::Coordinate,
         radius: f32,
         count: PosQueryCount,
-    ) -> Vec<(usize, f32)> {
+    ) -> Vec<(NodeId, f32)> {
         let count = count.as_capped_usize();
         let results = self.nearest_n_within::<SquaredEuclidean>(
             &(*pos).into(),
@@ -83,7 +85,7 @@ impl PositionQuery for KdTree<f32, usize, 3, 128, u32> {
 impl PositionQuery for Vec<Node> {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
-    fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(usize, f32)> {
+    fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)> {
         match count {
             PosQueryCount::All => self
                 .iter()
@@ -116,7 +118,7 @@ impl PositionQuery for Vec<Node> {
         pos: &super::Coordinate,
         radius: f32,
         count: PosQueryCount,
-    ) -> Vec<(usize, f32)> {
+    ) -> Vec<(NodeId, f32)> {
         let count = count.as_capped_usize();
         self.iter()
             .filter(|n| n.coordinates.is_some())
@@ -129,10 +131,10 @@ impl PositionQuery for Vec<Node> {
     }
 }
 
-impl PositionQuery for Vec<(Coordinate, usize)> {
+impl PositionQuery for Vec<(Coordinate, NodeId)> {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
-    fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(usize, f32)> {
+    fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)> {
         match count {
             PosQueryCount::All => self
                 .iter()
@@ -143,7 +145,7 @@ impl PositionQuery for Vec<(Coordinate, usize)> {
                     .iter()
                     .map(|(c, id)| (*id, c.distance_squared(*pos)))
                     .map(|(id, d)| (id, d.sqrt()))
-                    .collect::<Vec<(usize, f32)>>();
+                    .collect::<Vec<(NodeId, f32)>>();
                 distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
                 distances.into_iter().take(c).collect()
             }
@@ -157,7 +159,7 @@ impl PositionQuery for Vec<(Coordinate, usize)> {
         pos: &super::Coordinate,
         radius: f32,
         count: PosQueryCount,
-    ) -> Vec<(usize, f32)> {
+    ) -> Vec<(NodeId, f32)> {
         let count = count.as_capped_usize();
         self.iter()
             .map(|(c, id)| (*id, c.distance_squared(*pos)))
