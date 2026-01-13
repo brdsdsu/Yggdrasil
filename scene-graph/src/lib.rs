@@ -224,6 +224,7 @@ mod test {
             nodes.push(node);
         }
         let layer = sg.new_layer();
+        layer.add_child(0)?;
         for node in nodes {
             layer.push_node(node);
         }
@@ -246,6 +247,7 @@ mod test {
         let root_node = sg.new_node(vec![Feature::new("name", "root")]);
         let root_id = root_node.id;
         let layer = sg.new_layer();
+        layer.add_child(1)?;
         layer.push_node(root_node);
         for id in 0..NUM_SEMANTIC_NODES {
             assert!(sg.nest(NUM_COOR_NODES + id).under(root_id).is_ok());

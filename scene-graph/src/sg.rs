@@ -105,12 +105,17 @@ impl SceneGraph {
             for nid in nodes {
                 for cid in &l.node(nid)?.children {
                     let clid = self.layer_of(*cid)?;
-                    let ptr = layers.binary_search_by_key(&clid, |(lid, _)| *lid).unwrap();
+                    let ptr = layers
+                        .binary_search_by_key(&clid, |(lid, _)| *lid)
+                        .map_err(|_| SceneGraphError::LayerNotFound)?;
                     layers[ptr].1.insert(*cid);
                 }
             }
             subgraph.layers.push(l);
         }
+        subgraph.layers.reverse();
+        subgraph.layer_counter = self.layer_counter;
+        subgraph.node_counter = self.node_counter;
         Ok(subgraph)
     }
 }
@@ -536,16 +541,14 @@ impl<'a> NestUnder<'a> {
     ///
     /// [`nest`](SceneGraph::nest)
     pub fn under(&mut self, nester: usize) -> Result<&mut SceneGraph> {
-        //! TODO: diccuss bringing back layer check for nesting
-        // let nester_layer_id = self.sg.layer_of(nester)?;
-        // let nestee_layer_id = self.sg.layer_of(self.nestee)?;
-        //
-        // if nester_layer_id - 1 != nestee_layer_id {
-        //     return Err(SceneGraphError::InvalidLayersForNesting(
-        //         nestee_layer_id,
-        //         nester_layer_id,
-        //     ));
-        // }
+        let nester_layer_id = self.sg.layer_of(nester)?;
+        let nestee_layer_id = self.sg.layer_of(self.nestee)?;
+        let nester_layer = self.sg.layer(nester_layer_id)?;
+        if !nester_layer.children.contains(&nestee_layer_id) {
+            return Err(SceneGraphError::InvalidLayersForNesting(nestee_layer_id, nester_layer_id));
+        }
+        
+        
 
         let nestee = unsafe { self.sg.node_mut_unsynced(self.nestee)? };
         match nestee.pid {
@@ -598,9 +601,9 @@ mod test {
         sg.new_layer();
         sg.new_layer();
 
+        sg.top_layer_mut()?.add_child(0)?;
         sg.top_layer_mut()?.add_child(1)?;
-        sg.top_layer_mut()?.add_child(2)?;
-        sg.layer_mut(1)?.add_child(2)?;
+        sg.layer_mut(1)?.add_child(0)?;
 
         let n0 = sg.new_node(vec![Feature::new("name", "n0")]);
         let n1 = sg.new_node(vec![Feature::new("name", "n1")]);
@@ -637,10 +640,11 @@ mod test {
         // subgraph for m1 should only contain m1
         let subgraph_m1 = sg.subgraph(m1)?;
         assert_eq!(subgraph_m1.layers.len(), 1);
-        assert_eq!(subgraph_m1.layer(0)?.nodes.len(), 1);
+        assert_eq!(subgraph_m1.layer(1)?.nodes.len(), 1);
         assert_eq!(subgraph_m1.node(m1)?.features[0].value(), "m1");
-        assert_eq!(subgraph_m1.layer(0)?.id, sg.layer_of(m1)?);
-        assert_eq!(subgraph_m1.layer(0)?.children.len(), 0);
+        assert_eq!(subgraph_m1.layer(1)?.id, sg.layer_of(m1)?);
+        // there should be no layer with id 0 in the subgraph
+        assert!(subgraph_m1.layer(0).is_err());
         Ok(())
     }
 }
