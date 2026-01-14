@@ -98,6 +98,7 @@ impl Layer {
         Ok(())
     }
 
+    /// Add a child layer by its ID.
     pub fn add_child(&mut self, child_id: u32) -> Result<()> {
         if child_id >= self.id {
             return Err(SceneGraphError::InvalidLayersForNesting(child_id, self.id));
