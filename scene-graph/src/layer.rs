@@ -102,9 +102,10 @@ impl Layer {
         if child_id >= self.id {
             return Err(SceneGraphError::InvalidLayersForNesting(child_id, self.id));
         }
-        if !self.children.contains(&child_id) {
-            self.children.push(child_id);
-        }
+        match self.children.binary_search(&child_id) {
+            Ok(_) => (),
+            Err(index) => self.children.insert(index, child_id),
+        };
         Ok(())
     }
 }
