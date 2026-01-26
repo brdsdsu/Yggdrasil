@@ -1,4 +1,7 @@
-use crate::error::{SceneGraphError, Result};
+use kiddo::float::kdtree::KdTree;
+use serde::{Deserialize, Serialize};
+
+use crate::error::{Result, SceneGraphError};
 
 /// A node in the scene graph.
 /// Each node is designated to a unique layer in the scene graph and within that layer, it can have
@@ -8,6 +11,7 @@ use crate::error::{SceneGraphError, Result};
 /// information about the node. Nodes also support storeing 3D coordinates which can be used for
 /// Field-of-View calculations or spatial queries.
 #[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Node {
     /// Unique identifier for the node.
     pub id: usize,
@@ -21,11 +25,25 @@ pub struct Node {
     pub features: Vec<Feature>,
     /// Optional 3D coordinates of the node.
     pub coordinates: Option<Coordinate>,
+    /// Position index which keeps track of the coordinates of the sub tree of this node.
+    /// This is used for efficient spatial queries.
+    #[serde(skip)]
+    pub(crate) pos_index: Option<KdTree<f32, usize, 3, 128, u32>>,
 }
 
 impl Node {
     /// Create a new Node with the given id, features, and optional coordinates.
-    pub fn new(id: usize, features: Vec<Feature>, coordinates: Option<Coordinate>) -> Self {
+    pub fn new(
+        id: usize,
+        features: Vec<Feature>,
+        coordinates: Option<Coordinate>,
+        pos_index_enabled: bool,
+    ) -> Self {
+        let pos_index = if pos_index_enabled {
+            Some(KdTree::new())
+        } else {
+            None
+        };
         Self {
             id,
             pid: None,
@@ -33,8 +51,10 @@ impl Node {
             edges: Vec::new(),
             features,
             coordinates,
+            pos_index,
         }
     }
+
     /// Check if the node has a feature with the specified key.
     pub fn has_feature(&self, key: &str) -> bool {
         self.features.iter().any(|f| f.key == key)
@@ -83,9 +103,13 @@ impl Node {
 
     /// Add a child node by its ID.
     pub(super) fn add_child(&mut self, nid: usize) {
-        if !self.children.contains(&nid) {
-            self.children.push(nid);
+        match self.children.binary_search(&nid) {
+            Ok(_) => (),
+            Err(ptr) => self.children.insert(ptr, nid),
         }
+        // if !self.children.contains(&nid) {
+        //     self.children.push(nid);
+        // }
     }
 }
 
@@ -95,6 +119,7 @@ pub type Coordinate = glam::Vec3;
 
 /// A feature associated with a node, represented as a key-value pair.
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Serialize, Deserialize)]
 pub struct Feature {
     /// Key of the feature.
     key: String,
@@ -109,10 +134,21 @@ impl Feature {
             value: value.to_string(),
         }
     }
+
+    #[inline]
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    #[inline]
+    pub fn value(&self) -> &str {
+        &self.value
+    }
 }
 
 /// An edge connecting two nodes in the same layer.
 #[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Edge {
     /// Source node ID.
     pub src: usize,

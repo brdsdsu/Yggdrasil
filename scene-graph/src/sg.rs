@@ -1,10 +1,12 @@
 use std::collections::HashSet;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::{SceneGraphError, Result},
+    error::{Result, SceneGraphError},
     fov::Observer,
     layer::{Layer, NodeMut, PosQueryCount},
     node::{Coordinate, Edge, Feature, Node},
+    pos::PositionQuery,
 };
 
 /// A hierarchical representation of objects and their relationships in a 3D environment.
@@ -15,6 +17,7 @@ use crate::{
 /// The scene graph supports operations such as adding/removing nodes and edges,
 /// nesting nodes under other nodes, and querying nodes by their IDs.
 #[derive(Debug, Default, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct SceneGraph {
     /// Layers of the scene graph, where each layer is either a Semantic or a Physical
     /// representation of the scene.
@@ -46,6 +49,11 @@ impl SceneGraph {
     pub fn new_indexed_layer(&mut self) -> &mut Layer {
         self.layers.push(Layer::with_pos_index());
         self.layers.last_mut().unwrap()
+    }
+
+    /// Get the number of layers in the scene graph.
+    pub fn layers_count(&self) -> usize {
+        self.layers.len()
     }
 
     /// Create a subgraph rooted at the specified node ID.
@@ -131,7 +139,9 @@ impl SceneGraph {
 
     /// Get an immutable reference to the top layer.
     pub fn top_layer(&self) -> Result<&Layer> {
-        self.layers.last().ok_or(SceneGraphError::LayerOutOfBounds(0, 0))
+        self.layers
+            .last()
+            .ok_or(SceneGraphError::LayerOutOfBounds(0, 0))
     }
 
     /// Get an immutable reference to a layer by its index.
@@ -150,7 +160,7 @@ impl SceneGraph {
     }
 
     /// Get the layer index of a node by its ID.
-    pub fn layer_of(&self, nid: usize) -> Result<usize, SceneGraphError> {
+    pub fn layer_of(&self, nid: usize) -> Result<usize> {
         let nestee_layer_id = self
             .layers
             .iter()
@@ -183,14 +193,28 @@ impl SceneGraph {
 impl SceneGraph {
     /// Create a new Metric Node with specified coordinates and features.
     pub fn new_coordinates(&mut self, x: f32, y: f32, z: f32, features: Vec<Feature>) -> Node {
-        let node = Node::new(self.node_counter, features, Some(Coordinate::new(x, y, z)));
+        let node = Node::new(
+            self.node_counter,
+            features,
+            Some(Coordinate::new(x, y, z)),
+            false,
+        );
         self.node_counter += 1;
         node
     }
 
     /// Create a new Semantic Node with specified features.
     pub fn new_node(&mut self, features: Vec<Feature>) -> Node {
-        let node = Node::new(self.node_counter, features, None);
+        let node = Node::new(self.node_counter, features, None, false);
+        self.node_counter += 1;
+        node
+    }
+
+    /// Create a new Indexed Semantic Node with specified features.
+    /// This node will have position indexing enabled and will track of the coordinates of its
+    /// sub-tree for efficient spatial queries.
+    pub fn new_indexed_node(&mut self, features: Vec<Feature>) -> Node {
+        let node = Node::new(self.node_counter, features, None, true);
         self.node_counter += 1;
         node
     }
@@ -332,10 +356,10 @@ impl SceneGraph {
     /// let coord = Coordinate::new(0.6, 0.6, 0.6);
     /// let nearest_nodes = sg.nearest_nodes(&coord, PosQueryCount::Count(2));
     /// assert_eq!(nearest_nodes.len(), 2);
-    /// assert_eq!(nearest_nodes[0].coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
-    /// assert_eq!(nearest_nodes[1].coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
+    /// assert_eq!(nearest_nodes[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
+    /// assert_eq!(nearest_nodes[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
     /// ```
-    pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<&Node> {
+    pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<(&Node, f32)> {
         self.layers
             .iter()
             .flat_map(|l| l.nearest_nodes(coord, count))
@@ -365,19 +389,73 @@ impl SceneGraph {
     /// let coord = Coordinate::new(0.3, 0.3, 0.3);
     /// let nodes_within_radius = sg.nodes_within(&coord, 2.0, PosQueryCount::All);
     /// assert_eq!(nodes_within_radius.len(), 2);
-    /// assert!(nodes_within_radius.iter().any(|n| n.coordinates.unwrap() == Coordinate::new(0.0, 0.0, 0.0)));
-    /// assert!(nodes_within_radius.iter().any(|n| n.coordinates.unwrap() == Coordinate::new(1.0, 1.0, 1.0)));
+    /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates.unwrap() == Coordinate::new(0.0, 0.0, 0.0)));
+    /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates.unwrap() == Coordinate::new(1.0, 1.0, 1.0)));
     /// ```
     pub fn nodes_within(
         &self,
         coord: &Coordinate,
         radius: f32,
         count: PosQueryCount,
-    ) -> Vec<&Node> {
+    ) -> Vec<(&Node, f32)> {
         self.layers
             .iter()
             .flat_map(|l| l.nodes_within(coord, radius, count))
             .collect()
+    }
+
+    /// Retrieve at most `count` nearest nodes to the given position within the sub-tree rooted at the specified node ID.
+    /// If this function is called frequently, consider creating the Node with indexing enabled.
+    /// ```rust
+    ///
+    /// # use scene_graph::SceneGraph;
+    /// # use scene_graph::{Coordinate, PosQueryCount};
+    ///
+    /// let mut sg = SceneGraph::default();
+    ///
+    /// // Create nodes
+    /// let n1 = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
+    /// let n2 = sg.new_coordinates(1.0, 1.0, 1.0, vec![]);
+    /// let n3 = sg.new_coordinates(2.0, 2.0, 2.0, vec![]);
+    ///
+    /// let n1_id = n1.id;
+    /// let n2_id = n2.id;
+    /// let n3_id = n3.id;
+    ///
+    /// // Create a layer and add nodes to it
+    /// sg.new_indexed_layer();
+    /// sg.layer_mut(0).unwrap().push_node(n1);
+    /// sg.layer_mut(0).unwrap().push_node(n2);
+    /// sg.layer_mut(0).unwrap().push_node(n3);
+    ///
+    /// // create new semantic layer and nest all nodes under a new parent node
+    /// sg.new_layer();
+    /// let parent_node = sg.new_indexed_node(vec![]);
+    /// let pid = parent_node.id;
+    /// sg.top_layer_mut().unwrap().push_node(parent_node);
+    /// sg.nest(n1_id).under(pid).unwrap();
+    /// sg.nest(n2_id).under(pid).unwrap();
+    /// sg.nest(n3_id).under(pid).unwrap();
+    ///
+    /// let coord = Coordinate::new(0.6, 0.6, 0.6);
+    /// let nearest_in_subtree = sg.nearest_in_subtree(&coord, pid, PosQueryCount::Count(2)).unwrap();
+    /// assert_eq!(nearest_in_subtree.len(), 2);
+    /// assert_eq!(nearest_in_subtree[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
+    /// assert_eq!(nearest_in_subtree[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
+    /// ```
+    pub fn nearest_in_subtree(
+        &self,
+        coord: &Coordinate,
+        root: usize,
+        count: PosQueryCount,
+    ) -> Result<Vec<(&Node, f32)>> {
+        match &self.node(root)?.pos_index {
+            Some(pos_index) => pos_index.nearest_nodes(coord, count),
+            None => self.pos_subtree(root).nearest_nodes(coord, count),
+        }
+        .into_iter()
+        .map(|(id, distance)| Ok((self.node(id)?, distance)))
+        .collect()
     }
 
     /// Get List of all edges matching a specific description.
@@ -399,6 +477,43 @@ impl SceneGraph {
     }
 }
 
+impl SceneGraph {
+    /// Get list of all coordinates in the sub-tree rooted at the specified node ID.
+    fn pos_subtree(&self, root: usize) -> Vec<(Coordinate, usize)> {
+        let mut coords = Vec::new();
+        let node = match self.node(root) {
+            Ok(n) => n,
+            Err(_) => return coords,
+        };
+        if let Some(c) = &node.coordinates {
+            coords.push((*c, node.id));
+        }
+        if let Some(pos_index) = &node.pos_index {
+            coords.extend(pos_index.iter().map(|(id, c)| (Coordinate::from(c), id)));
+            return coords;
+        }
+        for cid in &node.children {
+            coords.extend(self.pos_subtree(*cid));
+        }
+        coords
+    }
+
+    /// Get an unsynced mutable reference to the Node, preventing syncronization between the
+    /// `Layer` and the `Node`.
+    ///
+    /// # Safety
+    /// This function is unsafe because it allows modification of the Node without updating
+    /// the Layer's position index. The caller must ensure that any changes to the Node's
+    /// coordinates are properly reflected in the Layer's position index to maintain consistency.
+    /// Get a mutable reference to a node by its ID.
+    unsafe fn node_mut_unsynced(&mut self, id: usize) -> Result<&mut Node> {
+        self.layers
+            .iter_mut()
+            .find_map(|layer| unsafe { layer.node_mut_unsynced(id) }.ok())
+            .ok_or(SceneGraphError::NodeNotFound)
+    }
+}
+
 /// An intermediate struct to facilitate the nesting of one node under another in a SceneGraph.
 /// Refer to the `nest` method in `SceneGraph` for usage example.
 ///
@@ -414,31 +529,41 @@ impl<'a> NestUnder<'a> {
     ///
     /// [`nest`](SceneGraph::nest)
     pub fn under(&mut self, nester: usize) -> Result<&mut SceneGraph> {
-        let nester_layer_id = self.sg.layer_of(nester)?;
-        let nestee_layer_id = self.sg.layer_of(self.nestee)?;
+        //! TODO: diccuss bringing back layer check for nesting
+        // let nester_layer_id = self.sg.layer_of(nester)?;
+        // let nestee_layer_id = self.sg.layer_of(self.nestee)?;
+        //
+        // if nester_layer_id - 1 != nestee_layer_id {
+        //     return Err(SceneGraphError::InvalidLayersForNesting(
+        //         nestee_layer_id,
+        //         nester_layer_id,
+        //     ));
+        // }
 
-        if nester_layer_id - 1 != nestee_layer_id {
-            return Err(SceneGraphError::InvalidLayersForNesting(
-                nestee_layer_id,
-                nester_layer_id,
-            ));
-        }
-
-        let mut nestee = self.sg.node_mut(self.nestee)?;
+        let nestee = unsafe { self.sg.node_mut_unsynced(self.nestee)? };
         match nestee.pid {
             // Remove from old parent
             Some(parent_id) => {
                 nestee.pid = Some(nester);
-                drop(nestee);
                 self.sg.node_mut(parent_id)?.remove_child(self.nestee)?;
             }
             None => {
                 nestee.pid = Some(nester);
-                drop(nestee);
             }
         }
 
-        self.sg.node_mut(nester)?.add_child(self.nestee);
+        let node = unsafe { self.sg.node_mut_unsynced(nester)? };
+        node.add_child(self.nestee);
+
+        // propagate position index with the new child
+        if node.pos_index.is_some() {
+            let pos = self.sg.pos_subtree(self.nestee);
+            let mut node = self.sg.node_mut(nester)?;
+            let pos_index = node.pos_index.as_mut().unwrap();
+            pos.iter()
+                .for_each(|(coords, id)| pos_index.add(&(*coords).into(), *id));
+        }
+
         Ok(self.sg)
     }
 }

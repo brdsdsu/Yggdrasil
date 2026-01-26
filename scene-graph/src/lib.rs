@@ -3,9 +3,10 @@ mod fov;
 mod layer;
 mod node;
 pub mod parse;
+mod pos;
 mod sg;
 
-pub use error::{SceneGraphError, Result};
+pub use error::{Result, SceneGraphError};
 pub use fov::Observer;
 pub use layer::{Layer, PosQueryCount};
 pub use node::{Coordinate, Edge, Feature, Node};
@@ -300,5 +301,72 @@ mod test {
         assert_eq!(layer.nodes.len(), 1);
 
         Ok(())
+    }
+
+    fn pos_query() {
+        use super::*;
+
+        let mut sg = SceneGraph::default();
+
+        // Create nodes
+        let n1 = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
+        let n2 = sg.new_coordinates(1.0, 1.0, 1.0, vec![]);
+        let n3 = sg.new_coordinates(2.0, 2.0, 2.0, vec![]);
+
+        let n1_id = n1.id;
+        let n2_id = n2.id;
+        let n3_id = n3.id;
+
+        // Create a layer and add nodes to it
+        sg.new_indexed_layer();
+        sg.layer_mut(0).unwrap().push_node(n1);
+        sg.layer_mut(0).unwrap().push_node(n2);
+        sg.layer_mut(0).unwrap().push_node(n3);
+
+        // create new semantic layer and nest all nodes under a new parent node
+        sg.new_layer();
+        // First test with indexing
+        let parent_node = sg.new_indexed_node(vec![]);
+        let pid = parent_node.id;
+        sg.top_layer_mut().unwrap().push_node(parent_node);
+        sg.nest(n1_id).under(pid).unwrap();
+        sg.nest(n2_id).under(pid).unwrap();
+        sg.nest(n3_id).under(pid).unwrap();
+
+        let coord = Coordinate::new(0.6, 0.6, 0.6);
+        let nearest_in_subtree = sg
+            .nearest_in_subtree(&coord, pid, PosQueryCount::Count(2))
+            .unwrap();
+        assert_eq!(nearest_in_subtree.len(), 2);
+        assert_eq!(
+            nearest_in_subtree[0].0.coordinates.unwrap(),
+            Coordinate::new(1.0, 1.0, 1.0)
+        );
+        assert_eq!(
+            nearest_in_subtree[1].0.coordinates.unwrap(),
+            Coordinate::new(0.0, 0.0, 0.0)
+        );
+
+        // Now test without indexing
+        let parent_node = sg.new_node(vec![]);
+        let pid = parent_node.id;
+        sg.top_layer_mut().unwrap().push_node(parent_node);
+        sg.nest(n1_id).under(pid).unwrap();
+        sg.nest(n2_id).under(pid).unwrap();
+        sg.nest(n3_id).under(pid).unwrap();
+
+        let coord = Coordinate::new(0.6, 0.6, 0.6);
+        let nearest_in_subtree = sg
+            .nearest_in_subtree(&coord, pid, PosQueryCount::Count(2))
+            .unwrap();
+        assert_eq!(nearest_in_subtree.len(), 2);
+        assert_eq!(
+            nearest_in_subtree[0].0.coordinates.unwrap(),
+            Coordinate::new(1.0, 1.0, 1.0)
+        );
+        assert_eq!(
+            nearest_in_subtree[1].0.coordinates.unwrap(),
+            Coordinate::new(0.0, 0.0, 0.0)
+        );
     }
 }

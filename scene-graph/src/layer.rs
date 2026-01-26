@@ -1,47 +1,52 @@
+use crate::pos::PositionQuery;
 use std::{
     collections::HashSet,
-    num::NonZero,
     ops::{Deref, DerefMut},
 };
 
-use kiddo::{SquaredEuclidean, float::kdtree::KdTree};
+use kiddo::float::kdtree::KdTree;
+use serde::{Deserialize, Serialize};
 
 use super::{Edge, Node, Observer};
-use crate::error::{SceneGraphError, Result};
+use crate::error::{Result, SceneGraphError};
 
 /// A Layer in the Scene Graph containing multiple Nodes and their Edges.
 /// Each Layer is a well-defined Graph structure representing a specific aspect of the scene,
 /// such as semantic relationships or physical connections between objects.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Layer {
     /// List of nodes in this layer.
     pub(super) nodes: Vec<Node>,
-    pos_index: Option<KdTree<f32, usize, 3, 32, u32>>,
+    /// Position index which keeps track of the coordinates of the sub tree of this node.
+    /// This is used for efficient spatial queries.
+    #[serde(skip)]
+    pos_index: Option<KdTree<f32, usize, 3, 128, u32>>,
 }
 
 /// Node Access and Modification
 impl Layer {
     /// Get a reference to a node by its ID.
     pub fn node(&self, id: usize) -> Result<&Node> {
-        self.nodes
-            .iter()
-            .find(|node| node.id == id)
-            .ok_or(SceneGraphError::NodeNotFound)
+        // Nodes are inserted in order, so binary search is safe here
+        let ptr = self
+            .nodes
+            .binary_search_by_key(&id, |node| node.id)
+            .map_err(|_| SceneGraphError::NodeNotFound)?;
+        Ok(&self.nodes[ptr])
     }
 
     /// Get a mutable reference to a node by its ID.
     pub fn node_mut(&mut self, id: usize) -> Result<NodeMut<'_>> {
-        self.nodes
-            .iter_mut()
-            .enumerate()
-            .find(|(_, node)| node.id == id)
-            .map(|(ptr, n)| (ptr, n.coordinates))
-            .map(|(node_ptr, prev_coords)| NodeMut {
-                prev_coords,
-                layer: self,
-                node_ptr,
-            })
-            .ok_or(SceneGraphError::NodeNotFound)
+        // Nodes are inserted in order, so binary search is safe here
+        let ptr = self
+            .nodes
+            .binary_search_by_key(&id, |node| node.id)
+            .map_err(|_| SceneGraphError::NodeNotFound)?;
+        Ok(NodeMut {
+            prev_coords: self.nodes[ptr].coordinates,
+            layer: self,
+            node_ptr: ptr,
+        })
     }
 
     /// Add a new node to the layer.
@@ -51,7 +56,11 @@ impl Layer {
         {
             pos_index.add(&coords.into(), node.id);
         }
-        self.nodes.push(node);
+        let ptr = match self.nodes.binary_search_by_key(&node.id, |n|n.id) {
+            Ok(ptr) => ptr,
+            Err(ptr) => ptr,
+        };
+        self.nodes.insert(ptr,node);
     }
 
     /// Add an edge from source node to destination node with a description.
@@ -80,6 +89,11 @@ impl Layer {
 
 /// Query
 impl Layer {
+    /// Get List of all nodes in the layer.
+    pub fn all_nodes(&self) -> impl ExactSizeIterator<Item = &Node> {
+        self.nodes.iter()
+    }
+
     /// Get List of all nodes matching a specific node features.
     pub fn nodes_having(&self, keys: &[&str]) -> Vec<&Node> {
         self.nodes
@@ -154,27 +168,18 @@ impl Layer {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
-    pub fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<&Node> {
-        let count = count.as_capped_usize(self.nodes.len());
+    pub fn nearest_nodes(
+        &self,
+        pos: &super::Coordinate,
+        count: PosQueryCount,
+    ) -> Vec<(&Node, f32)> {
         match &self.pos_index {
-            Some(pos_index) => {
-                let results = pos_index.nearest_n::<SquaredEuclidean>(&(*pos).into(), count);
-                results
-                    .into_iter()
-                    .filter_map(|n| self.node(n.item).ok())
-                    .collect()
-            }
-            None => {
-                let mut distances = self
-                    .nodes
-                    .iter()
-                    .filter(|n| n.coordinates.is_some())
-                    .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
-                    .collect::<Vec<(&Node, f32)>>();
-                distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-                distances.into_iter().take(count).map(|(n, _)| n).collect()
-            }
+            Some(pos_index) => pos_index.nearest_nodes(pos, count),
+            None => self.nodes.nearest_nodes(pos, count),
         }
+        .into_iter()
+        .filter_map(|(id, dist)| self.node(id).map(|node| (node, dist)).ok())
+        .collect()
     }
 
     /// Retrieve at most `count` nodes within a specified radius to the given position.
@@ -184,31 +189,14 @@ impl Layer {
         pos: &super::Coordinate,
         radius: f32,
         count: PosQueryCount,
-    ) -> Vec<&Node> {
-        let count = count.as_capped_usize(self.nodes.len());
+    ) -> Vec<(&Node, f32)> {
         match &self.pos_index {
-            Some(pos_index) => {
-                let results = pos_index.nearest_n_within::<SquaredEuclidean>(
-                    &(*pos).into(),
-                    radius * radius,
-                    unsafe { NonZero::new_unchecked(std::cmp::max(1, count)) },
-                    false,
-                );
-                results
-                    .iter()
-                    .filter_map(|n| self.node(n.item).ok())
-                    .collect()
-            }
-            None => self
-                .nodes
-                .iter()
-                .filter(|n| n.coordinates.is_some())
-                .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
-                .filter(|(_, d)| *d <= radius * radius)
-                .map(|(n, _)| n)
-                .take(count)
-                .collect::<Vec<&Node>>(),
+            Some(pos_index) => pos_index.nodes_within(pos, radius, count),
+            None => self.nodes.nodes_within(pos, radius, count),
         }
+        .into_iter()
+        .filter_map(|(id, dist)| self.node(id).map(|node| (node, dist)).ok())
+        .collect()
     }
 }
 
@@ -304,6 +292,25 @@ impl Layer {
     }
 }
 
+impl Layer {
+    /// Get an unsynced mutable reference to the Node, preventing syncronization between the
+    /// `Layer` and the `Node`.
+    ///
+    /// # Safety
+    /// This function is unsafe because it allows modification of the Node without updating
+    /// the Layer's position index. The caller must ensure that any changes to the Node's
+    /// coordinates are properly reflected in the Layer's position index to maintain consistency.
+    /// Get a mutable reference to a node by its ID.
+    pub(crate) unsafe fn node_mut_unsynced(&mut self, id: usize) -> Result<&mut Node> {
+        // Nodes are inserted in order, so binary search is safe here
+        let ptr = self
+            .nodes
+            .binary_search_by_key(&id, |node| node.id)
+            .map_err(|_| SceneGraphError::NodeNotFound)?;
+        Ok(&mut self.nodes[ptr])
+    }
+}
+
 impl Default for Layer {
     fn default() -> Self {
         Self::new()
@@ -363,9 +370,9 @@ pub enum PosQueryCount {
 
 impl PosQueryCount {
     /// Convert to usize, capping at the provided maximum value.
-    fn as_capped_usize(&self, cap: usize) -> usize {
+    pub(crate) fn as_capped_usize(&self) -> usize {
         match self {
-            PosQueryCount::All => cap,
+            PosQueryCount::All => usize::MAX,
             PosQueryCount::Count(k) => *k,
         }
     }
@@ -404,10 +411,10 @@ mod test {
         ];
         let mut layer = Layer::new();
         for (i, p) in pts.iter().enumerate() {
-            layer.push_node(Node::new(i, Vec::new(), Some(*p)));
+            layer.push_node(Node::new(i, Vec::new(), Some(*p), false));
         }
         // Node with no coordinates
-        layer.push_node(Node::new(pts.len(), Vec::new(), None));
+        layer.push_node(Node::new(pts.len(), Vec::new(), None, false));
 
         // fully connecting nodes to each other
         for src in 0..layer.nodes.len() {
@@ -445,7 +452,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(Node::new(i, Vec::new(), Some(*p)));
+            l.push_node(Node::new(i, Vec::new(), Some(*p), false));
         }
 
         let query_pos = Coordinate::new(0.6, 0.6, 0.6);
@@ -453,9 +460,9 @@ mod test {
         let nearest_nodes = l.nearest_nodes(&query_pos, PosQueryCount::Count(3));
         assert_eq!(nearest_nodes.len(), 3);
         // first 3 nearest nodes should be [1.0,1.0,1.0], [0.0,0.0,0.0], [2.0,2.0,2.0]
-        assert_eq!(nearest_nodes[0].coordinates.unwrap(), pts[1]);
-        assert_eq!(nearest_nodes[1].coordinates.unwrap(), pts[0]);
-        assert_eq!(nearest_nodes[2].coordinates.unwrap(), pts[2]);
+        assert_eq!(nearest_nodes[0].0.coordinates.unwrap(), pts[1]);
+        assert_eq!(nearest_nodes[1].0.coordinates.unwrap(), pts[0]);
+        assert_eq!(nearest_nodes[2].0.coordinates.unwrap(), pts[2]);
     }
 
     #[test]
@@ -471,7 +478,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(Node::new(i, Vec::new(), Some(*p)));
+            l.push_node(Node::new(i, Vec::new(), Some(*p), false));
         }
 
         let query_pos = Coordinate::new(2.0, 2.0, 2.0);
