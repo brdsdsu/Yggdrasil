@@ -2,7 +2,26 @@ use std::num::NonZero;
 
 use kiddo::{SquaredEuclidean, float::kdtree::KdTree, traits::DistanceMetric};
 
-use crate::{Coordinate, Node, PosQueryCount};
+use super::{Coordinate, Node};
+
+/// Specifies the number of nodes to return in position-based queries.
+#[derive(Debug, Clone, Copy)]
+pub enum PosQueryCount {
+    /// Return All matching nodes.
+    All,
+    /// Return a specific Count of matching nodes.
+    Count(usize),
+}
+
+impl PosQueryCount {
+    /// Convert to usize, capping at the provided maximum value.
+    pub(crate) fn as_capped_usize(&self) -> usize {
+        match self {
+            PosQueryCount::All => usize::MAX,
+            PosQueryCount::Count(k) => *k,
+        }
+    }
+}
 
 pub(crate) trait PositionQuery {
     /// Retrieve at most `count` nearest nodes to the given position.

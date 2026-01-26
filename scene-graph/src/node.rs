@@ -1,7 +1,7 @@
 use kiddo::float::kdtree::KdTree;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Result, SceneGraphError};
+use super::error::{Result, SceneGraphError};
 
 /// A node in the scene graph.
 /// Each node is designated to a unique layer in the scene graph and within that layer, it can have
@@ -10,8 +10,7 @@ use crate::error::{Result, SceneGraphError};
 /// Each node can hold a set of features, which are key-value pairs that provide additional
 /// information about the node. Nodes also support storeing 3D coordinates which can be used for
 /// Field-of-View calculations or spatial queries.
-#[derive(Debug, Clone)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     /// Unique identifier for the node.
     pub id: usize,
@@ -118,8 +117,7 @@ impl Node {
 pub type Coordinate = glam::Vec3;
 
 /// A feature associated with a node, represented as a key-value pair.
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Feature {
     /// Key of the feature.
     key: String,
@@ -147,8 +145,7 @@ impl Feature {
 }
 
 /// An edge connecting two nodes in the same layer.
-#[derive(Debug, Clone)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Edge {
     /// Source node ID.
     pub src: usize,

@@ -1,4 +1,3 @@
-use crate::pos::PositionQuery;
 use std::{
     collections::HashSet,
     ops::{Deref, DerefMut},
@@ -7,18 +6,23 @@ use std::{
 use kiddo::float::kdtree::KdTree;
 use serde::{Deserialize, Serialize};
 
+use super::error::{Result, SceneGraphError};
+use super::pos::{PosQueryCount, PositionQuery};
 use super::{Edge, Node, Observer};
-use crate::error::{Result, SceneGraphError};
 
-/// A Layer in the Scene Graph containing multiple Nodes and their Edges.
+/// A Layer in the Scene Graph containing multiple Nodes and their Edges, as weel as the
+/// relationships with other layers in the Scene Graph.
 /// Each Layer is a well-defined Graph structure representing a specific aspect of the scene,
 /// such as semantic relationships or physical connections between objects.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Layer {
+    /// Unique identifier for the layer.
+    pub id: u32,
     /// List of nodes in this layer.
-    pub(super) nodes: Vec<Node>,
-    /// Position index which keeps track of the coordinates of the sub tree of this node.
-    /// This is used for efficient spatial queries.
+    pub(crate) nodes: Vec<Node>,
+    /// List of child layer IDs.
+    pub(crate) children: Vec<u32>,
+    /// Optional spatial index for node positions.
     #[serde(skip)]
     pos_index: Option<KdTree<f32, usize, 3, 128, u32>>,
 }
@@ -50,17 +54,20 @@ impl Layer {
     }
 
     /// Add a new node to the layer.
-    pub fn push_node(&mut self, node: Node) {
+    /// Returns the ID of the newly added node.
+    pub fn push_node(&mut self, node: Node) -> usize {
         if let Some(pos_index) = &mut self.pos_index
             && let Some(coords) = node.coordinates
         {
             pos_index.add(&coords.into(), node.id);
         }
-        let ptr = match self.nodes.binary_search_by_key(&node.id, |n|n.id) {
+        let ptr = match self.nodes.binary_search_by_key(&node.id, |n| n.id) {
             Ok(ptr) => ptr,
             Err(ptr) => ptr,
         };
-        self.nodes.insert(ptr,node);
+        let nid = node.id;
+        self.nodes.insert(ptr, node);
+        nid
     }
 
     /// Add an edge from source node to destination node with a description.
@@ -68,6 +75,7 @@ impl Layer {
     pub fn add_edge(&mut self, src: usize, dst: usize, desc: &str) -> Result<()> {
         // Ensure destination node exists
         let _ = self.node(dst)?;
+
         let mut src_node = self.node_mut(src)?;
         src_node.edges.push(Edge::new(src, dst, desc));
         Ok(())
@@ -83,6 +91,16 @@ impl Layer {
             .position(|edge| edge.dst == dst)
             .ok_or(SceneGraphError::EdgeNotFound)?;
         src_node.edges.swap_remove(index);
+        Ok(())
+    }
+
+    pub fn add_child(&mut self, child_id: u32) -> Result<()> {
+        if child_id >= self.id {
+            return Err(SceneGraphError::InvalidLayersForNesting(child_id, self.id));
+        }
+        if !self.children.contains(&child_id) {
+            self.children.push(child_id);
+        }
         Ok(())
     }
 }
@@ -158,7 +176,12 @@ impl Layer {
             None => None,
         };
 
-        let mut l = Self { nodes, pos_index };
+        let mut l = Self {
+            id: self.id,
+            nodes,
+            pos_index,
+            children: self.children.clone(),
+        };
 
         // prune edges to out-of-view nodes
         l.prune();
@@ -229,14 +252,6 @@ impl Layer {
         }
         Ok(())
     }
-
-    /// Prune edges that point to non-existing nodes in the layer.
-    pub(super) fn prune(&mut self) {
-        let node_ids: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
-        self.nodes
-            .iter_mut()
-            .for_each(|n| n.edges.retain(|e| node_ids.contains(&e.dst)));
-    }
 }
 
 impl Layer {
@@ -245,9 +260,11 @@ impl Layer {
     ///
     /// [`nearest_nodes`]: Layer::nearest_nodes
     /// [`nodes_within`]: Layer::nodes_within
-    pub(super) fn new() -> Self {
+    pub(super) fn new(id: u32) -> Self {
         Self {
+            id,
             nodes: Vec::new(),
+            children: Vec::new(),
             pos_index: None,
         }
     }
@@ -258,9 +275,11 @@ impl Layer {
     ///
     /// [`nearest_nodes`]: Layer::nearest_nodes
     /// [`nodes_within`]: Layer::nodes_within
-    pub(super) fn with_pos_index() -> Self {
+    pub(super) fn with_pos_index(id: u32) -> Self {
         Self {
+            id,
             nodes: Vec::new(),
+            children: Vec::new(),
             pos_index: Some(KdTree::new()),
         }
     }
@@ -286,9 +305,47 @@ impl Layer {
 
     /// Retain only the nodes specified in the retain_nodes list.
     /// All other nodes and their associated edges will be removed from the layer.
-    pub(super) fn retain_nodes(&mut self, retain_nodes: &[usize]) {
+    pub(crate) fn retain_nodes(&mut self, retain_nodes: &[usize]) {
         self.nodes.retain(|node| retain_nodes.contains(&node.id));
         self.prune();
+    }
+
+    /// Prune edges that point to non-existing nodes in the layer.
+    pub(crate) fn prune(&mut self) {
+        let node_ids: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        self.nodes
+            .iter_mut()
+            .for_each(|n| n.edges.retain(|e| node_ids.contains(&e.dst)));
+    }
+
+    /// Create a subset Layer containing only the specified nodes.
+    pub(crate) fn subset(&self, nodes: &[usize]) -> Self {
+        let nodes: Vec<Node> = self
+            .nodes
+            .iter()
+            .filter(|n| nodes.contains(&n.id))
+            .cloned()
+            .collect();
+        let pos_index = match self.pos_index {
+            Some(_) => {
+                let mut pos_index = KdTree::new();
+                for node in &nodes {
+                    if let Some(coords) = node.coordinates {
+                        pos_index.add(&coords.into(), node.id);
+                    }
+                }
+                Some(pos_index)
+            }
+            None => None,
+        };
+        let mut l = Self {
+            id: self.id,
+            nodes,
+            pos_index,
+            children: self.children.clone(),
+        };
+        l.prune();
+        l
     }
 }
 
@@ -308,12 +365,6 @@ impl Layer {
             .binary_search_by_key(&id, |node| node.id)
             .map_err(|_| SceneGraphError::NodeNotFound)?;
         Ok(&mut self.nodes[ptr])
-    }
-}
-
-impl Default for Layer {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -359,25 +410,6 @@ impl Drop for NodeMut<'_> {
     }
 }
 
-/// Specifies the number of nodes to return in position-based queries.
-#[derive(Debug, Clone, Copy)]
-pub enum PosQueryCount {
-    /// Return All matching nodes.
-    All,
-    /// Return a specific Count of matching nodes.
-    Count(usize),
-}
-
-impl PosQueryCount {
-    /// Convert to usize, capping at the provided maximum value.
-    pub(crate) fn as_capped_usize(&self) -> usize {
-        match self {
-            PosQueryCount::All => usize::MAX,
-            PosQueryCount::Count(k) => *k,
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::super::Coordinate;
@@ -409,7 +441,7 @@ mod test {
             Coordinate::new(6.0, 6.0, 6.0), // outside
             Coordinate::new(6.0, 6.0, 6.0), // outside
         ];
-        let mut layer = Layer::new();
+        let mut layer = Layer::default();
         for (i, p) in pts.iter().enumerate() {
             layer.push_node(Node::new(i, Vec::new(), Some(*p), false));
         }
@@ -441,7 +473,7 @@ mod test {
 
     #[test]
     fn nearest_query() {
-        let mut l = Layer::with_pos_index();
+        let mut l = Layer::with_pos_index(0);
         assert!(l.pos_index.is_some());
 
         let pts = [
@@ -467,7 +499,7 @@ mod test {
 
     #[test]
     fn radius_query() {
-        let mut l = Layer::with_pos_index();
+        let mut l = Layer::with_pos_index(0);
         assert!(l.pos_index.is_some());
 
         let pts = [

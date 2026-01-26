@@ -13,11 +13,11 @@ pub enum SceneGraphError {
     #[error("point not found")]
     PointNotFound,
 
-    #[error("layer index out of bounds: {0} is not within (0, {1})")]
-    LayerOutOfBounds(usize, usize),
+    #[error("layer not found")]
+    LayerNotFound,
 
     #[error("invalid layers for nesting: cannot nest layer {0} within layer {1}")]
-    InvalidLayersForNesting(usize, usize),
+    InvalidLayersForNesting(u32, u32),
 
     #[error("feature '{0}' not found")]
     FeatureNotFound(String),
