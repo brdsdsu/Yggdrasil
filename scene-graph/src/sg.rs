@@ -1,23 +1,26 @@
-use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
     error::{Result, SceneGraphError},
     fov::Observer,
-    layer::{Layer, NodeMut, PosQueryCount},
+    layer::{Layer, NodeMut},
     node::{Coordinate, Edge, Feature, Node},
-    pos::PositionQuery,
+    pos::{PosQueryCount, PositionQuery},
 };
 
 /// A hierarchical representation of objects and their relationships in a 3D environment.
 /// The scene graph is organized into layers, where each layer contains nodes representing objects.
-/// Nodes on adjacent layers can have parent-child relationships, and edges can represent various
-/// types of connections between nodes.
+/// The layers together form a DAG Structure, with the top layer representing the root layer
+/// of the scene.
+/// Within each layer, nodes can have edges connecting them to other nodes in the same layer,
+/// forming a graph structure.
+/// Nodes on a layer can also have parent-child relationships with nodes of layers that are
+/// children of the layer they belong to.
 ///
-/// The scene graph supports operations such as adding/removing nodes and edges,
-/// nesting nodes under other nodes, and querying nodes by their IDs.
-#[derive(Debug, Default, Clone)]
-#[derive(Serialize, Deserialize)]
+/// The SceneGraph is optimized for executing spatical queries that are used in 3D environments
+/// such as navigation, localization, and mapping.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SceneGraph {
     /// Layers of the scene graph, where each layer is either a Semantic or a Physical
     /// representation of the scene.
@@ -25,6 +28,9 @@ pub struct SceneGraph {
 
     /// Counter to assign unique IDs to nodes.
     node_counter: usize,
+
+    /// Counter to assign unique IDs to layers.
+    layer_counter: u32,
 }
 
 impl SceneGraph {
@@ -35,7 +41,9 @@ impl SceneGraph {
     /// [`nearest_nodes`]: SceneGraph::nearest_nodes
     /// [`nodes_within`]: SceneGraph::nodes_within
     pub fn new_layer(&mut self) -> &mut Layer {
-        self.layers.push(Layer::new());
+        let lid = self.layer_counter;
+        self.layer_counter += 1;
+        self.layers.push(Layer::new(lid));
         self.layers.last_mut().unwrap()
     }
 
@@ -47,7 +55,9 @@ impl SceneGraph {
     /// [`nearest_nodes`]: SceneGraph::nearest_nodes
     /// [`nodes_within`]: SceneGraph::nodes_within
     pub fn new_indexed_layer(&mut self) -> &mut Layer {
-        self.layers.push(Layer::with_pos_index());
+        let lid = self.layer_counter;
+        self.layer_counter += 1;
+        self.layers.push(Layer::with_pos_index(lid));
         self.layers.last_mut().unwrap()
     }
 
@@ -60,53 +70,53 @@ impl SceneGraph {
     /// The subgraph includes the specified node and all its descendants.
     /// If the node is not found, an error is returned.
     fn subgraph(&self, root_node_id: usize) -> Result<SceneGraph> {
-        let mut layers = Vec::new();
-        let mut nodes_to_visit = vec![root_node_id];
+        let mut subgraph = SceneGraph::default();
         let root_layer_id = self.layer_of(root_node_id)?;
-        let mut cur_layer = self.layer(root_layer_id)?;
+        let mut layers = HashSet::new();
 
-        // Starting from the root layer, traverse downwards to build the subgraph
-        // at each layer, collecting nodes that are children of the nodes in the previous layer
-        // and adding their children to the next layer to visit.
-        while !nodes_to_visit.is_empty() {
-            let mut layer = Layer::new();
-            let mut next_nodes_to_visit = Vec::new();
-            for nid in nodes_to_visit {
-                if let Ok(node) = cur_layer.node(nid) {
-                    next_nodes_to_visit.extend(node.children.iter());
-                    layer.push_node(node.clone());
+        // BFS to get all layers accissable from root_layer_id downwards
+        let mut layers_queue = VecDeque::new();
+        layers_queue.push_back(root_layer_id);
+        while let Some(layer_id) = layers_queue.pop_front() {
+            let layer = self.layer(layer_id)?;
+            layers.insert(layer_id);
+            for &clid in layer.children.iter() {
+                layers_queue.push_back(clid);
+            }
+        }
+        let mut layers = layers.into_iter().collect::<Vec<u32>>();
+        layers.sort();
+        let mut layers = layers
+            .iter()
+            .map(|&lid| (lid, HashSet::new()))
+            .collect::<Vec<_>>();
+
+        // layers are in topological order from root downwards. so by the time we reach to a layer,
+        // all its parents have been processed.
+        let last_index = layers.len() - 1;
+        layers[last_index].1.insert(root_node_id);
+        while let Some((lid, nodes)) = layers.pop() {
+            if nodes.is_empty() {
+                continue;
+            }
+            let layer = self.layer(lid)?;
+            let nodes: Vec<usize> = nodes.into_iter().collect();
+            let l = layer.subset(&nodes);
+            for nid in nodes {
+                for cid in &l.node(nid)?.children {
+                    let clid = self.layer_of(*cid)?;
+                    let ptr = layers
+                        .binary_search_by_key(&clid, |(lid, _)| *lid)
+                        .map_err(|_| SceneGraphError::LayerNotFound)?;
+                    layers[ptr].1.insert(*cid);
                 }
             }
-            // Prune edges to only include those between nodes in the subgraph
-            layer.prune();
-            layers.push(layer);
-            if root_layer_id < layers.len() {
-                break; // Reached the bottom layer
-            }
-            cur_layer = match self.layer(root_layer_id - layers.len()) {
-                Ok(l) => l,
-                Err(_) => break, // No more layers to process
-            };
-            nodes_to_visit = next_nodes_to_visit;
+            subgraph.layers.push(l);
         }
-        // Ensure the subgraph has the same number of layers as the original up to the root layer
-        if root_layer_id > layers.len() {
-            layers.extend(std::iter::repeat_with(Layer::new).take(root_layer_id - layers.len()));
-        }
-
-        // remove the parent id of the root node.
-        // root node and first layer do exist in the subgraph hence the unwraps.
-        layers
-            .first_mut()
-            .unwrap()
-            .node_mut(root_node_id)
-            .unwrap()
-            .pid = None;
-
-        Ok(Self {
-            node_counter: self.node_counter,
-            layers: layers.into_iter().rev().collect(),
-        })
+        subgraph.layers.reverse();
+        subgraph.layer_counter = self.layer_counter;
+        subgraph.node_counter = self.node_counter;
+        Ok(subgraph)
     }
 }
 
@@ -132,41 +142,40 @@ impl SceneGraph {
 impl SceneGraph {
     /// Get a mutable reference to the top layer.
     pub fn top_layer_mut(&mut self) -> Result<&mut Layer> {
-        self.layers
-            .last_mut()
-            .ok_or(SceneGraphError::LayerOutOfBounds(0, 0))
+        self.layers.last_mut().ok_or(SceneGraphError::LayerNotFound)
     }
 
     /// Get an immutable reference to the top layer.
     pub fn top_layer(&self) -> Result<&Layer> {
-        self.layers
-            .last()
-            .ok_or(SceneGraphError::LayerOutOfBounds(0, 0))
+        self.layers.last().ok_or(SceneGraphError::LayerNotFound)
     }
 
     /// Get an immutable reference to a layer by its index.
-    pub fn layer(&self, index: usize) -> Result<&Layer> {
-        self.layers
-            .get(index)
-            .ok_or(SceneGraphError::LayerOutOfBounds(index, self.layers.len()))
+    pub fn layer(&self, id: u32) -> Result<&Layer> {
+        let layer_index = self
+            .layers
+            .binary_search_by_key(&id, |l| l.id)
+            .or(Err(SceneGraphError::LayerNotFound))?;
+        Ok(&self.layers[layer_index])
     }
 
     /// Get a mutable reference to a layer by its index.
-    pub fn layer_mut(&mut self, index: usize) -> Result<&mut Layer> {
-        let layers_count = self.layers.len();
-        self.layers
-            .get_mut(index)
-            .ok_or(SceneGraphError::LayerOutOfBounds(index, layers_count))
+    pub fn layer_mut(&mut self, id: u32) -> Result<&mut Layer> {
+        let layer_index = self
+            .layers
+            .binary_search_by_key(&id, |l| l.id)
+            .or(Err(SceneGraphError::LayerNotFound))?;
+        Ok(&mut self.layers[layer_index])
     }
 
     /// Get the layer index of a node by its ID.
-    pub fn layer_of(&self, nid: usize) -> Result<usize> {
+    pub fn layer_of(&self, nid: usize) -> Result<u32> {
         let nestee_layer_id = self
             .layers
             .iter()
             .position(|l| l.node(nid).is_ok())
             .ok_or(SceneGraphError::NodeNotFound)?;
-        Ok(nestee_layer_id)
+        Ok(self.layers[nestee_layer_id].id)
     }
 }
 
@@ -231,7 +240,7 @@ impl SceneGraph {
         }
 
         // Recursively delete the node and its children
-        fn del_node_recursive(sg: &mut SceneGraph, lid: usize, nid: usize) -> Result<()> {
+        fn del_node_recursive(sg: &mut SceneGraph, lid: u32, nid: usize) -> Result<()> {
             let layer = sg.layer_mut(lid)?;
             let children = layer.del_node(nid)?.children;
             for child_id in children {
@@ -251,25 +260,30 @@ impl SceneGraph {
     ///
     /// ```rust
     /// # use scene_graph::SceneGraph;
+    /// # use scene_graph::Result;
+    ///
+    /// # fn main() -> Result<()> {
     /// # let mut sg = SceneGraph::default();
     ///
     /// // Create nodes
     /// let node1 = sg.new_node(vec![]);
     /// let node2 = sg.new_node(vec![]);
-    /// let id1 = node1.id;
-    /// let id2 = node2.id;
     ///
     /// // Create a layer and add nodes to it
-    /// sg.new_layer();
-    /// sg.new_layer();
-    /// sg.layer_mut(0).unwrap().push_node(node1);
-    /// sg.layer_mut(1).unwrap().push_node(node2);
+    /// let lid0 = sg.new_layer().id;
+    /// let layer = sg.new_layer();
+    /// layer.add_child(lid0)?;
+    /// let id1 = sg.layer_mut(0)?.push_node(node1);
+    /// let id2 = sg.layer_mut(1)?.push_node(node2);
     ///
     /// // Nest node1 under node2
-    /// sg.nest(id1).under(id2).unwrap();
+    /// sg.nest(id1).under(id2)?;
     ///
-    /// assert_eq!(sg.node(id2).unwrap().children, vec![id1]);
-    /// assert_eq!(sg.node(id1).unwrap().pid, Some(id2));
+    /// assert_eq!(sg.node(id2)?.children, vec![id1]);
+    /// assert_eq!(sg.node(id1)?.pid, Some(id2));
+    ///
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn nest(&mut self, nid: usize) -> NestUnder<'_> {
         NestUnder {
@@ -298,38 +312,41 @@ impl SceneGraph {
     /// The check is done using the nodes' coordinates and nodes without coordinates are pruned.
     /// nodes from upper layers that have no descendants within the field of view are also pruned.
     pub fn visible_subgraph(&self, observer: Observer, root_node_id: usize) -> Result<Self> {
-        let subgraph_layers = self.subgraph(root_node_id)?.layers;
-
-        if subgraph_layers.is_empty() {
-            return Ok(Default::default());
+        let mut subgraph = self.subgraph(root_node_id)?;
+        if subgraph.layers.is_empty() {
+            return Ok(SceneGraph::default());
         }
-        let first_layer = subgraph_layers[0].observable_nodes(observer);
 
-        let mut retain_nodes = first_layer
-            .nodes
-            .iter()
-            .filter_map(|n| n.pid)
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-
-        let mut layers = vec![first_layer];
-
-        for mut layer in subgraph_layers.into_iter().skip(1) {
-            layer.retain_nodes(&retain_nodes.into_iter().collect::<Vec<_>>());
-            retain_nodes = layer
+        let mut should_retain_nodes = HashMap::new();
+        for layer in &subgraph.layers {
+            should_retain_nodes.insert(layer.id, HashSet::new());
+        }
+        let mut layers = Vec::new();
+        for layer in &subgraph.layers {
+            let observed = should_retain_nodes.remove(&layer.id).unwrap_or_default();
+            let observed: Vec<usize> = layer
+                .observable_nodes(observer)
                 .nodes
                 .iter()
-                .filter_map(|n| n.pid)
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            layers.push(layer);
+                .map(|n| n.id)
+                .chain(observed.into_iter())
+                .collect();
+            let l = layer.subset(&observed);
+            for node in &l.nodes {
+                if let Some(pid) = node.pid {
+                    let parent_layer_id = subgraph.layer_of(pid)?;
+                    should_retain_nodes
+                        .entry(parent_layer_id)
+                        .and_modify(|nodes| {
+                            nodes.insert(pid);
+                        });
+                }
+            }
+            layers.push(l);
         }
-        Ok(Self {
-            node_counter: self.node_counter,
-            layers,
-        })
+
+        subgraph.layers = layers;
+        Ok(subgraph)
     }
 
     /// Retrieve at most `count` nearest nodes to the given position.
@@ -410,7 +427,9 @@ impl SceneGraph {
     ///
     /// # use scene_graph::SceneGraph;
     /// # use scene_graph::{Coordinate, PosQueryCount};
+    /// # use scene_graph::Result;
     ///
+    /// # fn main() -> Result<()> {
     /// let mut sg = SceneGraph::default();
     ///
     /// // Create nodes
@@ -418,30 +437,29 @@ impl SceneGraph {
     /// let n2 = sg.new_coordinates(1.0, 1.0, 1.0, vec![]);
     /// let n3 = sg.new_coordinates(2.0, 2.0, 2.0, vec![]);
     ///
-    /// let n1_id = n1.id;
-    /// let n2_id = n2.id;
-    /// let n3_id = n3.id;
-    ///
     /// // Create a layer and add nodes to it
-    /// sg.new_indexed_layer();
-    /// sg.layer_mut(0).unwrap().push_node(n1);
-    /// sg.layer_mut(0).unwrap().push_node(n2);
-    /// sg.layer_mut(0).unwrap().push_node(n3);
+    /// let first_layer_id = sg.new_indexed_layer().id;
+    /// let n1_id = sg.layer_mut(0)?.push_node(n1);
+    /// let n2_id = sg.layer_mut(0)?.push_node(n2);
+    /// let n3_id = sg.layer_mut(0)?.push_node(n3);
     ///
     /// // create new semantic layer and nest all nodes under a new parent node
-    /// sg.new_layer();
+    /// let semantic_layer = sg.new_layer();
+    /// semantic_layer.add_child(first_layer_id)?;
     /// let parent_node = sg.new_indexed_node(vec![]);
-    /// let pid = parent_node.id;
-    /// sg.top_layer_mut().unwrap().push_node(parent_node);
-    /// sg.nest(n1_id).under(pid).unwrap();
-    /// sg.nest(n2_id).under(pid).unwrap();
-    /// sg.nest(n3_id).under(pid).unwrap();
+    /// let pid = sg.top_layer_mut()?.push_node(parent_node);
+    /// sg.nest(n1_id).under(pid)?;
+    /// sg.nest(n2_id).under(pid)?;
+    /// sg.nest(n3_id).under(pid)?;
     ///
     /// let coord = Coordinate::new(0.6, 0.6, 0.6);
-    /// let nearest_in_subtree = sg.nearest_in_subtree(&coord, pid, PosQueryCount::Count(2)).unwrap();
+    /// let nearest_in_subtree = sg.nearest_in_subtree(&coord, pid, PosQueryCount::Count(2))?;
     /// assert_eq!(nearest_in_subtree.len(), 2);
     /// assert_eq!(nearest_in_subtree[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
     /// assert_eq!(nearest_in_subtree[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
+    ///
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn nearest_in_subtree(
         &self,
@@ -529,16 +547,14 @@ impl<'a> NestUnder<'a> {
     ///
     /// [`nest`](SceneGraph::nest)
     pub fn under(&mut self, nester: usize) -> Result<&mut SceneGraph> {
-        //! TODO: diccuss bringing back layer check for nesting
-        // let nester_layer_id = self.sg.layer_of(nester)?;
-        // let nestee_layer_id = self.sg.layer_of(self.nestee)?;
-        //
-        // if nester_layer_id - 1 != nestee_layer_id {
-        //     return Err(SceneGraphError::InvalidLayersForNesting(
-        //         nestee_layer_id,
-        //         nester_layer_id,
-        //     ));
-        // }
+        let nester_layer_id = self.sg.layer_of(nester)?;
+        let nestee_layer_id = self.sg.layer_of(self.nestee)?;
+        let nester_layer = self.sg.layer(nester_layer_id)?;
+        if !nester_layer.children.contains(&nestee_layer_id) {
+            return Err(SceneGraphError::InvalidLayersForNesting(nestee_layer_id, nester_layer_id));
+        }
+        
+        
 
         let nestee = unsafe { self.sg.node_mut_unsynced(self.nestee)? };
         match nestee.pid {
@@ -565,5 +581,76 @@ impl<'a> NestUnder<'a> {
         }
 
         Ok(self.sg)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn subgraph() -> Result<()> {
+        // creating a scene graph with 3 layers, with the following structure:
+        // layers structure:
+        // Layer 2
+        //   ├── Layer 1
+        //   └────└── Layer 0
+        //
+        // Nodes structure:
+        // n2
+        // ├── n1
+        // └────── n0
+        // m2
+        // ├── m1
+        // └────── m0
+        let mut sg = SceneGraph::default();
+        sg.new_layer();
+        sg.new_layer();
+        sg.new_layer();
+
+        sg.top_layer_mut()?.add_child(0)?;
+        sg.top_layer_mut()?.add_child(1)?;
+        sg.layer_mut(1)?.add_child(0)?;
+
+        let n0 = sg.new_node(vec![Feature::new("name", "n0")]);
+        let n1 = sg.new_node(vec![Feature::new("name", "n1")]);
+        let n2 = sg.new_node(vec![Feature::new("name", "n2")]);
+
+        let m0 = sg.new_node(vec![Feature::new("name", "m0")]);
+        let m1 = sg.new_node(vec![Feature::new("name", "m1")]);
+        let m2 = sg.new_node(vec![Feature::new("name", "m2")]);
+
+        let n0 = sg.layer_mut(0)?.push_node(n0);
+        let n1 = sg.layer_mut(1)?.push_node(n1);
+        let n2 = sg.layer_mut(2)?.push_node(n2);
+
+        let m0 = sg.layer_mut(0)?.push_node(m0);
+        let m1 = sg.layer_mut(1)?.push_node(m1);
+        let m2 = sg.layer_mut(2)?.push_node(m2);
+
+        sg.nest(n0).under(n2)?;
+        sg.nest(n1).under(n2)?;
+
+        sg.nest(m0).under(m2)?;
+        sg.nest(m1).under(m2)?;
+
+        // subgraph for n2 should only contain n2, n1, n0
+        let subgraph_n2 = sg.subgraph(n2)?;
+        assert_eq!(subgraph_n2.layers.len(), 3);
+        assert_eq!(subgraph_n2.layer(0)?.nodes.len(), 1);
+        assert_eq!(subgraph_n2.layer(1)?.nodes.len(), 1);
+        assert_eq!(subgraph_n2.layer(2)?.nodes.len(), 1);
+        assert_eq!(subgraph_n2.node(n2)?.features[0].value(), "n2");
+        assert_eq!(subgraph_n2.node(n1)?.features[0].value(), "n1");
+        assert_eq!(subgraph_n2.node(n0)?.features[0].value(), "n0");
+
+        // subgraph for m1 should only contain m1
+        let subgraph_m1 = sg.subgraph(m1)?;
+        assert_eq!(subgraph_m1.layers.len(), 1);
+        assert_eq!(subgraph_m1.layer(1)?.nodes.len(), 1);
+        assert_eq!(subgraph_m1.node(m1)?.features[0].value(), "m1");
+        assert_eq!(subgraph_m1.layer(1)?.id, sg.layer_of(m1)?);
+        // there should be no layer with id 0 in the subgraph
+        assert!(subgraph_m1.layer(0).is_err());
+        Ok(())
     }
 }

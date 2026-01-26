@@ -9,11 +9,11 @@ use std::sync::{Arc, Mutex};
 #[pyclass(name = "Layer")]
 pub struct PyLayerRef {
     sg: Arc<Mutex<SceneGraph>>,
-    lid: usize,
+    lid: u32,
 }
 
 impl PyLayerRef {
-    pub fn new(sg: Arc<Mutex<SceneGraph>>, lid: usize) -> Self {
+    pub fn new(sg: Arc<Mutex<SceneGraph>>, lid: u32) -> Self {
         Self { sg, lid }
     }
 }
