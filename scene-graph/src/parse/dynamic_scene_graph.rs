@@ -13,15 +13,15 @@ impl TryFrom<SceneGraph> for DynamicSceneGraph {
             for (lid, layer) in sg.layers.iter().enumerate() {
                 dsg.add_layer(lid)?;
                 for node in &layer.nodes {
-                    dsg.add_node(lid, node.id, node.coordinates)?;
+                    dsg.add_node(lid, node.id.as_u64() as usize, node.coordinates)?;
                     for child_id in &node.children {
-                        dsg.nest(node.id, *child_id)?;
+                        dsg.nest(node.id.as_u64() as usize, child_id.as_u64() as usize)?;
                     }
                 }
                 // edge description is lost
                 for node in &layer.nodes {
                     for edge in &node.edges {
-                        dsg.add_edge(node.id, edge.dst)?;
+                        dsg.add_edge(node.id.as_u64() as usize, edge.dst.as_u64() as usize)?;
                     }
                 }
             }

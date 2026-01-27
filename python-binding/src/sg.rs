@@ -2,12 +2,12 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     layer::{PyLayerRef, PyObserver, PyPosQueryCount},
-    node::{PyEdge, PyFeature, PyNode, PyNodeRef},
+    node::{PyEdge, PyFeature, PyAnonNode, PyNodeId, PyNodeRef},
 };
 
 use super::error::Result;
 use pyo3::prelude::*;
-use scene_graph::{Coordinate, SceneGraph};
+use scene_graph::{Coordinate, NodeId, SceneGraph};
 
 /// A hierarchical representation of objects and their relationships in a 3D environment.
 /// The scene graph is organized into layers, where each layer contains nodes representing objects.
@@ -78,47 +78,47 @@ impl PySceneGraphRef {
     }
 
     /// Get the layer index of a node by its ID.
-    pub fn layer_of(&self, nid: usize) -> Result<u32> {
-        self.inner.lock().unwrap().layer_of(nid).map_err(Into::into)
+    pub fn layer_of(&self, nid: PyNodeId) -> u32 {
+        NodeId::from(nid).layer_id()
     }
 
     /// Get a reference to a node by its ID.
-    pub fn node(&self, nid: usize) -> PyNodeRef {
-        PyNodeRef::new(Arc::clone(&self.inner), nid)
+    pub fn node(&self, nid: PyNodeId) -> PyNodeRef {
+        PyNodeRef::new(Arc::clone(&self.inner), nid.into())
     }
 
     /// Create a new Metric Node with specified coordinates and features.
-    pub fn new_coordinates(&mut self, x: f32, y: f32, z: f32, features: Vec<PyFeature>) -> PyNode {
+    pub fn new_coordinates(&mut self, x: f32, y: f32, z: f32, features: Vec<PyFeature>) -> PyAnonNode {
         let features = features.iter().map(Into::into).collect();
         let node = self
             .inner
             .lock()
             .unwrap()
             .new_coordinates(x, y, z, features);
-        PyNode::new(node)
+        PyAnonNode::new(node)
     }
 
     /// Create a new Indexed Semantic Node with specified features.
     /// This node will have position indexing enabled and will track of the coordinates of its
     /// sub-tree for efficient spatial queries.
-    pub fn new_indexed_node(&mut self, features: Vec<PyFeature>) -> PyNode {
+    pub fn new_indexed_node(&mut self, features: Vec<PyFeature>) -> PyAnonNode {
         let features = features.iter().map(Into::into).collect();
         let node = self.inner.lock().unwrap().new_indexed_node(features);
-        PyNode::new(node)
+        PyAnonNode::new(node)
     }
 
     /// Create a new Semantic Node with specified features.
-    pub fn new_node(&mut self, features: Vec<PyFeature>) -> PyNode {
+    pub fn new_node(&mut self, features: Vec<PyFeature>) -> PyAnonNode {
         let features = features.iter().map(Into::into).collect();
         let node = self.inner.lock().unwrap().new_node(features);
-        PyNode::new(node)
+        PyAnonNode::new(node)
     }
 
     /// Delete a node by its ID from the Scene Graph.
     /// This will also recursively delete all child nodes of the specified node.
     /// If the node has a parent, it will be removed from the parent's list of children.
-    pub fn del_node(&mut self, nid: usize) -> Result<()> {
-        self.inner.lock().unwrap().del_node(nid).map_err(Into::into)
+    pub fn del_node(&mut self, nid: PyNodeId) -> Result<()> {
+        self.inner.lock().unwrap().del_node(nid.into()).map_err(Into::into)
     }
 
     /// Nest a node under another node, establishing a parent-child relationship.
@@ -150,8 +150,8 @@ impl PySceneGraphRef {
     /// assert_eq!(sg.node(id2).unwrap().children, vec![id1]);
     /// assert_eq!(sg.node(id1).unwrap().pid, Some(id2));
     /// ```
-    pub fn nest(&mut self, nestee: usize, nester: usize) -> Result<()> {
-        let _ = self.inner.lock().unwrap().nest(nestee).under(nester);
+    pub fn nest(&mut self, nestee: PyNodeId, nester: PyNodeId) -> Result<()> {
+        let _ = self.inner.lock().unwrap().nest(nestee.into()).under(nester.into());
         Ok(())
     }
 
@@ -196,9 +196,9 @@ impl PySceneGraphRef {
     /// Get a subgraph containing nodes within the field of view of an observer and are descendants of the specified root node.
     /// The check is done using the nodes' coordinates and nodes without coordinates are pruned.
     /// nodes from upper layers that have no descendants within the field of view are also pruned.
-    pub fn visible_subgraph(&self, observer: PyObserver, root_node_id: usize) -> Result<Self> {
+    pub fn visible_subgraph(&self, observer: PyObserver, root_node_id: PyNodeId) -> Result<Self> {
         let sg = &self.inner.lock().unwrap();
-        let subgraph = sg.visible_subgraph(observer.into(), root_node_id)?;
+        let subgraph = sg.visible_subgraph(observer.into(), root_node_id.into())?;
         Ok(Self {
             inner: Arc::new(Mutex::new(subgraph)),
         })
@@ -330,14 +330,14 @@ impl PySceneGraphRef {
     pub fn nearest_in_subtree(
         &self,
         coord: (f32, f32, f32),
-        root: usize,
+        root: PyNodeId,
         count: PyPosQueryCount,
     ) -> Result<Vec<(PyNodeRef, f32)>> {
         let coords = coord.into();
         self.inner
             .lock()
             .unwrap()
-            .nearest_in_subtree(&coords, root, count.into())
+            .nearest_in_subtree(&coords, root.into(), count.into())
             .map(|nodes| {
                 nodes
                     .into_iter()
@@ -351,7 +351,7 @@ impl PySceneGraphRef {
     pub fn nearest_in_subtree_for_each(
         &self,
         points: Vec<(f32, f32, f32)>,
-        root: usize,
+        root: PyNodeId,
         count: PyPosQueryCount,
     ) -> Result<Vec<Vec<(PyNodeRef, f32)>>> {
         points
@@ -402,22 +402,22 @@ impl PySceneGraphRef {
     }
 
     /// Get List of all edges from a specific source node.
-    pub fn edges_from(&self, src: usize) -> Vec<PyEdge> {
+    pub fn edges_from(&self, src: PyNodeId) -> Vec<PyEdge> {
         self.inner
             .lock()
             .unwrap()
-            .edges_from(src)
+            .edges_from(src.into())
             .into_iter()
             .map(Into::into)
             .collect()
     }
 
     /// Get List of all edges to a specific destination node.
-    pub fn edges_to(&self, dst: usize) -> Vec<PyEdge> {
+    pub fn edges_to(&self, dst: PyNodeId) -> Vec<PyEdge> {
         self.inner
             .lock()
             .unwrap()
-            .edges_to(dst)
+            .edges_to(dst.into())
             .into_iter()
             .map(Into::into)
             .collect()

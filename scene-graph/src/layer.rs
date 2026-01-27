@@ -6,9 +6,11 @@ use std::{
 use kiddo::float::kdtree::KdTree;
 use serde::{Deserialize, Serialize};
 
+use crate::IntoNode;
+
 use super::error::{Result, SceneGraphError};
 use super::pos::{PosQueryCount, PositionQuery};
-use super::{Edge, Node, Observer};
+use super::{Edge, Node, NodeId, Observer};
 
 /// A Layer in the Scene Graph containing multiple Nodes and their Edges, as weel as the
 /// relationships with other layers in the Scene Graph.
@@ -24,13 +26,13 @@ pub struct Layer {
     pub(crate) children: Vec<u32>,
     /// Optional spatial index for node positions.
     #[serde(skip)]
-    pos_index: Option<KdTree<f32, usize, 3, 128, u32>>,
+    pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
 }
 
 /// Node Access and Modification
 impl Layer {
     /// Get a reference to a node by its ID.
-    pub fn node(&self, id: usize) -> Result<&Node> {
+    pub fn node(&self, id: NodeId) -> Result<&Node> {
         // Nodes are inserted in order, so binary search is safe here
         let ptr = self
             .nodes
@@ -40,7 +42,7 @@ impl Layer {
     }
 
     /// Get a mutable reference to a node by its ID.
-    pub fn node_mut(&mut self, id: usize) -> Result<NodeMut<'_>> {
+    pub fn node_mut(&mut self, id: NodeId) -> Result<NodeMut<'_>> {
         // Nodes are inserted in order, so binary search is safe here
         let ptr = self
             .nodes
@@ -55,7 +57,9 @@ impl Layer {
 
     /// Add a new node to the layer.
     /// Returns the ID of the newly added node.
-    pub fn push_node(&mut self, node: Node) -> usize {
+    pub fn push_node<N: IntoNode>(&mut self, node: N) -> NodeId {
+        let node_id = NodeId::new(node.nid(), self.id);
+        let node = node.into_node(node_id);
         if let Some(pos_index) = &mut self.pos_index
             && let Some(coords) = node.coordinates
         {
@@ -72,7 +76,7 @@ impl Layer {
 
     /// Add an edge from source node to destination node with a description.
     /// Ensures both source and destination nodes exist in the layer.
-    pub fn add_edge(&mut self, src: usize, dst: usize, desc: &str) -> Result<()> {
+    pub fn add_edge(&mut self, src: NodeId, dst: NodeId, desc: &str) -> Result<()> {
         // Ensure destination node exists
         let _ = self.node(dst)?;
 
@@ -83,7 +87,7 @@ impl Layer {
 
     /// Delete an edge from source node to destination node.
     /// Returns an error if the edge does not exist.
-    pub fn del_edge(&mut self, src: usize, dst: usize) -> Result<()> {
+    pub fn del_edge(&mut self, src: NodeId, dst: NodeId) -> Result<()> {
         let mut src_node = self.node_mut(src)?;
         let index = src_node
             .edges
@@ -94,13 +98,15 @@ impl Layer {
         Ok(())
     }
 
+    /// Add a child layer by its ID.
     pub fn add_child(&mut self, child_id: u32) -> Result<()> {
         if child_id >= self.id {
             return Err(SceneGraphError::InvalidLayersForNesting(child_id, self.id));
         }
-        if !self.children.contains(&child_id) {
-            self.children.push(child_id);
-        }
+        match self.children.binary_search(&child_id) {
+            Ok(_) => (),
+            Err(index) => self.children.insert(index, child_id),
+        };
         Ok(())
     }
 }
@@ -137,7 +143,7 @@ impl Layer {
     }
 
     /// Get List of all edges from a specific source node.
-    pub fn edges_from(&self, src: usize) -> Vec<&Edge> {
+    pub fn edges_from(&self, src: NodeId) -> Vec<&Edge> {
         match self.node(src) {
             Ok(n) => n.edges.iter().collect(),
             Err(_) => Vec::new(),
@@ -145,7 +151,7 @@ impl Layer {
     }
 
     /// Get List of all edges to a specific destination node.
-    pub fn edges_to(&self, dst: usize) -> Vec<&Edge> {
+    pub fn edges_to(&self, dst: NodeId) -> Vec<&Edge> {
         self.nodes
             .iter()
             .flat_map(|n| n.edges.iter().filter(|e| e.dst == dst))
@@ -228,7 +234,7 @@ impl Layer {
     /// Nodes with the same ID will be merged, while new nodes will be added.
     /// Deleting Nodes and edges is not supported in this operation.
     pub fn merge(&mut self, mergee: Layer) -> std::result::Result<(), SceneGraphError> {
-        let node_ids: HashSet<usize> = mergee.nodes.iter().map(|n| n.id).collect();
+        let node_ids: HashSet<_> = mergee.nodes.iter().map(|n| n.id).collect();
         for node in mergee.nodes {
             let existing_node = self.node_mut(node.id);
             match existing_node {
@@ -285,7 +291,7 @@ impl Layer {
     }
 
     /// Delete a node by its ID, removing all associated edges in the layer.
-    pub(super) fn del_node(&mut self, id: usize) -> Result<Node> {
+    pub(super) fn del_node(&mut self, id: NodeId) -> Result<Node> {
         let index = self
             .nodes
             .iter()
@@ -305,21 +311,21 @@ impl Layer {
 
     /// Retain only the nodes specified in the retain_nodes list.
     /// All other nodes and their associated edges will be removed from the layer.
-    pub(crate) fn retain_nodes(&mut self, retain_nodes: &[usize]) {
+    pub(crate) fn retain_nodes(&mut self, retain_nodes: &[NodeId]) {
         self.nodes.retain(|node| retain_nodes.contains(&node.id));
         self.prune();
     }
 
     /// Prune edges that point to non-existing nodes in the layer.
     pub(crate) fn prune(&mut self) {
-        let node_ids: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        let node_ids: Vec<_> = self.nodes.iter().map(|n| n.id).collect();
         self.nodes
             .iter_mut()
             .for_each(|n| n.edges.retain(|e| node_ids.contains(&e.dst)));
     }
 
     /// Create a subset Layer containing only the specified nodes.
-    pub(crate) fn subset(&self, nodes: &[usize]) -> Self {
+    pub(crate) fn subset(&self, nodes: &[NodeId]) -> Self {
         let nodes: Vec<Node> = self
             .nodes
             .iter()
@@ -358,13 +364,18 @@ impl Layer {
     /// the Layer's position index. The caller must ensure that any changes to the Node's
     /// coordinates are properly reflected in the Layer's position index to maintain consistency.
     /// Get a mutable reference to a node by its ID.
-    pub(crate) unsafe fn node_mut_unsynced(&mut self, id: usize) -> Result<&mut Node> {
+    pub(crate) unsafe fn node_mut_unsynced(&mut self, id: NodeId) -> Result<&mut Node> {
         // Nodes are inserted in order, so binary search is safe here
         let ptr = self
             .nodes
             .binary_search_by_key(&id, |node| node.id)
             .map_err(|_| SceneGraphError::NodeNotFound)?;
         Ok(&mut self.nodes[ptr])
+    }
+
+    /// Get NodeId of a given node in the layer.
+    pub fn node_id(&self, id: u32) -> NodeId {
+        NodeId::new(id, self.id)
     }
 }
 
@@ -412,8 +423,9 @@ impl Drop for NodeMut<'_> {
 
 #[cfg(test)]
 mod test {
-    use super::super::Coordinate;
     use super::*;
+    use crate::Coordinate;
+    use crate::node::AnonNode;
 
     fn cone() -> Observer {
         // Observer at origin, yaw=30°, pitch=5°, roll=0°
@@ -443,14 +455,16 @@ mod test {
         ];
         let mut layer = Layer::default();
         for (i, p) in pts.iter().enumerate() {
-            layer.push_node(Node::new(i, Vec::new(), Some(*p), false));
+            layer.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false));
         }
         // Node with no coordinates
-        layer.push_node(Node::new(pts.len(), Vec::new(), None, false));
+        layer.push_node(AnonNode::new(pts.len() as u32, Vec::new(), None, false));
 
         // fully connecting nodes to each other
         for src in 0..layer.nodes.len() {
             for dst in 0..layer.nodes.len() {
+                let src = layer.node_id(src as u32);
+                let dst = layer.node_id(dst as u32);
                 layer.add_edge(src, dst, "connect").unwrap();
             }
         }
@@ -466,8 +480,8 @@ mod test {
             // nodes 0,1,2 are inside, rest are outside, so only edges to 0,1,2 should remain
             assert_eq!(
                 node.edges.iter().map(|e| e.dst).collect::<Vec<_>>(),
-                [0, 1, 2]
-            )
+                (0..=2).map(|i| layer.node_id(i)).collect::<Vec<_>>()
+            );
         }
     }
 
@@ -484,7 +498,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(Node::new(i, Vec::new(), Some(*p), false));
+            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false));
         }
 
         let query_pos = Coordinate::new(0.6, 0.6, 0.6);
@@ -510,7 +524,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(Node::new(i, Vec::new(), Some(*p), false));
+            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false));
         }
 
         let query_pos = Coordinate::new(2.0, 2.0, 2.0);

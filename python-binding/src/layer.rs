@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::node::{PyEdge, PyNode, PyNodeRef};
+use crate::node::{PyEdge, PyAnonNode, PyNodeId, PyNodeRef};
 use glam::Vec3;
 
 use pyo3::prelude::*;
@@ -22,12 +22,12 @@ impl PyLayerRef {
 #[pymethods]
 impl PyLayerRef {
     /// Get a reference to a node by its ID.
-    pub fn node(&self, id: usize) -> Result<PyNodeRef> {
-        Ok(PyNodeRef::new(Arc::clone(&self.sg), id))
+    pub fn node(&self, id: PyNodeId) -> Result<PyNodeRef> {
+        Ok(PyNodeRef::new(Arc::clone(&self.sg), id.into()))
     }
 
     /// Add a new node to the layer.
-    pub fn push_node(&mut self, node: PyNode) {
+    pub fn push_node(&mut self, node: PyAnonNode) {
         self.sg
             .lock()
             .unwrap()
@@ -38,23 +38,23 @@ impl PyLayerRef {
 
     /// Add an edge from source node to destination node with a description.
     /// Ensures both source and destination nodes exist in the layer.
-    pub fn add_edge(&mut self, src: usize, dst: usize, desc: &str) -> Result<()> {
+    pub fn add_edge(&mut self, src: PyNodeId, dst: PyNodeId, desc: &str) -> Result<()> {
         self.sg
             .lock()
             .unwrap()
             .layer_mut(self.lid)?
-            .add_edge(src, dst, desc)?;
+            .add_edge(src.into(), dst.into(), desc)?;
         Ok(())
     }
 
     /// Delete an edge from source node to destination node.
     /// Returns an error if the edge does not exist.
-    pub fn del_edge(&mut self, src: usize, dst: usize) -> Result<()> {
+    pub fn del_edge(&mut self, src: PyNodeId, dst: PyNodeId) -> Result<()> {
         self.sg
             .lock()
             .unwrap()
             .layer_mut(self.lid)?
-            .del_edge(src, dst)?;
+            .del_edge(src.into(), dst.into())?;
         Ok(())
     }
 
@@ -150,26 +150,26 @@ impl PyLayerRef {
     }
 
     /// Get List of all edges from a specific source node.
-    pub fn edges_from(&self, src: usize) -> Result<Vec<PyEdge>> {
+    pub fn edges_from(&self, src: PyNodeId) -> Result<Vec<PyEdge>> {
         Ok(self
             .sg
             .lock()
             .unwrap()
             .layer(self.lid)?
-            .edges_from(src)
+            .edges_from(src.into())
             .into_iter()
             .map(Into::into)
             .collect())
     }
 
     /// Get List of all edges to a specific destination node.
-    pub fn edges_to(&self, dst: usize) -> Result<Vec<PyEdge>> {
+    pub fn edges_to(&self, dst: PyNodeId) -> Result<Vec<PyEdge>> {
         Ok(self
             .sg
             .lock()
             .unwrap()
             .layer(self.lid)?
-            .edges_to(dst)
+            .edges_to(dst.into())
             .into_iter()
             .map(Into::into)
             .collect())
