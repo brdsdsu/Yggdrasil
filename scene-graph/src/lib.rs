@@ -2,6 +2,7 @@ mod error;
 mod fov;
 mod layer;
 mod node;
+mod node_id;
 pub mod parse;
 mod pos;
 mod sg;
@@ -9,9 +10,12 @@ mod sg;
 pub use error::{Result, SceneGraphError};
 pub use fov::Observer;
 pub use layer::Layer;
-pub use node::{Coordinate, Edge, Feature, Node};
+pub use node::{AnonNode, Coordinate, Edge, Feature, Node};
+pub use node_id::NodeId;
 pub use pos::PosQueryCount;
 pub use sg::SceneGraph;
+
+use node::IntoNode;
 
 #[cfg(test)]
 mod test {
@@ -28,17 +32,14 @@ mod test {
         let node1 = sg.new_node(vec![Feature::new("name", "Node 1")]);
         let node2 = sg.new_node(vec![Feature::new("name", "Node 2")]);
         let node3 = sg.new_node(vec![Feature::new("name", "Node 3")]);
-        let id2 = node2.id;
-        let id3 = node3.id;
-        let id1 = node1.id;
 
         // create a semantic layer and add nodes to layers
         let semantic_layer = sg.new_layer();
-        semantic_layer.push_node(node2);
-        semantic_layer.push_node(node3);
+        let id2 = semantic_layer.push_node(node2);
+        let id3 = semantic_layer.push_node(node3);
         // create the second semantic layer
         let semantic_layer = sg.new_layer();
-        semantic_layer.push_node(node1);
+        let id1 = semantic_layer.push_node(node1);
         semantic_layer.add_child(0)?;
 
         // nesting
@@ -104,17 +105,13 @@ mod test {
             Feature::new("name", "clock"),
             Feature::new("type", "appliance"),
         ]);
-        let chair_id = chair.id;
-        let table_id = table.id;
-        let wall_id = wall.id;
-        let clock_id = clock.id;
 
         // create layers and add nodes to layers
         let l = sg.new_layer();
-        l.push_node(table);
-        l.push_node(wall);
-        l.push_node(chair);
-        l.push_node(clock);
+        let table_id = l.push_node(table);
+        let wall_id = l.push_node(wall);
+        let chair_id = l.push_node(chair);
+        let clock_id = l.push_node(clock);
 
         l.add_edge(clock_id, wall_id, "supported by")?;
         l.add_edge(table_id, chair_id, "next to")?;
@@ -211,6 +208,8 @@ mod test {
 
         for src in 0..NUM_COOR_NODES {
             for dst in 0..NUM_COOR_NODES {
+                let src = layer.node_id(src as u32);
+                let dst = layer.node_id(dst as u32);
                 assert!(layer.add_edge(src, dst, "connect").is_ok());
             }
         }
@@ -231,27 +230,27 @@ mod test {
         }
         for src in 0..NUM_SEMANTIC_NODES {
             for dst in 0..NUM_SEMANTIC_NODES {
-                assert!(
-                    layer
-                        .add_edge(NUM_COOR_NODES + src, NUM_COOR_NODES + dst, "connect")
-                        .is_ok()
-                );
+                let src = layer.node_id((NUM_COOR_NODES + src) as u32);
+                let dst = layer.node_id((NUM_COOR_NODES + dst) as u32);
+                assert!(layer.add_edge(src, dst, "connect").is_ok());
             }
         }
         // eatch 10 nodes from the first layer under each semantic node
         for id in 0..NUM_COOR_NODES {
-            assert!(sg.nest(id).under(NUM_COOR_NODES + id / 10).is_ok());
+            let nestee = sg.layer(0)?.node_id(id as u32);
+            let nester = sg.layer(1)?.node_id((NUM_COOR_NODES + id / 10) as u32);
+            assert!(sg.nest(nestee).under(nester).is_ok());
         }
 
         // Third layer:
         // 1 node parenting all semantic nodes from the second layer
         let root_node = sg.new_node(vec![Feature::new("name", "root")]);
-        let root_id = root_node.id;
         let layer = sg.new_layer();
         layer.add_child(1)?;
-        layer.push_node(root_node);
+        let root_id = layer.push_node(root_node);
         for id in 0..NUM_SEMANTIC_NODES {
-            assert!(sg.nest(NUM_COOR_NODES + id).under(root_id).is_ok());
+            let nestee = sg.layer(1)?.node_id((NUM_COOR_NODES + id) as u32);
+            assert!(sg.nest(nestee).under(root_id).is_ok());
         }
 
         // Query visible subgraph under root
@@ -262,7 +261,7 @@ mod test {
         let layer = observed_sg.layer(0)?;
         assert_eq!(layer.nodes.len(), NUM_COOR_NODES / 2);
         // only edges between visible nodes should be present
-        let mut visible_node_ids: Vec<usize> = layer.nodes.iter().map(|n| n.id).collect();
+        let mut visible_node_ids: Vec<_> = layer.nodes.iter().map(|n| n.id).collect();
         visible_node_ids.sort();
         for src in &visible_node_ids {
             let mut edges = layer
@@ -270,7 +269,7 @@ mod test {
                 .edges
                 .iter()
                 .map(|e| e.dst)
-                .collect::<Vec<usize>>();
+                .collect::<Vec<_>>();
             edges.sort();
             assert_eq!(&edges, &visible_node_ids);
         }
@@ -281,7 +280,7 @@ mod test {
             .nodes
             .iter()
             .filter_map(|n| n.pid)
-            .collect::<HashSet<usize>>();
+            .collect::<HashSet<_>>();
         observed_sg.layer(1)?.nodes.iter().for_each(|n| {
             assert!(pids.contains(&n.id));
         });
@@ -296,7 +295,7 @@ mod test {
                 .edges
                 .iter()
                 .map(|e| e.dst)
-                .collect::<HashSet<usize>>();
+                .collect::<HashSet<_>>();
             assert_eq!(&edges, &pids);
         }
 
@@ -307,6 +306,7 @@ mod test {
         Ok(())
     }
 
+    #[test]
     fn pos_query() {
         use super::*;
 
@@ -317,22 +317,20 @@ mod test {
         let n2 = sg.new_coordinates(1.0, 1.0, 1.0, vec![]);
         let n3 = sg.new_coordinates(2.0, 2.0, 2.0, vec![]);
 
-        let n1_id = n1.id;
-        let n2_id = n2.id;
-        let n3_id = n3.id;
 
         // Create a layer and add nodes to it
         sg.new_indexed_layer();
-        sg.layer_mut(0).unwrap().push_node(n1);
-        sg.layer_mut(0).unwrap().push_node(n2);
-        sg.layer_mut(0).unwrap().push_node(n3);
+        let n1_id = sg.layer_mut(0).unwrap().push_node(n1);
+        let n2_id = sg.layer_mut(0).unwrap().push_node(n2);
+        let n3_id = sg.layer_mut(0).unwrap().push_node(n3);
 
         // create new semantic layer and nest all nodes under a new parent node
-        sg.new_layer();
+        let layer = sg.new_layer();
+        layer.add_child(0).unwrap();
+        
         // First test with indexing
         let parent_node = sg.new_indexed_node(vec![]);
-        let pid = parent_node.id;
-        sg.top_layer_mut().unwrap().push_node(parent_node);
+        let pid = sg.top_layer_mut().unwrap().push_node(parent_node);
         sg.nest(n1_id).under(pid).unwrap();
         sg.nest(n2_id).under(pid).unwrap();
         sg.nest(n3_id).under(pid).unwrap();
@@ -353,8 +351,7 @@ mod test {
 
         // Now test without indexing
         let parent_node = sg.new_node(vec![]);
-        let pid = parent_node.id;
-        sg.top_layer_mut().unwrap().push_node(parent_node);
+        let pid = sg.top_layer_mut().unwrap().push_node(parent_node);
         sg.nest(n1_id).under(pid).unwrap();
         sg.nest(n2_id).under(pid).unwrap();
         sg.nest(n3_id).under(pid).unwrap();

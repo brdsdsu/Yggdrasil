@@ -47,7 +47,6 @@ impl TryFrom<ConceptGraph> for SceneGraph {
         let semantic_layer = sg.new_layer();
         semantic_layer.add_child(pcd_lid)?;
 
-
         // keeps track of id mapping between concept graph and scene graph
         let mut id_map = HashMap::new();
 
@@ -66,10 +65,9 @@ impl TryFrom<ConceptGraph> for SceneGraph {
             }
 
             let new_node = sg.new_node(features);
-            let new_nod_id = new_node.id;
-            id_map.insert(node.node_id, new_nod_id);
             // push to the semantic layer
-            sg.layer_mut(1)?.push_node(new_node);
+            let new_nod_id = sg.layer_mut(1)?.push_node(new_node);
+            id_map.insert(node.node_id, new_nod_id);
 
             // pointcloud points as coordinates
             for (p, c) in node.pcd_points.iter().zip(node.pcd_colors.iter()) {
@@ -78,9 +76,8 @@ impl TryFrom<ConceptGraph> for SceneGraph {
                     &format!("{},{},{}", c[0], c[1], c[2]),
                 )];
                 let coord = sg.new_coordinates(p[0], p[1], p[2], features);
-                let coord_id = coord.id;
                 // push to the pointcloud layer
-                sg.layer_mut(0)?.push_node(coord);
+                let coord_id = sg.layer_mut(0)?.push_node(coord);
                 // nest the coordinate under its semantic node
                 sg.nest(coord_id).under(new_nod_id)?;
             }
@@ -93,6 +90,7 @@ impl TryFrom<ConceptGraph> for SceneGraph {
         {
             let src = src.ok_or(SceneGraphError::NodeNotFound)?;
             let dst = dst.ok_or(SceneGraphError::NodeNotFound)?;
+
             sg.layer_mut(1)?.add_edge(*src, *dst, &meta.desc)?
         }
 
