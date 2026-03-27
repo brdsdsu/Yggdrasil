@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     layer::{PyLayerRef, PyObserver, PyPosQueryCount},
-    node::{PyEdge, PyFeature, PyAnonNode, PyNodeId, PyNodeRef},
+    node::{PyAnonNode, PyEdge, PyFeature, PyNodeId, PyNodeRef},
 };
 
 use super::error::Result;
@@ -88,7 +88,13 @@ impl PySceneGraphRef {
     }
 
     /// Create a new Metric Node with specified coordinates and features.
-    pub fn new_coordinates(&mut self, x: f32, y: f32, z: f32, features: Vec<PyFeature>) -> PyAnonNode {
+    pub fn new_coordinates(
+        &mut self,
+        x: f32,
+        y: f32,
+        z: f32,
+        features: Vec<PyFeature>,
+    ) -> PyAnonNode {
         let features = features.iter().map(Into::into).collect();
         let node = self
             .inner
@@ -118,7 +124,11 @@ impl PySceneGraphRef {
     /// This will also recursively delete all child nodes of the specified node.
     /// If the node has a parent, it will be removed from the parent's list of children.
     pub fn del_node(&mut self, nid: PyNodeId) -> Result<()> {
-        self.inner.lock().unwrap().del_node(nid.into()).map_err(Into::into)
+        self.inner
+            .lock()
+            .unwrap()
+            .del_node(nid.into())
+            .map_err(Into::into)
     }
 
     /// Nest a node under another node, establishing a parent-child relationship.
@@ -151,7 +161,12 @@ impl PySceneGraphRef {
     /// assert_eq!(sg.node(id1).unwrap().pid, Some(id2));
     /// ```
     pub fn nest(&mut self, nestee: PyNodeId, nester: PyNodeId) -> Result<()> {
-        let _ = self.inner.lock().unwrap().nest(nestee.into()).under(nester.into());
+        let _ = self
+            .inner
+            .lock()
+            .unwrap()
+            .nest(nestee.into())
+            .under(nester.into());
         Ok(())
     }
 

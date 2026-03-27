@@ -317,7 +317,6 @@ mod test {
         let n2 = sg.new_coordinates(1.0, 1.0, 1.0, vec![]);
         let n3 = sg.new_coordinates(2.0, 2.0, 2.0, vec![]);
 
-
         // Create a layer and add nodes to it
         sg.new_indexed_layer();
         let n1_id = sg.layer_mut(0).unwrap().push_node(n1);
@@ -327,7 +326,7 @@ mod test {
         // create new semantic layer and nest all nodes under a new parent node
         let layer = sg.new_layer();
         layer.add_child(0).unwrap();
-        
+
         // First test with indexing
         let parent_node = sg.new_indexed_node(vec![]);
         let pid = sg.top_layer_mut().unwrap().push_node(parent_node);

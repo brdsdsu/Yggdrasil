@@ -2,7 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
-    error::{Result, SceneGraphError}, fov::Observer, layer::{Layer, NodeMut}, node::{Coordinate, Edge, Feature, Node}, pos::{PosQueryCount, PositionQuery}, AnonNode, NodeId
+    AnonNode, NodeId,
+    error::{Result, SceneGraphError},
+    fov::Observer,
+    layer::{Layer, NodeMut},
+    node::{Coordinate, Edge, Feature, Node},
+    pos::{PosQueryCount, PositionQuery},
 };
 
 /// A hierarchical representation of objects and their relationships in a 3D environment.
@@ -221,7 +226,7 @@ impl SceneGraph {
     /// If the node has a parent, it will be removed from the parent's list of children.
     pub fn del_node(&mut self, nid: NodeId) -> Result<()> {
         // Remove node from its parent's children list
-        let lid = nid.layer_id(); 
+        let lid = nid.layer_id();
         let layer = self.layer_mut(lid)?;
         if let Some(pid) = layer.node(nid)?.pid {
             self.layer_mut(lid + 1)?.node_mut(pid)?.remove_child(nid)?;

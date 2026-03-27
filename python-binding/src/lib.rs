@@ -10,7 +10,7 @@ mod yggdrasil {
     #[pymodule_export]
     use crate::layer::{PyLayerRef, PyObserver, PyPosQueryCount};
     #[pymodule_export]
-    use crate::node::{PyEdge, PyFeature, PyAnonNode, PyNodeId, PyNodeRef};
+    use crate::node::{PyAnonNode, PyEdge, PyFeature, PyNodeId, PyNodeRef};
     #[pymodule_export]
     use crate::sg::PySceneGraphRef;
 }

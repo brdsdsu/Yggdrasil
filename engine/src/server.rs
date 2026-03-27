@@ -1,4 +1,4 @@
-use crate::{UpdatePipeline};
+use crate::UpdatePipeline;
 use scene_graph::{Result, SceneGraph};
 
 #[derive(Default)]

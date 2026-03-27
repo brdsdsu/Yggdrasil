@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::node::{PyEdge, PyAnonNode, PyNodeId, PyNodeRef};
+use crate::node::{PyAnonNode, PyEdge, PyNodeId, PyNodeRef};
 use glam::Vec3;
 
 use pyo3::prelude::*;
@@ -58,18 +58,21 @@ impl PyLayerRef {
         Ok(())
     }
 
-
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
-    pub fn nearest_nodes(&self, coord: (f32, f32, f32), count: PyPosQueryCount) -> Vec<(PyNodeRef, f32)> {
+    pub fn nearest_nodes(
+        &self,
+        coord: (f32, f32, f32),
+        count: PyPosQueryCount,
+    ) -> Vec<(PyNodeRef, f32)> {
         let (x, y, z) = coord;
         self.sg
             .lock()
             .unwrap()
             .nearest_nodes(&Coordinate::new(x, y, z), count.into())
             .into_iter()
-            .map(|(n,d)| (PyNodeRef::new(Arc::clone(&self.sg), n.id),d))
+            .map(|(n, d)| (PyNodeRef::new(Arc::clone(&self.sg), n.id), d))
             .collect::<Vec<_>>()
     }
 
@@ -87,7 +90,7 @@ impl PyLayerRef {
             .unwrap()
             .nodes_within(&Coordinate::new(x, y, z), radius, count.into())
             .into_iter()
-            .map(|(n,d)| (PyNodeRef::new(Arc::clone(&self.sg), n.id),d))
+            .map(|(n, d)| (PyNodeRef::new(Arc::clone(&self.sg), n.id), d))
             .collect::<Vec<_>>()
     }
 
@@ -102,7 +105,6 @@ impl PyLayerRef {
             .map(|n| PyNodeRef::new(Arc::clone(&self.sg), n.id))
             .collect())
     }
-        
 
     /// Get List of all nodes having a specific node features.
     pub fn nodes_having(&self, keys: Vec<String>) -> Result<Vec<PyNodeRef>> {

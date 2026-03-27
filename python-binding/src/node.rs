@@ -278,7 +278,7 @@ impl From<&scene_graph::Feature> for PyFeature {
 }
 
 /// Unique identifier for a node in the scene graph.
-#[derive(Debug,Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[pyclass(name = "NodeId")]
 pub struct PyNodeId(u64);
 
