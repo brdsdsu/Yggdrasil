@@ -340,12 +340,12 @@ mod test {
             .unwrap();
         assert_eq!(nearest_in_subtree.len(), 2);
         assert_eq!(
-            nearest_in_subtree[0].0.coordinates.unwrap(),
-            Coordinate::new(1.0, 1.0, 1.0)
+            nearest_in_subtree[0].0.coordinates,
+            vec![Coordinate::new(1.0, 1.0, 1.0)]
         );
         assert_eq!(
-            nearest_in_subtree[1].0.coordinates.unwrap(),
-            Coordinate::new(0.0, 0.0, 0.0)
+            nearest_in_subtree[1].0.coordinates,
+            vec![Coordinate::new(0.0, 0.0, 0.0)]
         );
 
         // Now test without indexing
@@ -361,12 +361,12 @@ mod test {
             .unwrap();
         assert_eq!(nearest_in_subtree.len(), 2);
         assert_eq!(
-            nearest_in_subtree[0].0.coordinates.unwrap(),
-            Coordinate::new(1.0, 1.0, 1.0)
+            nearest_in_subtree[0].0.coordinates,
+            vec![Coordinate::new(1.0, 1.0, 1.0)]
         );
         assert_eq!(
-            nearest_in_subtree[1].0.coordinates.unwrap(),
-            Coordinate::new(0.0, 0.0, 0.0)
+            nearest_in_subtree[1].0.coordinates,
+            vec![Coordinate::new(0.0, 0.0, 0.0)]
         );
     }
 }

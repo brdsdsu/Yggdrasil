@@ -89,23 +89,37 @@ impl PositionQuery for Vec<Node> {
         match count {
             PosQueryCount::All => self
                 .iter()
-                .filter(|n| n.coordinates.is_some())
-                .map(|n| (n.id, n.coordinates.unwrap().distance_squared(*pos)))
+                .map(|n| {
+                    (
+                        n.id,
+                        n.coordinates
+                            .iter()
+                            .map(|c| c.distance_squared(*pos))
+                            .reduce(f32::min)
+                            .unwrap_or(std::f32::INFINITY),
+                    )
+                })
                 .map(|(id, d)| (id, d.sqrt()))
                 .collect(),
             PosQueryCount::Count(c) => {
                 let mut distances = self
                     .iter()
-                    .filter(|n| n.coordinates.is_some())
-                    .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
-                    .map(|(id, d)| (id, d.sqrt()))
-                    .collect::<Vec<(&Node, f32)>>();
+                    .map(|n| {
+                        (
+                            n.id,
+                            n.coordinates
+                                .iter()
+                                .map(|c| c.distance_squared(*pos))
+                                .reduce(f32::min)
+                                .unwrap_or(std::f32::INFINITY),
+                        )
+                    })
+                    .collect::<Vec<(NodeId, f32)>>();
                 distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
                 distances
                     .into_iter()
-                    .map(|(node, dist)| (node.id, dist))
-                    .map(|(id, d)| (id, d.sqrt()))
                     .take(c)
+                    .map(|(id, d)| (id, d.sqrt()))
                     .collect()
             }
         }
@@ -121,12 +135,19 @@ impl PositionQuery for Vec<Node> {
     ) -> Vec<(NodeId, f32)> {
         let count = count.as_capped_usize();
         self.iter()
-            .filter(|n| n.coordinates.is_some())
-            .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
+            .map(|n| {
+                (
+                    n.id,
+                    n.coordinates
+                        .iter()
+                        .map(|c| c.distance_squared(*pos))
+                        .reduce(f32::min)
+                        .unwrap_or(std::f32::INFINITY),
+                )
+            })
             .filter(|(_, d)| *d <= radius * radius)
-            .map(|(node, dist)| (node.id, dist))
-            .map(|(id, d)| (id, d.sqrt()))
             .take(count)
+            .map(|(id, d)| (id, d.sqrt()))
             .collect::<Vec<_>>()
     }
 }

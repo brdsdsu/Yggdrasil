@@ -13,7 +13,7 @@ impl TryFrom<SceneGraph> for DynamicSceneGraph {
             for (lid, layer) in sg.layers.iter().enumerate() {
                 dsg.add_layer(lid)?;
                 for node in &layer.nodes {
-                    dsg.add_node(lid, node.id.as_u64() as usize, node.coordinates)?;
+                    dsg.add_node(lid, node.id.as_u64() as usize, todo!("{:?}",node.coordinates))?;
                     for child_id in &node.children {
                         dsg.nest(node.id.as_u64() as usize, child_id.as_u64() as usize)?;
                     }
