@@ -21,7 +21,7 @@ if(NOT SparkDSG_FOUND AND BUILD_SPARK_DSG_FROM_SOURCE)
   FetchContent_Declare(
     SparkDSG
     GIT_REPOSITORY https://github.com/MIT-SPARK/Spark-DSG.git
-    GIT_TAG main
+    GIT_TAG v1.1.3
   )
 
   # Propagate Spark-DSG build options
