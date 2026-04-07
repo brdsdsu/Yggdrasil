@@ -51,20 +51,13 @@ impl PyAnonNode {
 
     /// Optional 3D coordinates of the node.
     #[getter]
-    pub fn coordinates(&self) -> Vec<(f32, f32, f32)> {
-        self.inner
-            .coordinates
-            .iter()
-            .map(|c| (c.x, c.y, c.z))
-            .collect()
+    pub fn coordinates(&self) -> Option<(f32, f32, f32)> {
+        self.inner.coordinates.map(|c| (c.x, c.y, c.z))
     }
 
     #[setter]
-    pub fn set_coordinates(&mut self, coords: Vec<(f32, f32, f32)>) {
-        self.inner.coordinates = coords
-            .into_iter()
-            .map(|(x, y, z)| scene_graph::Coordinate::new(x, y, z))
-            .collect();
+    pub fn set_coordinates(&mut self, coords: Option<(f32, f32, f32)>) {
+        self.inner.coordinates = coords.map(|(x, y, z)| scene_graph::Coordinate::new(x, y, z));
     }
 
     /// Check if the node has a feature with the specified key.
@@ -146,24 +139,19 @@ impl PyNodeRef {
 
     /// Optional 3D coordinates of the node.
     #[getter]
-    pub fn coordinates(&self) -> Result<Vec<(f32, f32, f32)>> {
+    pub fn coordinates(&self) -> Result<Option<(f32, f32, f32)>> {
         Ok(self
             .sg
             .lock()
             .unwrap()
             .node(self.nid)?
             .coordinates
-            .iter()
-            .map(|c| (c.x, c.y, c.z))
-            .collect())
+            .map(|c| (c.x, c.y, c.z)))
     }
 
     #[setter]
-    pub fn set_coordinates(&mut self, coords: Vec<(f32, f32, f32)>) -> Result<()> {
-        let coords = coords
-            .into_iter()
-            .map(|(x, y, z)| scene_graph::Coordinate::new(x, y, z))
-            .collect();
+    pub fn set_coordinates(&mut self, coords: Option<(f32, f32, f32)>) -> Result<()> {
+        let coords = coords.map(|(x, y, z)| scene_graph::Coordinate::new(x, y, z));
         self.sg.lock().unwrap().node_mut(self.nid)?.coordinates = coords;
         Ok(())
     }

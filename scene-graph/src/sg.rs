@@ -198,22 +198,16 @@ impl SceneGraph {
         let node = AnonNode::new(
             self.node_counter,
             features,
-            vec![Coordinate::new(x, y, z)],
+            Some(Coordinate::new(x, y, z)),
             false,
         );
         self.node_counter += 1;
         node
     }
 
-    pub fn new_pointcloud(&mut self, points: Vec<Coordinate>, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(self.node_counter, features, points, false);
-        self.node_counter += 1;
-        node
-    }
-
     /// Create a new Semantic Node with specified features.
     pub fn new_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(self.node_counter, features, Vec::new(), false);
+        let node = AnonNode::new(self.node_counter, features, None, false);
         self.node_counter += 1;
         node
     }
@@ -222,7 +216,7 @@ impl SceneGraph {
     /// This node will have position indexing enabled and will track of the coordinates of its
     /// sub-tree for efficient spatial queries.
     pub fn new_indexed_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(self.node_counter, features, Vec::new(), true);
+        let node = AnonNode::new(self.node_counter, features, None, true);
         self.node_counter += 1;
         node
     }
@@ -372,8 +366,8 @@ impl SceneGraph {
     /// let coord = Coordinate::new(0.6, 0.6, 0.6);
     /// let nearest_nodes = sg.nearest_nodes(&coord, PosQueryCount::Count(2));
     /// assert_eq!(nearest_nodes.len(), 2);
-    /// assert_eq!(nearest_nodes[0].0.coordinates[0], Coordinate::new(1.0, 1.0, 1.0));
-    /// assert_eq!(nearest_nodes[1].0.coordinates[0], Coordinate::new(0.0, 0.0, 0.0));
+    /// assert_eq!(nearest_nodes[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
+    /// assert_eq!(nearest_nodes[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
     /// ```
     pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<(&Node, f32)> {
         self.layers
@@ -405,8 +399,8 @@ impl SceneGraph {
     /// let coord = Coordinate::new(0.3, 0.3, 0.3);
     /// let nodes_within_radius = sg.nodes_within(&coord, 2.0, PosQueryCount::All);
     /// assert_eq!(nodes_within_radius.len(), 2);
-    /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates[0] == Coordinate::new(0.0, 0.0, 0.0)));
-    /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates[0] == Coordinate::new(1.0, 1.0, 1.0)));
+    /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates.unwrap() == Coordinate::new(0.0, 0.0, 0.0)));
+    /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates.unwrap() == Coordinate::new(1.0, 1.0, 1.0)));
     /// ```
     pub fn nodes_within(
         &self,
@@ -454,8 +448,8 @@ impl SceneGraph {
     /// let coord = Coordinate::new(0.6, 0.6, 0.6);
     /// let nearest_in_subtree = sg.nearest_in_subtree(&coord, pid, PosQueryCount::Count(2))?;
     /// assert_eq!(nearest_in_subtree.len(), 2);
-    /// assert_eq!(nearest_in_subtree[0].0.coordinates[0], Coordinate::new(1.0, 1.0, 1.0));
-    /// assert_eq!(nearest_in_subtree[1].0.coordinates[0], Coordinate::new(0.0, 0.0, 0.0));
+    /// assert_eq!(nearest_in_subtree[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
+    /// assert_eq!(nearest_in_subtree[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
     ///
     /// # Ok(())
     /// # }
@@ -468,9 +462,7 @@ impl SceneGraph {
     ) -> Result<Vec<(&Node, f32)>> {
         match &self.node(root)?.pos_index {
             Some(pos_index) => pos_index.nearest_nodes(coord, count),
-            None => self
-                .coordinates_in_subtree(root)
-                .nearest_nodes(coord, count),
+            None => self.pos_subtree(root).nearest_nodes(coord, count),
         }
         .into_iter()
         .map(|(id, distance)| Ok((self.node(id)?, distance)))
@@ -498,19 +490,21 @@ impl SceneGraph {
 
 impl SceneGraph {
     /// Get list of all coordinates in the sub-tree rooted at the specified node ID.
-    fn coordinates_in_subtree(&self, root: NodeId) -> Vec<(Coordinate, NodeId)> {
+    fn pos_subtree(&self, root: NodeId) -> Vec<(Coordinate, NodeId)> {
         let mut coords = Vec::new();
         let node = match self.node(root) {
             Ok(n) => n,
             Err(_) => return coords,
         };
-        coords.extend(node.coordinates.iter().map(|c| (*c, node.id)));
+        if let Some(c) = &node.coordinates {
+            coords.push((*c, node.id));
+        }
         if let Some(pos_index) = &node.pos_index {
             coords.extend(pos_index.iter().map(|(id, c)| (Coordinate::from(c), id)));
             return coords;
         }
         for cid in &node.children {
-            coords.extend(self.coordinates_in_subtree(*cid));
+            coords.extend(self.pos_subtree(*cid));
         }
         coords
     }
@@ -573,7 +567,7 @@ impl<'a> NestUnder<'a> {
 
         // propagate position index with the new child
         if node.pos_index.is_some() {
-            let pos = self.sg.coordinates_in_subtree(self.nestee);
+            let pos = self.sg.pos_subtree(self.nestee);
             let mut node = self.sg.node_mut(nester)?;
             let pos_index = node.pos_index.as_mut().unwrap();
             pos.iter()
