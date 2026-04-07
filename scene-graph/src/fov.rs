@@ -84,11 +84,6 @@ impl Observer {
         let cos_theta = dir.dot(self.forward()); // both unit
         cos_theta >= self.half_angle_cos
     }
-
-    /// Cone-frustum membership test for multiple points. Returns true if any point is observed.
-    pub fn notices(&self, p: &Vec<Vec3>) -> bool {
-        p.iter().any(|pt| self.observers(pt))
-    }
 }
 
 #[cfg(test)]
