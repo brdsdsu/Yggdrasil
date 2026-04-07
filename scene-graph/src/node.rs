@@ -1,6 +1,8 @@
 use kiddo::float::kdtree::KdTree;
 use serde::{Deserialize, Serialize};
 
+use crate::BoundingBox;
+
 use super::NodeId;
 
 use super::error::{Result, SceneGraphError};
@@ -30,6 +32,8 @@ pub struct Node {
     /// This is used for efficient spatial queries.
     #[serde(skip)]
     pub(crate) pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
+
+    pub bounds: BoundingBox,
 }
 
 impl Node {
