@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    fmt::Display,
+    sync::{Arc, Mutex},
+};
 
 use super::error::Result;
 use pyo3::prelude::*;
@@ -290,8 +293,8 @@ impl From<&scene_graph::Feature> for PyFeature {
 }
 
 /// Unique identifier for a node in the scene graph.
-#[derive(Debug, Copy, Clone)]
-#[pyclass(name = "NodeId")]
+#[derive(Debug, Copy, Clone, Hash)]
+#[pyclass(name = "NodeId", str)]
 pub struct PyNodeId(u64);
 
 impl From<scene_graph::NodeId> for PyNodeId {
@@ -311,5 +314,11 @@ impl From<PyNodeId> for scene_graph::NodeId {
         let nid = value.0 as u32;
         let lid = (value.0 >> 32) as u32;
         scene_graph::NodeId::new(nid, lid)
+    }
+}
+
+impl Display for PyNodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Layer: {}, Node: {}", self.0 >> 32, self.0 % (1 << 32))
     }
 }

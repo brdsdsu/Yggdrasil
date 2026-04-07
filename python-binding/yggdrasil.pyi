@@ -11,7 +11,6 @@ class Feature:
     """
     A feature associated with a node, represented as a key-value pair.
     """
-
     key: str
     value: str
 
@@ -24,7 +23,6 @@ class Edge:
     """
     An edge connecting two nodes in the same layer.
     """
-
     src: int
     dst: int
     desc: str
@@ -37,7 +35,6 @@ class PosQueryCount:
     """
     Specifies the number of nodes to return in position-based queries.
     """
-
     @staticmethod
     def All() -> PosQueryCount: ...
     @staticmethod
@@ -50,10 +47,8 @@ class PosQueryCount:
 class Observer:
     """
     A field-of-view cone frustum in 3D space, defined by position, yaw, pitch,
-    roll, half-angle, near and far distances.
+    roll, half-angle, near and far distances. [cite: 56]
     """
-
-    # Constructor details are implemented in Rust; this is intentionally minimal.
     def __init__(self, *args, **kwargs) -> None: ...
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...
@@ -62,18 +57,8 @@ class Observer:
 class __Node:
     """
     Internal node value used when constructing nodes before inserting them
-    into layers.
-
-    Instances of this class are typically created via SceneGraph.new_node()
-    or SceneGraph.new_coordinates() and then passed to Layer.push_node().
+    into layers. [cite: 57]
     """
-
-    # ---- Read-only properties taken directly from the underlying Node ----
-
-    @property
-    def id(self) -> int:
-        """Unique identifier for the node."""
-        ...
 
     @property
     def pid(self) -> Optional[int]:
@@ -82,7 +67,7 @@ class __Node:
 
     @property
     def children(self) -> List[int]:
-        """Child node IDs from the lower layer, if this node has nested nodes."""
+        """Child node IDs from the lower layer, if this node has nested nodes. [cite: 60]"""
         ...
 
     @property
@@ -96,14 +81,12 @@ class __Node:
         ...
 
     @property
-    def coordinates(self) -> Optional[Coordinate]:
-        """Optional 3D coordinates of the node."""
+    def coordinates(self) -> List[Coordinate]:
+        """List of 3D coordinates associated with the node. [cite: 61]"""
         ...
 
     @coordinates.setter
-    def coordinates(self, coords: Optional[Coordinate]) -> None: ...
-
-    # ---- Feature operations (direct, no graph access) ----
+    def coordinates(self, coords: List[Coordinate]) -> None: ...
 
     def has_feature(self, key: str) -> bool: ...
     def match_feature(self, feature: Feature) -> bool: ...
@@ -116,15 +99,8 @@ class __Node:
 
 class Node:
     """
-    A handle/reference to a node in the scene graph.
-
-    Each Node belongs to a specific layer and can have features, coordinates,
-    and edges to other nodes in the same layer, as well as parent/child
-    relationships across layers.
+    A handle/reference to a node in the scene graph. [cite: 62]
     """
-
-    # ---- Read-only properties via graph access ----
-
     @property
     def id(self) -> int:
         """Unique identifier for the node."""
@@ -137,7 +113,7 @@ class Node:
 
     @property
     def children(self) -> List[int]:
-        """Child node IDs from the lower layer, if this node has nested nodes."""
+        """Child node IDs from the lower layer, if this node has nested nodes. [cite: 65]"""
         ...
 
     @property
@@ -151,14 +127,12 @@ class Node:
         ...
 
     @property
-    def coordinates(self) -> Optional[Coordinate]:
-        """Optional 3D coordinates of the node."""
+    def coordinates(self) -> List[Coordinate]:
+        """List of 3D coordinates associated with the node. [cite: 66]"""
         ...
 
     @coordinates.setter
-    def coordinates(self, coords: Optional[Coordinate]) -> None: ...
-
-    # ---- Feature operations ----
+    def coordinates(self, coords: List[Coordinate]) -> None: ...
 
     def has_feature(self, key: str) -> bool: ...
     def match_feature(self, feature: Feature) -> bool: ...
@@ -171,69 +145,53 @@ class Node:
 
 class Layer:
     """
-    A layer within the scene graph.
-
-    Provides node access and modification within that layer, as well as
-    edge, feature-based, and spatial queries.
+    A layer within the scene graph. [cite: 67]
     """
 
-    # ---- Node access / modification ----
-
+    @property
+    def lid(self) -> int:
+        """
+        The unique identifier for this layer.
+        """
+        ...
     def node(self, id: int) -> Node:
         """Get a reference to a node by its ID (raises on error)."""
         ...
 
-    def push_node(self, node: __Node) -> None:
+    def push_node(self, node: __Node) -> int:
         """Add a new node (created via SceneGraph) to this layer."""
         ...
 
     def add_edge(self, src: int, dst: int, desc: str) -> None:
-        """
-        Add an edge from source node to destination node with a description.
-        Ensures both nodes exist in the layer.
-        """
+        """Add an edge from source node to destination node with a description. [cite: 69]"""
+        ...
+
+    def add_child(self, child_id: int) -> None:
+        """Add a child layer by its ID."""
         ...
 
     def del_edge(self, src: int, dst: int) -> None:
-        """
-        Delete an edge from source node to destination node.
-        Raises an exception if the edge does not exist.
-        """
+        """Delete an edge from source node to destination node. [cite: 71]"""
         ...
-
-    # ---- Feature-based node queries ----
 
     def nodes(self) -> List[Node]:
-        """
-        Get List of all nodes in the layer.
-        """
+        """Get List of all nodes in the layer. [cite: 72]"""
         ...
 
-
     def nodes_having(self, keys: List[str]) -> List[Node]:
-        """
-        Get list of all nodes having all the specified feature keys.
-        """
+        """Get list of all nodes having all the specified feature keys. [cite: 73]"""
         ...
 
     def nodes_matching(self, features: List[Feature]) -> List[Node]:
-        """
-        Get list of all nodes matching the specified feature set.
-        """
+        """Get list of all nodes matching the specified feature set. [cite: 74]"""
         ...
-
-    # ---- Spatial queries (per-layer) ----
 
     def nearest_nodes(
         self,
         coord: Coordinate,
         count: PosQueryCount,
     ) -> List[Tuple[Node, float]]:
-        """
-        Retrieve up to `count` nearest nodes to the given position in this layer.
-
-        Returns a list of (node, distance) sorted from nearest to farthest.
-        """
+        """Retrieve up to `count` nearest nodes to the given position in this layer. [cite: 75]"""
         ...
 
     def nodes_within(
@@ -242,81 +200,27 @@ class Layer:
         radius: float,
         count: PosQueryCount,
     ) -> List[Tuple[Node, float]]:
-        """
-        Retrieve up to `count` nodes within `radius` of the given position
-        in this layer.
-
-        Returns a list of (node, distance).
-        """
+        """Retrieve up to `count` nodes within `radius` of the given position. [cite: 77]"""
         ...
 
-    # ---- Edge queries ----
-
-    def edges_matching(self, desc: str) -> List[Edge]:
-        """Get list of all edges matching a specific description."""
-        ...
-
-    def edges_from(self, src: int) -> List[Edge]:
-        """Get list of all edges from a specific source node."""
-        ...
-
-    def edges_to(self, dst: int) -> List[Edge]:
-        """Get list of all edges to a specific destination node."""
-        ...
+    def edges_matching(self, desc: str) -> List[Edge]: ...
+    def edges_from(self, src: int) -> List[Edge]: ...
+    def edges_to(self, dst: int) -> List[Edge]: ...
 
 
 class SceneGraph:
     """
-    A hierarchical representation of objects and their relationships in a 3D environment.
-
-    Organized into layers, with nodes representing objects and supporting:
-    - parent/child relationships between nodes on adjacent layers
-    - edges between nodes in the same layer
-    - feature-based and spatial queries
+    A hierarchical representation of objects and their relationships in a 3D environment. [cite: 79]
     """
-
     def __init__(self) -> None: ...
 
-    # ---- Layer management ----
-
-    def new_layer(self) -> Layer:
-        """
-        Create a new layer without position indexing and add it to the scene graph.
-        """
-        ...
-
-    def new_indexed_layer(self) -> Layer:
-        """
-        Create a new layer with position indexing enabled for spatial queries.
-        """
-        ...
-
-    def merge(self, other: SceneGraph) -> None:
-        """
-        Merge another SceneGraph into this one.
-
-        This does not delete nodes or edges, but applies changes in features/edges
-        for nodes that exist in both graphs.
-        """
-        ...
-
-    def top_layer(self) -> Layer:
-        """Get a reference to the top (last) layer."""
-        ...
-
-    def layer(self, index: int) -> Layer:
-        """Get a reference to a layer by its index."""
-        ...
-
-    def layer_of(self, node_id: int) -> int:
-        """Get the layer index of a node by its ID."""
-        ...
-
-    def node(self, node_id: int) -> Node:
-        """Get a reference to a node by its ID."""
-        ...
-
-    # ---- Node creation / deletion ----
+    def new_layer(self) -> Layer: ...
+    def new_indexed_layer(self) -> Layer: ...
+    def merge(self, other: SceneGraph) -> None: ...
+    def top_layer(self) -> Layer: ...
+    def layer(self, index: int) -> Layer: ...
+    def layer_of(self, node_id: int) -> int: ...
+    def node(self, node_id: int) -> Node: ...
 
     def new_coordinates(
         self,
@@ -325,94 +229,37 @@ class SceneGraph:
         z: float,
         features: List[Feature],
     ) -> __Node:
-        """
-        Create a new metric node with coordinates and features.
-
-        The returned __Node should be inserted into a Layer via push_node().
-        """
+        """Create a new metric node with coordinates and features. [cite: 85]"""
         ...
 
-
     def new_indexed_node(self, features: List[Feature]) -> __Node:
-        """
-        Create a new Indexed Semantic Node with specified features.
-        This node will have position indexing enabled and will track of the coordinates of its
-        sub-tree for efficient spatial queries.
-
-        The returned __Node should be inserted into a Layer via push_node().
-        """
+        """Create a new Indexed Semantic Node with specified features. [cite: 88]"""
         ...
 
     def new_node(self, features: List[Feature]) -> __Node:
-        """
-        Create a new semantic node with the given features.
-
-        The returned __Node should be inserted into a Layer via push_node().
-        """
+        """Create a new semantic node with the given features. [cite: 91]"""
         ...
 
-    def del_node(self, node_id: int) -> None:
-        """
-        Delete a node by its ID (recursively deleting all child nodes as well).
-        """
-        ...
+    def del_node(self, node_id: int) -> None: ...
+    def nest(self, nestee: int, nester: int) -> None: ...
 
-    def nest(self, nestee: int, nester: int) -> None:
-        """
-        Make the node `nestee` a child of `nester`.
+    def nodes_having(self, keys: List[str]) -> List[List[Node]]: ...
+    def nodes_matching(self, features: List[Feature]) -> List[List[Node]]: ...
 
-        Both must exist; `nester` must be on the layer immediately above `nestee`.
-        """
-        ...
-
-    # ---- Feature-based queries across layers ----
-
-    def nodes_having(self, keys: List[str]) -> List[List[Node]]:
-        """
-        Get a list of per-layer lists of nodes having all specified feature keys.
-        """
-        ...
-
-    def nodes_matching(self, features: List[Feature]) -> List[List[Node]]:
-        """
-        Get a list of per-layer lists of nodes matching the specified feature set.
-        """
-        ...
-
-    # ---- Visibility / spatial queries across graph ----
-
-    def visible_subgraph(self, observer: Observer, root_node_id: int) -> SceneGraph:
-        """
-        Get a subgraph containing nodes within the field of view of an observer
-        and descending from the specified root node.
-        """
-        ...
+    def visible_subgraph(self, observer: Observer, root_node_id: int) -> SceneGraph: ...
 
     def nearest_nodes(
         self,
         coord: Coordinate,
         count: PosQueryCount,
-    ) -> QueryResult:
-        """
-        Retrieve up to `count` nearest nodes to the given position in the graph.
-
-        Returns a list of (node, distance) sorted from nearest to farthest.
-        """
-        ...
+    ) -> QueryResult: ...
 
     def nodes_within(
         self,
         coord: Coordinate,
         radius: float,
         count: PosQueryCount,
-    ) -> QueryResult:
-        """
-        Retrieve up to `count` nodes within `radius` of the given position
-        in the graph.
-
-        Returns a list of (node, distance).
-        """
-        ...
+    ) -> QueryResult: ...
 
     def nearest_in_subtree(
         self,
@@ -420,12 +267,7 @@ class SceneGraph:
         root: int,
         count: PosQueryCount,
     ) -> QueryResult:
-        """
-        Retrieve up to `count` nearest nodes to the given position within
-        the subtree rooted at `root`.
-
-        Returns a list of (node, distance).
-        """
+        """Retrieve up to `count` nearest nodes within the subtree rooted at `root`. """
         ...
 
     def nearest_in_subtree_for_each(
@@ -433,42 +275,24 @@ class SceneGraph:
         points: List[Coordinate], 
         root: int, 
         count: PosQueryCount
-    ) -> List[QueryResult]:
-        """Same as `nearest_in_subtree` but for multiple points."""
-        ...
+    ) -> List[QueryResult]: ...
 
     def nearest_nodes_for_each(
         self, 
         points: List[Coordinate], 
         count: PosQueryCount
-    ) -> List[QueryResult]:
-        """Same as `nearest_nodes` but for multiple points."""
-        ...
+    ) -> List[QueryResult]: ...
 
     def nodes_within_for_each(
         self, 
         points: List[Coordinate], 
         radius: float, 
         count: PosQueryCount
-    ) -> List[QueryResult]:
-        """Same as `nodes_within` but for multiple points."""
-        ...
+    ) -> List[QueryResult]: ...
 
-    # ---- Edge queries across graph ----
-
-    def edges_matching(self, desc: str) -> List[List[Edge]]:
-        """
-        Get a list of per-layer lists of edges matching the given description.
-        """
-        ...
-
-    def edges_from(self, src: int) -> List[Edge]:
-        """Get list of all edges from a specific source node."""
-        ...
-
-    def edges_to(self, dst: int) -> List[Edge]:
-        """Get list of all edges to a specific destination node."""
-        ...
+    def edges_matching(self, desc: str) -> List[List[Edge]]: ...
+    def edges_from(self, src: int) -> List[Edge]: ...
+    def edges_to(self, dst: int) -> List[Edge]: ...
 
 
 __all__ = [
@@ -482,4 +306,3 @@ __all__ = [
     "PosQueryCount",
     "Coordinate",
 ]
-
