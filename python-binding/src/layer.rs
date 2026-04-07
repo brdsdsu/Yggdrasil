@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 #[pyclass(name = "Layer")]
 pub struct PyLayerRef {
     sg: Arc<Mutex<SceneGraph>>,
+
+    #[pyo3(get)]
     lid: u32,
 }
 
@@ -27,13 +29,14 @@ impl PyLayerRef {
     }
 
     /// Add a new node to the layer.
-    pub fn push_node(&mut self, node: PyAnonNode) {
+    pub fn push_node(&mut self, node: PyAnonNode) -> PyNodeId {
         self.sg
             .lock()
             .unwrap()
             .layer_mut(self.lid)
             .unwrap()
-            .push_node(node.into_inner());
+            .push_node(node.into_inner())
+            .into()
     }
 
     /// Add an edge from source node to destination node with a description.
@@ -44,6 +47,16 @@ impl PyLayerRef {
             .unwrap()
             .layer_mut(self.lid)?
             .add_edge(src.into(), dst.into(), desc)?;
+        Ok(())
+    }
+
+    /// Add a child layer by its ID.
+    pub fn add_child(&mut self, child_id: u32) -> Result<()> {
+        self.sg
+            .lock()
+            .unwrap()
+            .layer_mut(self.lid)?
+            .add_child(child_id)?;
         Ok(())
     }
 
