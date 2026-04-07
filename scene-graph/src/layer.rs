@@ -49,7 +49,7 @@ impl Layer {
             .binary_search_by_key(&id, |node| node.id)
             .map_err(|_| SceneGraphError::NodeNotFound)?;
         Ok(NodeMut {
-            prev_coords: self.nodes[ptr].coordinates,
+            prev_coords: self.nodes[ptr].coordinates.clone(),
             layer: self,
             node_ptr: ptr,
         })
@@ -60,10 +60,8 @@ impl Layer {
     pub fn push_node<N: IntoNode>(&mut self, node: N) -> NodeId {
         let node_id = NodeId::new(node.nid(), self.id);
         let node = node.into_node(node_id);
-        if let Some(pos_index) = &mut self.pos_index
-            && let Some(coords) = node.coordinates
-        {
-            pos_index.add(&coords.into(), node.id);
+        if let Some(pos_index) = &mut self.pos_index {
+            pos_index.extend(node.coordinates.iter().map(|&c| (c.into(), node.id)));
         }
         let ptr = match self.nodes.binary_search_by_key(&node.id, |n| n.id) {
             Ok(ptr) => ptr,
@@ -164,8 +162,7 @@ impl Layer {
         let nodes = self
             .nodes
             .iter()
-            .filter(|n| n.coordinates.is_some())
-            .filter(|n| observer.observers(&n.coordinates.unwrap()))
+            .filter(|n| observer.notices(&n.coordinates))
             .cloned()
             .collect::<Vec<Node>>();
 
@@ -173,8 +170,8 @@ impl Layer {
             Some(_) => {
                 let mut pos_index = KdTree::new();
                 for node in &nodes {
-                    if let Some(coords) = node.coordinates {
-                        pos_index.add(&coords.into(), node.id);
+                    for c in node.coordinates.iter() {
+                        pos_index.add(&(*c).into(), node.id);
                     }
                 }
                 Some(pos_index)
@@ -298,10 +295,10 @@ impl Layer {
             .position(|node| node.id == id)
             .ok_or(SceneGraphError::NodeNotFound)?;
         let node = self.nodes.remove(index);
-        if let Some(pos_index) = &mut self.pos_index
-            && let Some(coords) = node.coordinates
-        {
-            pos_index.remove(&coords.into(), node.id);
+        if let Some(pos_index) = &mut self.pos_index {
+            for c in node.coordinates.iter() {
+                pos_index.remove(&(*c).into(), node.id);
+            }
         }
         self.nodes
             .iter_mut()
@@ -336,8 +333,8 @@ impl Layer {
             Some(_) => {
                 let mut pos_index = KdTree::new();
                 for node in &nodes {
-                    if let Some(coords) = node.coordinates {
-                        pos_index.add(&coords.into(), node.id);
+                    for c in node.coordinates.iter() {
+                        pos_index.add(&(*c).into(), node.id);
                     }
                 }
                 Some(pos_index)
@@ -382,7 +379,7 @@ impl Layer {
 /// A mutable reference to a Node within a Layer.
 /// Tracks previous coordinates to update the position index on drop.
 pub struct NodeMut<'a> {
-    prev_coords: Option<super::Coordinate>,
+    prev_coords: Vec<super::Coordinate>,
     layer: &'a mut Layer,
     node_ptr: usize,
 }
@@ -403,19 +400,54 @@ impl DerefMut for NodeMut<'_> {
 
 impl Drop for NodeMut<'_> {
     fn drop(&mut self) {
-        let node = &**self;
-        let new_coords = node.coordinates;
-        let node_id = node.id;
-
-        if self.prev_coords == new_coords {
+        // Logic for updating the position index when a Node's coordinates are modified:
+        // 1. If the layer does not have a position index, do nothing.
+        // 2. If the Node's coordinates have not changed, do nothing.
+        // 3. Calculate the difference between the previous coordinates and the new coordinates.
+        //    - For each previous coordinate that is no longer in the new coordinates, remove it from the position index.
+        //    - For each new coordinate that was not in the previous coordinates, add it to the position index.
+        if self.layer.pos_index.is_none() {
             return;
         }
-        if let Some(pos_index) = &mut self.layer.pos_index {
-            if let Some(pos) = self.prev_coords {
-                pos_index.remove(&pos.into(), node_id);
+
+        let node = &**self;
+        let new_coords = &node.coordinates;
+        let node_id = node.id;
+
+        if self.prev_coords == *new_coords {
+            return;
+        }
+        // calculate diff between prev_coords and new_coords, and update the pos_index accordingly
+        let mut new_coords_ptr = 0;
+        let mut to_be_removed_coords = Vec::new();
+        for prev_coord in &self.prev_coords {
+            if new_coords_ptr >= new_coords.len() {
+                break;
             }
-            if let Some(pos) = new_coords {
-                pos_index.add(&pos.into(), node_id);
+            let new_coord = &new_coords[new_coords_ptr];
+
+            // prev_coord is no longer in the new_coords, so it should be removed from the pos_index
+            if prev_coord != new_coord {
+                to_be_removed_coords.push(*prev_coord);
+            } else {
+                // found prev_coord in new_coords, advancing the pointer
+                new_coords_ptr += 1;
+            }
+        }
+        // what remains in the `new_coords` is new and must be added to the `pos_index`
+        let to_be_added_coords = new_coords
+            .iter()
+            .skip(new_coords_ptr)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if let Some(pos_index) = &mut self.layer.pos_index {
+            for c in to_be_removed_coords.iter() {
+                pos_index.remove(&(*c).into(), node_id);
+            }
+
+            for c in to_be_added_coords {
+                pos_index.add(&(c).into(), node_id);
             }
         }
     }
@@ -455,10 +487,15 @@ mod test {
         ];
         let mut layer = Layer::default();
         for (i, p) in pts.iter().enumerate() {
-            layer.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false));
+            layer.push_node(AnonNode::new(i as u32, Vec::new(), vec![*p], false));
         }
         // Node with no coordinates
-        layer.push_node(AnonNode::new(pts.len() as u32, Vec::new(), None, false));
+        layer.push_node(AnonNode::new(
+            pts.len() as u32,
+            Vec::new(),
+            Vec::new(),
+            false,
+        ));
 
         // fully connecting nodes to each other
         for src in 0..layer.nodes.len() {
@@ -474,9 +511,9 @@ mod test {
         assert_eq!(observed_layer.nodes.len(), 3);
         for node in observed_layer.nodes {
             // all nodes should have coordinates to be observable
-            assert!(node.coordinates.is_some());
+            assert!(!node.coordinates.is_empty());
             // all nodes should be within the cone frustum
-            assert!(cone.observers(&node.coordinates.unwrap()));
+            assert!(cone.notices(&node.coordinates));
             // nodes 0,1,2 are inside, rest are outside, so only edges to 0,1,2 should remain
             assert_eq!(
                 node.edges.iter().map(|e| e.dst).collect::<Vec<_>>(),
@@ -498,7 +535,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false));
+            l.push_node(AnonNode::new(i as u32, Vec::new(), vec![*p], false));
         }
 
         let query_pos = Coordinate::new(0.6, 0.6, 0.6);
@@ -506,9 +543,9 @@ mod test {
         let nearest_nodes = l.nearest_nodes(&query_pos, PosQueryCount::Count(3));
         assert_eq!(nearest_nodes.len(), 3);
         // first 3 nearest nodes should be [1.0,1.0,1.0], [0.0,0.0,0.0], [2.0,2.0,2.0]
-        assert_eq!(nearest_nodes[0].0.coordinates.unwrap(), pts[1]);
-        assert_eq!(nearest_nodes[1].0.coordinates.unwrap(), pts[0]);
-        assert_eq!(nearest_nodes[2].0.coordinates.unwrap(), pts[2]);
+        assert_eq!(nearest_nodes[0].0.coordinates, vec![pts[1]]);
+        assert_eq!(nearest_nodes[1].0.coordinates, vec![pts[0]]);
+        assert_eq!(nearest_nodes[2].0.coordinates, vec![pts[2]]);
     }
 
     #[test]
@@ -524,7 +561,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false));
+            l.push_node(AnonNode::new(i as u32, Vec::new(), vec![*p], false));
         }
 
         let query_pos = Coordinate::new(2.0, 2.0, 2.0);
