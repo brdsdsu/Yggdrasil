@@ -32,8 +32,8 @@ pub struct Node {
     /// This is used for efficient spatial queries.
     #[serde(skip)]
     pub(crate) pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
-
-    pub bounds: BoundingBox,
+    /// Optional bounding box for the node, which can be used for spatial queries and optimizations.
+    pub bounds: Option<BoundingBox>,
 }
 
 impl Node {
@@ -43,6 +43,7 @@ impl Node {
         features: Vec<Feature>,
         coordinates: Option<Coordinate>,
         pos_index_enabled: bool,
+        bounds: Option<BoundingBox>,
     ) -> Self {
         let pos_index = if pos_index_enabled {
             Some(KdTree::new())
@@ -57,6 +58,7 @@ impl Node {
             features,
             coordinates,
             pos_index,
+            bounds,
         }
     }
 
@@ -194,6 +196,8 @@ pub struct AnonNode {
     /// This is used for efficient spatial queries.
     #[serde(skip)]
     pub(crate) pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
+    /// Optional bounding box for the node, which can be used for spatial queries and optimizations.
+    pub bounds: Option<BoundingBox>,
 }
 
 impl AnonNode {
@@ -203,6 +207,7 @@ impl AnonNode {
         features: Vec<Feature>,
         coordinates: Option<Coordinate>,
         pos_index_enabled: bool,
+        bounds: Option<BoundingBox>,
     ) -> Self {
         let pos_index = if pos_index_enabled {
             Some(KdTree::new())
@@ -215,6 +220,7 @@ impl AnonNode {
             features,
             coordinates,
             pos_index,
+            bounds,
         }
     }
 
@@ -267,6 +273,7 @@ impl IntoNode for AnonNode {
             features: self.features,
             coordinates: self.coordinates,
             pos_index: self.pos_index,
+            bounds: self.bounds,
         }
     }
 

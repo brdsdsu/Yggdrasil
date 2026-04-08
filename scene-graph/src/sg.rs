@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
-    AnonNode, NodeId,
+    AnonNode, BoundingBox, NodeId,
     error::{Result, SceneGraphError},
     fov::Observer,
     layer::{Layer, NodeMut},
@@ -119,6 +119,47 @@ impl SceneGraph {
         subgraph.node_counter = self.node_counter;
         Ok(subgraph)
     }
+
+    fn bounds_of(&self, nid: NodeId) -> Result<Option<BoundingBox>> {
+        let node = self.node(nid)?;
+        if let Some(bounds) = node.bounds {
+            Ok(Some(bounds))
+        } else {
+            self.build_bounding_box(nid)
+        }
+    }
+
+    fn build_bounding_box(&self, nid: NodeId) -> Result<Option<BoundingBox>> {
+        let node = self.node(nid)?;
+        let bounds_iter = node
+            .children
+            .iter()
+            .map(|&cid| self.bounds_of(cid))
+            .filter_map(Result::ok);
+        let x = bounds_iter.chain(vec![node.coordinates.map(|c| BoundingBox::point(c))]);
+
+        let bounds = x.fold(None, |acc: Option<BoundingBox>, b| match acc {
+            Some(mut acc) => {
+                if let Some(b) = b {
+                    acc.merge(&b);
+                }
+                Some(acc)
+            }
+            None => b,
+        });
+
+        if let Some(coords) = node.coordinates {
+            match bounds {
+                Some(mut b) => {
+                    b.merge(&BoundingBox::point(coords));
+                    return Ok(Some(b));
+                }
+                None => return Ok(Some(BoundingBox::point(coords))),
+            }
+        }
+
+        Ok(bounds)
+    }
 }
 
 /// SceneGraph Update
@@ -200,6 +241,7 @@ impl SceneGraph {
             features,
             Some(Coordinate::new(x, y, z)),
             false,
+            Some(BoundingBox::point(Coordinate::new(x, y, z))),
         );
         self.node_counter += 1;
         node
@@ -207,7 +249,7 @@ impl SceneGraph {
 
     /// Create a new Semantic Node with specified features.
     pub fn new_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(self.node_counter, features, None, false);
+        let node = AnonNode::new(self.node_counter, features, None, false, None);
         self.node_counter += 1;
         node
     }
@@ -216,7 +258,13 @@ impl SceneGraph {
     /// This node will have position indexing enabled and will track of the coordinates of its
     /// sub-tree for efficient spatial queries.
     pub fn new_indexed_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(self.node_counter, features, None, true);
+        let node = AnonNode::new(
+            self.node_counter,
+            features,
+            None,
+            true,
+            Some(Default::default()),
+        );
         self.node_counter += 1;
         node
     }
@@ -232,6 +280,9 @@ impl SceneGraph {
         if let Some(pid) = layer.node(nid)?.pid {
             // if parent node has indexing enabled, we need to remove all the points in the subtree
             // from the position index before deleting the node.
+            //
+            // if parent node has boundingBox enabled, we should also update the bounding box of
+            // the parent using the bounding box of the node to be deleted.
 
             // calculating the subtree of the points to be removed
             let mut pos_subtree = Vec::new();
@@ -239,9 +290,13 @@ impl SceneGraph {
                 pos_subtree = self.pos_subtree(nid);
             }
 
+            // store child's bounding box before deleting the node
+            let node_bounds = self.node(nid)?.bounds;
+
             unsafe {
-                // SAFETY: We only delete the points from the subtree from the position index of the
-                // node, so no layer-level update is required.
+                // SAFETY: Operations done on the parent:
+                // 1. Removal of points from it's index
+                // 2. Removal of the child from it's children list
                 let parent = self.node_mut_unsynced(pid)?;
 
                 // SAFETY: We already checked if pos_index is Some
@@ -249,7 +304,25 @@ impl SceneGraph {
                 for (c, nid) in pos_subtree {
                     pos_index.remove(&c.into(), nid);
                 }
+
                 parent.remove_child(nid)?;
+            }
+
+            // recalculate the bounding box of the parent if it exists and if the subtree contains a border point.
+            if let Some(parent_bounds) = self.node(pid)?.bounds
+                && let Some(node_bounds) = node_bounds
+            {
+                // We have to rebuild the bounding box if the subtree contains a border
+                // point.
+                if parent_bounds.shares_border_with(&node_bounds) {
+                    let bounds = self.build_bounding_box(pid)?;
+                    unsafe {
+                        // SAFETY: Operations done on the parent:
+                        // 1. Updating the bounding box of the parent if it exists
+                        let parent = self.node_mut_unsynced(pid)?;
+                        parent.bounds = bounds;
+                    }
+                }
             }
         }
 
@@ -583,6 +656,9 @@ impl<'a> NestUnder<'a> {
             }
         }
 
+        // SAFETY: Operations done to the nester node:
+        // 1. Adding a new child to it's children list
+        // 2. Update position index with the new child subtree
         let node = unsafe { self.sg.node_mut_unsynced(nester)? };
         node.add_child(self.nestee);
 
@@ -593,6 +669,17 @@ impl<'a> NestUnder<'a> {
             let pos_index = node.pos_index.as_mut().unwrap();
             pos.iter()
                 .for_each(|(coords, id)| pos_index.add(&(*coords).into(), *id));
+        }
+
+        let nestee_bounds = self.sg.bounds_of(self.nestee)?;
+
+        // SAFETY: Operations done to the nester node:
+        // 1. Update bounding box with the new child
+        let node = unsafe { self.sg.node_mut_unsynced(nester)? };
+        if let Some(nester_bounds) = node.bounds.as_mut()
+            && let Some(nestee_bounds) = nestee_bounds
+        {
+            nester_bounds.merge(&nestee_bounds);
         }
 
         Ok(self.sg)
