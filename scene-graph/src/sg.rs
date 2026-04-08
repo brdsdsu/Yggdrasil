@@ -228,8 +228,29 @@ impl SceneGraph {
         // Remove node from its parent's children list
         let lid = nid.layer_id();
         let layer = self.layer_mut(lid)?;
+
         if let Some(pid) = layer.node(nid)?.pid {
-            self.layer_mut(lid + 1)?.node_mut(pid)?.remove_child(nid)?;
+            // if parent node has indexing enabled, we need to remove all the points in the subtree
+            // from the position index before deleting the node.
+
+            // calculating the subtree of the points to be removed
+            let mut pos_subtree = Vec::new();
+            if self.node(pid)?.pos_index.is_some() {
+                pos_subtree = self.pos_subtree(nid);
+            }
+
+            unsafe {
+                // SAFETY: We only delete the points from the subtree from the position index of the
+                // node, so no layer-level update is required.
+                let parent = self.node_mut_unsynced(pid)?;
+
+                // SAFETY: We already checked if pos_index is Some
+                let pos_index = parent.pos_index.as_mut().unwrap();
+                for (c, nid) in pos_subtree {
+                    pos_index.remove(&c.into(), nid);
+                }
+                parent.remove_child(nid)?;
+            }
         }
 
         // Recursively delete the node and its children
@@ -645,6 +666,61 @@ mod test {
         assert_eq!(subgraph_m1.layer(1)?.id, sg.layer_of(m1));
         // there should be no layer with id 0 in the subgraph
         assert!(subgraph_m1.layer(0).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn del_node_index_propagation() -> Result<()> {
+        // creating a scene graph with 2 layers, with the following structure:
+        // layers structure:
+        // Layer 1
+        // └── Layer 0
+        // Nodes structure:
+        // m0
+        // ├── n0 ...
+        // └── n10
+        //
+        // each node in layer 0 has 10 coordinates, namely, (i,i,i) for the i'th node.
+        //
+        // Scenario:
+        // we first check if nearest neighbor query on n0 coordinates returns the n0's
+        // coordinates when run on m0; then we delete n0 and repeate the same query, which should
+        // not return n0's coordinates anymore.
+
+        // 1. creating the scene graph
+        let mut sg = SceneGraph::default();
+        sg.new_layer();
+        sg.new_layer();
+        sg.layer_mut(1)?.add_child(0)?;
+        let m0 = sg.new_indexed_node(vec![Feature::new("name", "m0")]);
+        let m0_id = sg.layer_mut(1)?.push_node(m0);
+        for i in 0..10 {
+            let mut n = sg.new_indexed_node(vec![Feature::new("name", &format!("n{}", i))]);
+            n.coordinates = Some(Coordinate::new(i as f32, i as f32, i as f32));
+            let n_id = sg.layer_mut(0)?.push_node(n);
+            sg.nest(n_id).under(m0_id)?;
+        }
+
+        // 2. nearest neighbor query on n0's coordinates should return n0
+        let query_coord = Coordinate::new(0.0, 0.0, 0.0);
+        let nearest = sg.nearest_in_subtree(&query_coord, m0_id, PosQueryCount::Count(1))?;
+        assert_eq!(nearest.len(), 1);
+        assert_eq!(
+            nearest[0].0.coordinates.unwrap(),
+            Coordinate::new(0.0, 0.0, 0.0)
+        );
+
+        // 3. delete n0 and repeat the same query, which should not return n0's coordinates anymore
+        let n0_id = sg.nodes_matching(&[&Feature::new("name", "n0")])[0][0].id;
+        sg.del_node(n0_id)?;
+        let nearest_after_deletion =
+            sg.nearest_in_subtree(&query_coord, m0_id, PosQueryCount::Count(1))?;
+        assert_eq!(nearest_after_deletion.len(), 1);
+        assert_ne!(
+            nearest_after_deletion[0].0.coordinates.unwrap(),
+            Coordinate::new(0.0, 0.0, 0.0)
+        );
+
         Ok(())
     }
 }
