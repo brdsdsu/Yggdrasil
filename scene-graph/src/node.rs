@@ -99,6 +99,7 @@ impl Node {
 impl Node {
     /// Remote a child node by its ID.
     pub(super) fn remove_child(&mut self, nid: NodeId) -> Result<()> {
+        todo!("propagate up bounding box and pos_index updates");
         let index = self
             .children
             .iter()

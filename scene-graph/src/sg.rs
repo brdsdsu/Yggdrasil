@@ -747,15 +747,11 @@ impl<'a> NestUnder<'a> {
         let node = unsafe { self.sg.node_mut_unsynced(nester)? };
         node.add_child(self.nestee);
 
-        // propagate position index with the new child
-        if node.pos_index.is_some() {
-            let pos = self.sg.pos_subtree(self.nestee);
-            // propagete the new positions to the nester and all its ancestors with position index enabled.
-            self.sg.bubble_up_points_addition(nester, pos)?;
-        }
+        // propagete the new positions to the nester and all its ancestors with position index enabled.
+        self.sg.bubble_up_points_addition(nester,self.sg.pos_subtree(self.nestee))?;
 
-        let nestee_bounds = self.sg.bounds_of(self.nestee)?;
-        self.sg.bubble_up_bounds_addition(nester, nestee_bounds)?;
+        // propagate the new bounds to the nester and all its ancestors.
+        self.sg.bubble_up_bounds_addition(nester, self.sg.bounds_of(self.nestee)?)?;
 
         Ok(self.sg)
     }
