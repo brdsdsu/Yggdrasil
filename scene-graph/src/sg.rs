@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
-    AnonNode, BoundingBox, NodeId,
+    AnonNode, BoundingBox, NodeId, NodeMut,
     error::{Result, SceneGraphError},
     fov::Observer,
-    layer::{Layer, NodeMut},
+    layer::Layer,
     node::{Coordinate, Edge, Feature, Node},
     pos::{PosQueryCount, PositionQuery},
 };
@@ -184,26 +184,15 @@ impl SceneGraph {
         let layer = self.layer_mut(lid)?;
 
         if let Some(pid) = layer.node(nid)?.pid {
-            // remove nodes subtree of points from the parent node's position index all the way up
-            // to the root.
-            self.bubble_up_points_removal(pid, self.pos_subtree(nid))?;
-
-            // SAFETY: Operations done on the parent:
-            // 1. Removing a child from it's children List
-            //
-            // So no layer-level logic is violated
-            unsafe { self.node_mut_unsynced(pid)? }.remove_child(nid)?;
-
-            // update the bounding box of the parent node and all the way up to the root.
-            self.bubble_up_bounds_removal(pid, self.node(nid)?.bounds)?;
+            self.detach(nid).from(pid)?;
         }
 
         // Recursively delete the node and its children
         fn del_node_recursive(sg: &mut SceneGraph, lid: u32, nid: NodeId) -> Result<()> {
             let layer = sg.layer_mut(lid)?;
-            let children = layer.del_node(nid)?.children;
-            for child_id in children {
-                del_node_recursive(sg, lid - 1, child_id)?;
+            let node = layer.del_node(nid)?;
+            for child_id in node.children() {
+                del_node_recursive(sg, lid - 1, *child_id)?;
             }
             Ok(())
         }
@@ -212,10 +201,10 @@ impl SceneGraph {
 
     /// Nest a node under another node, establishing a parent-child relationship.
     /// The `nestee` node will become a child of the `nester` node.
-    /// Both nodes must exist in the scene graph.
-    /// The `nester` node must be on the layer immediately above the `nestee` node.
-    /// If the `nestee` node already has a parent, it will be removed from its current parent's list of children.
     /// The `nester` node will have the `nestee` node added to its list of children.
+    /// Both nodes must exist in the scene graph.
+    /// The `nester` node's layer must be the parent layer of the `nestee` node's layer.
+    /// If the `nestee` node already has a parent, it will be removed from its current parent's list of children.
     ///
     /// ```rust
     /// # use scene_graph::SceneGraph;
@@ -238,7 +227,7 @@ impl SceneGraph {
     /// // Nest node1 under node2
     /// sg.nest(id1).under(id2)?;
     ///
-    /// assert_eq!(sg.node(id2)?.children, vec![id1]);
+    /// assert_eq!(sg.node(id2)?.children(), vec![id1]);
     /// assert_eq!(sg.node(id1)?.pid, Some(id2));
     ///
     /// # Ok(())
@@ -246,6 +235,50 @@ impl SceneGraph {
     /// ```
     pub fn nest(&mut self, nid: NodeId) -> NestUnder<'_> {
         NestUnder {
+            sg: self,
+            nestee: nid,
+        }
+    }
+
+    /// Detach a node from its parent, removing the parent-child relationship.
+    /// The `nestee` node will become an orphan node on its current layer.
+    /// The `nester` node will have the `nestee` node removed from its list of children.
+    /// Both nodes must exist in the scene graph.
+    /// The function will NoOp if the `nestee` is not nested under `nester` node.
+    ///
+    /// ```rust
+    /// # use scene_graph::SceneGraph;
+    /// # use scene_graph::Result;
+    ///
+    /// # fn main() -> Result<()> {
+    /// # let mut sg = SceneGraph::default();
+    ///
+    /// // Create nodes
+    /// let node1 = sg.new_node(vec![]);
+    /// let node2 = sg.new_node(vec![]);
+    ///
+    /// // Create a layer and add nodes to it
+    /// let lid0 = sg.new_layer().id;
+    /// let layer = sg.new_layer();
+    /// layer.add_child(lid0)?;
+    /// let id1 = sg.layer_mut(0)?.push_node(node1);
+    /// let id2 = sg.layer_mut(1)?.push_node(node2);
+    ///
+    /// // Nest node1 under node2
+    /// sg.nest(id1).under(id2)?;
+    ///
+    /// assert_eq!(sg.node(id2)?.children(), vec![id1]);
+    /// assert_eq!(sg.node(id1)?.pid, Some(id2));
+    ///
+    /// // Detach node1 from node2
+    /// sg.detach(id1).from(id2)?;
+    /// assert_eq!(sg.node(id2)?.children(), vec![]);
+    /// assert_eq!(sg.node(id1)?.pid, None);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn detach(&mut self, nid: NodeId) -> DetachFrom<'_> {
+        DetachFrom {
             sg: self,
             nestee: nid,
         }
@@ -469,7 +502,7 @@ impl SceneGraph {
             coords.extend(pos_index.iter().map(|(id, c)| (Coordinate::from(c), id)));
             return coords;
         }
-        for cid in &node.children {
+        for cid in node.children() {
             coords.extend(self.pos_subtree(*cid));
         }
         coords
@@ -527,7 +560,7 @@ impl SceneGraph {
             let nodes: Vec<_> = nodes.into_iter().collect();
             let l = layer.subset(&nodes);
             for nid in nodes {
-                for cid in &l.node(nid)?.children {
+                for cid in l.node(nid)?.children() {
                     let clid = self.layer_of(*cid);
                     let ptr = layers
                         .binary_search_by_key(&clid, |(lid, _)| *lid)
@@ -555,7 +588,7 @@ impl SceneGraph {
     fn build_bounding_box(&self, nid: NodeId) -> Result<Option<BoundingBox>> {
         let node = self.node(nid)?;
         let bounds_iter = node
-            .children
+            .children()
             .iter()
             .map(|&cid| self.bounds_of(cid))
             .filter_map(Result::ok);
@@ -666,9 +699,10 @@ impl SceneGraph {
         //
         // So no layer-level logic is violated
         let node = unsafe { self.node_mut_unsynced(parent)? };
-        let pos_index = node.pos_index.as_mut().unwrap();
-        pos.iter()
-            .for_each(|(coords, id)| pos_index.add(&(*coords).into(), *id));
+        if let Some(pos_index) = node.pos_index.as_mut() {
+            pos.iter()
+                .for_each(|(coords, id)| pos_index.add(&(*coords).into(), *id));
+        }
 
         match node.pid {
             Some(pid) => self.bubble_up_points_addition(pid, pos),
@@ -748,10 +782,65 @@ impl<'a> NestUnder<'a> {
         node.add_child(self.nestee);
 
         // propagete the new positions to the nester and all its ancestors with position index enabled.
-        self.sg.bubble_up_points_addition(nester,self.sg.pos_subtree(self.nestee))?;
+        self.sg
+            .bubble_up_points_addition(nester, self.sg.pos_subtree(self.nestee))?;
 
         // propagate the new bounds to the nester and all its ancestors.
-        self.sg.bubble_up_bounds_addition(nester, self.sg.bounds_of(self.nestee)?)?;
+        self.sg
+            .bubble_up_bounds_addition(nester, self.sg.bounds_of(self.nestee)?)?;
+
+        Ok(self.sg)
+    }
+}
+
+/// An intermediate struct to facilitate the Detaching of one node from another in a SceneGraph.
+/// Refer to the `detach` method in `SceneGraph` for usage example.
+///
+/// [`detach`](SceneGraph::detach)
+pub struct DetachFrom<'a> {
+    sg: &'a mut SceneGraph,
+    nestee: NodeId,
+}
+
+impl<'a> DetachFrom<'a> {
+    /// Complete the detaching operation by specifying the `nester` node under which the `nestee` node
+    /// is currently nested.
+    /// Refer to the `nest` method in `SceneGraph` for usage example.
+    ///
+    /// [`detach`](SceneGraph::detach)
+    pub fn from(&mut self, nester: NodeId) -> Result<&mut SceneGraph> {
+        let nester_layer_id = self.sg.layer_of(nester);
+        let nestee_layer_id = self.sg.layer_of(self.nestee);
+        let nester_layer = self.sg.layer(nester_layer_id)?;
+
+        // NoOp if the nestee is not nested under nester
+        if !nester_layer.children.contains(&nestee_layer_id) {
+            return Ok(self.sg);
+        }
+        if !self.sg.node(nester)?.children().contains(&self.nestee) {
+            return Ok(self.sg);
+        }
+
+        // propagate the removal of points in the child subtree to the nester and all its
+        // ancestors.
+        self.sg
+            .bubble_up_points_removal(nester, self.sg.pos_subtree(self.nestee))?;
+
+        // SAFETY: Operations done to the nester node:
+        // 1. Removing a child from it's children list
+        //
+        // So no layer-level logic is violated
+        unsafe { self.sg.node_mut_unsynced(nester) }?.remove_child(self.nestee)?;
+
+        // propagate the removal of the child node's bounds to the nester and all its ancestors.
+        self.sg
+            .bubble_up_bounds_removal(nester, self.sg.bounds_of(self.nestee)?)?;
+
+        // SAFETY: Operations done on the child node:
+        // 1. Setting parent pointer to None
+        //
+        // So no layer-level logic is violated
+        unsafe { self.sg.node_mut_unsynced(self.nestee) }?.pid = None;
 
         Ok(self.sg)
     }

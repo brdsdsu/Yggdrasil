@@ -21,7 +21,7 @@ pub struct Node {
     /// Parent node Id, if node is nested under another node.
     pub pid: Option<NodeId>,
     /// Child node Ids from the lower layer, if node has nested nodes under it.
-    pub children: Vec<NodeId>,
+    children: Vec<NodeId>,
     /// Edges to other nodes in the same layer.
     pub edges: Vec<Edge>,
     /// Features associated with the node.
@@ -94,12 +94,16 @@ impl Node {
             }
         }
     }
+
+    /// Get the node IDs of this node's children.
+    pub fn children(&self) -> &[NodeId] {
+        &self.children
+    }
 }
 
 impl Node {
     /// Remote a child node by its ID.
     pub(super) fn remove_child(&mut self, nid: NodeId) -> Result<()> {
-        todo!("propagate up bounding box and pos_index updates");
         let index = self
             .children
             .iter()

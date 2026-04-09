@@ -504,7 +504,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false,None));
+            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
         }
 
         let query_pos = Coordinate::new(0.6, 0.6, 0.6);
@@ -530,7 +530,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false,None));
+            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
         }
 
         let query_pos = Coordinate::new(2.0, 2.0, 2.0);
