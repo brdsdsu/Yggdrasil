@@ -1,5 +1,5 @@
 use scene_graph as yggdrasil;
-use yggdrasil::Feature;
+use yggdrasil::{Feature, PosQueryCount};
 
 fn main() -> yggdrasil::Result<()> {
     // Create a demo scene graph with the following structure:
@@ -26,6 +26,97 @@ fn main() -> yggdrasil::Result<()> {
 }
 
 fn run_nearest_neighbors_queris(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result<()> {
+    // Retrieve the 5 nearest nodes to the (5, 5, 5) coordinates. Nodes returned by this query
+    // should all be points of static objects, since the dynamic objects are all located in the
+    // (10, 10, 10) to (20, 20, 20) region.
+    let neighbors = ygg.nearest_nodes(&[5.0, 5.0, 5.0].into(), PosQueryCount::Count(5));
+    assert_eq!(neighbors.len(), 5);
+    // Check that all the neighbors are from the static object layer.
+    assert!(
+        neighbors
+            .iter()
+            .filter_map(|(n, _)| n.pid)
+            .all(|pid| ygg.layer_of(pid) == 1)
+    );
+
+    // Retrieve the 5 nearest nodes to the (5, 5, 5) coordinates from the point cload layer. The
+    // results of this query should be the same as the previous one.
+    let neighbors_in_pc_layer = ygg
+        .layer(0)?
+        .nearest_nodes(&[5.0, 5.0, 5.0].into(), PosQueryCount::Count(5));
+
+    assert_eq!(neighbors_in_pc_layer.len(), 5);
+    // Check that all the neighbors are from the static object layer.
+    assert!(
+        neighbors_in_pc_layer
+            .iter()
+            .filter_map(|(n, _)| n.pid)
+            .all(|pid| ygg.layer_of(pid) == 1)
+    );
+    // Check that the results of this query are the same as the previous one.
+    assert!(
+        neighbors_in_pc_layer
+            .iter()
+            .map(|(n, _)| n.id)
+            .eq(neighbors.iter().map(|(n, _)| n.id))
+    );
+
+    // Retrieve the 5 nearest nodes to the (5, 5, 5) coordinates from the subtree of the "Human" node.
+    // Since the "Human" node is located in the (10, 10, 10) to (20, 20, 20) region, the nearest
+    // nodes should be different from the previous queries.
+    let human_node_id = ygg
+        .layer(2)?
+        .nodes_matching(&[&Feature::new("type", "Human")])[0]
+        .id;
+    let neighbors_in_human_subtree = ygg.nearest_in_subtree(
+        &[5.0, 5.0, 5.0].into(),
+        human_node_id,
+        PosQueryCount::Count(5),
+    )?;
+    assert_eq!(neighbors_in_human_subtree.len(), 5);
+    // Check that all the neighbors are from the Human subtree. Since all the nodes with
+    // coordinates are from layer 0 and their immediate parents are in layer 1 or 2, we can simply
+    // check for parent id instead of traversing the whole subtree.
+    assert!(
+        neighbors_in_human_subtree
+            .iter()
+            .filter_map(|(n, _)| n.pid)
+            .all(|pid| pid == human_node_id)
+    );
+    // Check that the results of this query are different from the previous ones.
+    assert!(
+        !neighbors_in_human_subtree
+            .iter()
+            .map(|(n, _)| n.id)
+            .eq(neighbors.iter().map(|(n, _)| n.id))
+    );
+
+    // Asking for 20 neighbors when the Human subtree only has 10 nodes with coordinates should
+    // return all the 10 nodes without any error.
+    let neighbors_in_human_subtree = ygg.nearest_in_subtree(
+        &[5.0, 5.0, 5.0].into(),
+        human_node_id,
+        PosQueryCount::Count(20),
+    )?;
+    assert_eq!(neighbors_in_human_subtree.len(), 10);
+
+
+    // Retrieving all nodes within a radius of 5 from the (5, 5, 5) coordinates. The results should
+    // contain less than or equal to 70 nodes, since this is the number of point cloud nodes that
+    // are located in the (0, 0, 0) to (10, 10, 10) region.
+    let nodes_within = ygg.nodes_within(&[5.0, 5.0, 5.0].into(), 5.0, PosQueryCount::All);
+    assert!(nodes_within.len() <= 70);
+
+    // Expanding the radious to 26 should return all the point cloud nodes, since now both the
+    // static and dynamic nodes are within the radius.
+    let nodes_within = ygg.nodes_within(&[5.0, 5.0, 5.0].into(), 26.0, PosQueryCount::All);
+    assert_eq!(nodes_within.len(), 100);
+
+    // Retrieving exactly 1 node within a radius of 5 from the (5, 5, 5) coordinates should return
+    // the first node retured by the first nodes_within query.
+    let nodes_within = ygg.nodes_within(&[5.0, 5.0, 5.0].into(), 5.0, PosQueryCount::Count(1));
+    assert_eq!(nodes_within.len(), 1);
+    assert_eq!(nodes_within[0].id, neighbors[0].0.id);
 
     Ok(())
 }
@@ -159,10 +250,11 @@ fn create_demo_graph() -> yggdrasil::Result<yggdrasil::SceneGraph> {
     let root_node = ygg.new_node(vec![Feature::new("name", "root")]);
     let root_node_id = ygg.layer_mut(root_layer_id)?.push_node(root_node);
 
-    // Create 100 point cloud nodes with random coordinates between 0 and 10.
+    // Create 100 point cloud nodes with random coordinates. The first 70 nodes will have
+    // coordinates between 0 and 10, and the next 30 will have coordinates between 10 and 20.
     // Each node will have a feature "point_cloud_id" with a unique integer value.
     // The nodes will be added to the point cloud layer.
-    let point_cloud = (0..100)
+    let mut point_cloud = (0..70)
         .map(|_| {
             let x = rand::random::<f32>() * 10.0;
             let y = rand::random::<f32>() * 10.0;
@@ -170,6 +262,12 @@ fn create_demo_graph() -> yggdrasil::Result<yggdrasil::SceneGraph> {
             (x, y, z)
         })
         .collect::<Vec<_>>();
+    point_cloud.extend((0..30).map(|_| {
+        let x = rand::random::<f32>() * 10.0 + 10.0;
+        let y = rand::random::<f32>() * 10.0 + 10.0;
+        let z = rand::random::<f32>() * 10.0 + 10.0;
+        (x, y, z)
+    }));
 
     let mut point_cluod_node_ids = Vec::new();
     for (i, (x, y, z)) in point_cloud.iter().enumerate() {

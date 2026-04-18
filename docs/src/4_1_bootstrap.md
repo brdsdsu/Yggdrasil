@@ -41,10 +41,11 @@ fn create_demo_graph() -> yggdrasil::Result<yggdrasil::SceneGraph> {
     let root_node = ygg.new_node(vec![Feature::new("name", "root")]);
     let root_node_id = ygg.layer_mut(root_layer_id)?.push_node(root_node);
 
-    // Create 100 point cloud nodes with random coordinates between 0 and 10.
+    // Create 100 point cloud nodes with random coordinates. The first 70 nodes will have
+    // coordinates between 0 and 10, and the next 30 will have coordinates between 10 and 20.
     // Each node will have a feature "point_cloud_id" with a unique integer value.
     // The nodes will be added to the point cloud layer.
-    let point_cloud = (0..100)
+    let mut point_cloud = (0..70)
         .map(|_| {
             let x = rand::random::<f32>() * 10.0;
             let y = rand::random::<f32>() * 10.0;
@@ -52,6 +53,12 @@ fn create_demo_graph() -> yggdrasil::Result<yggdrasil::SceneGraph> {
             (x, y, z)
         })
         .collect::<Vec<_>>();
+    point_cloud.extend((0..30).map(|_| {
+        let x = rand::random::<f32>() * 10.0 + 10.0;
+        let y = rand::random::<f32>() * 10.0 + 10.0;
+        let z = rand::random::<f32>() * 10.0 + 10.0;
+        (x, y, z)
+    }));
 
     let mut point_cluod_node_ids = Vec::new();
     for (i, (x, y, z)) in point_cloud.iter().enumerate() {
