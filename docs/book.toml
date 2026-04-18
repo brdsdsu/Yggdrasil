@@ -1,0 +1,10 @@
+[book]
+title = "Yggdrasil"
+authors = ["ArshiAAkhavan"]
+language = "en"
+
+[output.html]
+theme = "theme"
+additional-css = ["ferris.css", "theme/2018-edition.css", "theme/semantic-notes.css", "theme/listing.css"]
+additional-js = ["ferris.js"]
+git-repository-url = "https://github.com/rust-lang/book"
