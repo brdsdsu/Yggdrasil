@@ -139,7 +139,7 @@ pub struct Feature {
 }
 
 impl Feature {
-    pub fn new(key: &str, value: &str) -> Self {
+    pub fn new(key: impl ToString, value: impl ToString) -> Self {
         Self {
             key: key.to_string(),
             value: value.to_string(),
