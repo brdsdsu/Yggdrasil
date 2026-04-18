@@ -1,40 +1,6 @@
-# Run Queries On The Scene Graph
+# Basic Label Retrieval
 
-The whole point of having a scene graph is to run some complex queries on it! We will start going through most of the queries that `yggdrasil` provides and get a glimps of what each query does.
-
-Lets start by using the function from the previous section to generate our demo scene graph
-```rust 
-use scene_graph as yggdrasil;
-use yggdrasil::Feature;
-
-fn main() -> yggdrasil::Result<()> {
-    // Create a demo scene graph with the following structure:
-    //
-    // root_layer (root node with name "root")
-    // ├────────── dynamic_objects_layer    (3 dynamic nodes with type "Human", "Dog", 
-    // │                            │       "Cat", and edges:
-    // │                            │                    "Human" -holding-> "Dog",
-    // │                            │                     "Dog" -looking-> "Cat"  )
-    // │                            │
-    // └─ static_objects_layer      │       (7 static nodes with type "car", "tree", 
-    //          │                   │        "building", "bicycle", "bench", "sign",
-    //          │                   │           "lamp")
-    //          │                   │
-    //          └──── point_cloud_layer (100 point cloud nodes)
-    //
-    let ygg = create_demo_graph()?;
-
-    .
-    .
-    .
-
-    Ok(())
-}
-```
-
-## Basic Label Retrieval
-
-### Retrieve nodes matching a specific feature (both key and value)
+## Retrieve nodes matching a specific feature (both key and value)
 
 Running this query on the scene graph would return a vector of vector of nodes, each vector
 of nodes representing the nodes matched in a specific layer. Layers with no matches would be
@@ -66,7 +32,7 @@ would return a single vector containing the matched nodes.
     assert_eq!(lamp_nodes[0].features, vec![Feature::new("type", "lamp")]);
 ```
 
-### Retrieve nodes having a feature with a specific key
+## Retrieve nodes having a feature with a specific key
 
 Retrieve all nodes that have a feature with a specific key. Same as the previous query, this query
 can also be run on both scene graph and layer level, and it would return all nodes that have
@@ -94,7 +60,7 @@ nodes that have a feature with the key "type", 7 in the `static object` layer an
     assert_eq!(dynamic_nodes_with_type.len(), 3);
 ```
 
-### Retrieve edges matching a specific description
+## Retrieve edges matching a specific description
  Retrieve all relationships matching the given pattern in the description. This query would
  return all matching edges in the scene graph, along with the source and destination nodes 
  of those edges. In this case, we expect to only find a single
@@ -126,7 +92,7 @@ nodes that have a feature with the key "type", 7 in the `static object` layer an
     assert_eq!(holding_edges[2][0].desc, "holding");
 ```
 
-### Retrieve edges from/to a node
+## Retrieve edges from/to a node
 Retrieve all edges from, or to a certain node. For example, we can retrieve all edges that
 are from/or to the "Human" node. 
 

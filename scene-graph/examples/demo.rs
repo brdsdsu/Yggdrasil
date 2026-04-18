@@ -16,6 +16,21 @@ fn main() -> yggdrasil::Result<()> {
     //
     let ygg = create_demo_graph()?;
 
+    // Queries that work with node features and edge descriptions.
+    run_basic_label_retrieval_queries(&ygg)?;
+
+    // Queries that work with coordinates and spatial relationships.
+    run_nearest_neighbors_queris(&ygg)?;
+
+    Ok(())
+}
+
+fn run_nearest_neighbors_queris(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result<()> {
+
+    Ok(())
+}
+
+fn run_basic_label_retrieval_queries(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result<()> {
     // Retrieve all nodes with the feature "type" equal to "lamp".
 
     // Running this query on the scene graph would return a vector of vector of nodes, each vector
@@ -88,9 +103,8 @@ fn main() -> yggdrasil::Result<()> {
     assert_eq!(holding_edges[2][0].dst, dog_node_id);
     assert_eq!(holding_edges[2][0].desc, "holding");
 
-
     // Retrieve all edges from, or to a certain node. For example, we can retrieve all edges that
-    // are from/or to the "Human" node. 
+    // are from/or to the "Human" node.
     //
     // Note that this query can also be run on both levels. The only difference is that unlike the
     // previous queries, when run on the scene graph level, this query would return all edges in a
@@ -107,7 +121,6 @@ fn main() -> yggdrasil::Result<()> {
     assert_eq!(nodes_to_dog[0].src, human_node_id);
     assert_eq!(nodes_to_dog[0].dst, dog_node_id);
     assert_eq!(nodes_to_dog[0].desc, "holding");
-
 
     Ok(())
 }
