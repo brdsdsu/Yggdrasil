@@ -1,3 +1,4 @@
+use kiddo::fixed::distance;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -369,10 +370,13 @@ impl SceneGraph {
     /// assert_eq!(nearest_nodes[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
     /// ```
     pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<(&Node, f32)> {
-        self.layers
+        let mut distances = self
+            .layers
             .iter()
             .flat_map(|l| l.nearest_nodes(coord, count))
-            .collect()
+            .collect::<Vec<_>>();
+        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        distances.iter().take(count.as_capped_usize()).cloned().collect()
     }
 
     /// Retrieve at most `count` nodes within a specified radius to the given position.
