@@ -257,7 +257,7 @@ mod test {
 
         // Query visible subgraph under root
         let cone = cone();
-        let observed_sg = sg.visible_subgraph(cone, root_id)?;
+        let observed_sg = sg.visible_subgraph(&cone, root_id)?;
 
         // number of observed nodes in the first layer should be half of total
         let layer = observed_sg.layer(0)?;

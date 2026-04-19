@@ -1,4 +1,3 @@
-use kiddo::fixed::distance;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -304,7 +303,7 @@ impl SceneGraph {
     /// Get a subgraph containing nodes within the field of view of an observer and are descendants of the specified root node.
     /// The check is done using the nodes' coordinates and nodes without coordinates are pruned.
     /// nodes from upper layers that have no descendants within the field of view are also pruned.
-    pub fn visible_subgraph(&self, observer: Observer, root_node_id: NodeId) -> Result<Self> {
+    pub fn visible_subgraph(&self, observer: &Observer, root_node_id: NodeId) -> Result<Self> {
         let mut subgraph = self.subgraph(root_node_id)?;
         if subgraph.layers.is_empty() {
             return Ok(SceneGraph::default());
@@ -556,6 +555,7 @@ impl SceneGraph {
         // all its parents have been processed.
         let last_index = layers.len() - 1;
         layers[last_index].1.insert(root_node_id);
+        let mut new_layers = Vec::new();
         while let Some((lid, nodes)) = layers.pop() {
             if nodes.is_empty() {
                 continue;
@@ -572,9 +572,28 @@ impl SceneGraph {
                     layers[ptr].1.insert(*cid);
                 }
             }
-            subgraph.layers.push(l);
+            new_layers.push(l);
         }
-        subgraph.layers.reverse();
+        dbg!(new_layers.iter().map(|l| l.id).collect::<Vec<_>>());
+        dbg!(new_layers.iter().map(|l| l.nodes.len()).collect::<Vec<_>>());
+        let mut ptr = 0u32;
+
+        while let Some(new_layer) = new_layers.pop()
+            && ptr < self.layers_count() as u32
+        {
+            while ptr < new_layer.id {
+                subgraph.layers.push(Layer::new(ptr));
+                ptr += 1;
+            }
+            subgraph.layers.push(new_layer);
+            ptr += 1;
+        }
+        while ptr < self.layers_count() as u32 {
+            subgraph.layers.push(Layer::new(ptr));
+            ptr += 1;
+        }
+
+        // subgraph.layers.reverse();
         subgraph.layer_counter = self.layer_counter;
         subgraph.node_counter = self.node_counter;
         Ok(subgraph)
@@ -911,12 +930,14 @@ mod test {
 
         // subgraph for m1 should only contain m1
         let subgraph_m1 = sg.subgraph(m1)?;
-        assert_eq!(subgraph_m1.layers.len(), 1);
+        // subgraph will retain all layers, though only layer 1 will have nodes in it.
+        assert_eq!(subgraph_m1.layers.len(), 3);
         assert_eq!(subgraph_m1.layer(1)?.nodes.len(), 1);
         assert_eq!(subgraph_m1.node(m1)?.features[0].value(), "m1");
         assert_eq!(subgraph_m1.layer(1)?.id, sg.layer_of(m1));
-        // there should be no layer with id 0 in the subgraph
-        assert!(subgraph_m1.layer(0).is_err());
+        // there should be no nodes in other layers
+        assert_eq!(subgraph_m1.layer(0)?.nodes.len(), 0);
+        assert_eq!(subgraph_m1.layer(2)?.nodes.len(), 0);
         Ok(())
     }
 

@@ -213,7 +213,7 @@ impl PySceneGraphRef {
     /// nodes from upper layers that have no descendants within the field of view are also pruned.
     pub fn visible_subgraph(&self, observer: PyObserver, root_node_id: PyNodeId) -> Result<Self> {
         let sg = &self.inner.lock().unwrap();
-        let subgraph = sg.visible_subgraph(observer.into(), root_node_id.into())?;
+        let subgraph = sg.visible_subgraph(&observer.into(), root_node_id.into())?;
         Ok(Self {
             inner: Arc::new(Mutex::new(subgraph)),
         })
