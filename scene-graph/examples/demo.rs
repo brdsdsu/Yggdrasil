@@ -14,7 +14,7 @@ fn main() -> yggdrasil::Result<()> {
     //          │                   │
     //          └──── point_cloud_layer (100 point cloud nodes)
     //
-    let ygg = create_demo_graph()?;
+    let mut ygg = create_demo_graph()?;
 
     // Queries that work with node features and edge descriptions.
     run_basic_label_retrieval_queries(&ygg)?;
@@ -24,6 +24,53 @@ fn main() -> yggdrasil::Result<()> {
 
     // Queries for field of view retrieval.
     run_field_of_view_queries(&ygg)?;
+
+    // Common Graph Queries
+    run_common_graph_queries(&mut ygg)?;
+
+    Ok(())
+}
+
+fn run_common_graph_queries(ygg: &mut scene_graph::SceneGraph) -> yggdrasil::Result<()> {
+    // Node by id
+
+    // Here we first retrieve the root node by matching for its features, and then use its id to
+    // retrieve the same node using its id.
+    let root_node_id = ygg
+        .layer(3)?
+        .nodes_matching(&[&Feature::new("name", "root")])[0]
+        .id;
+
+    // Immutable access to node
+    let root_node = ygg.node(root_node_id)?;
+    assert_eq!(root_node.features, vec![Feature::new("name", "root")]);
+
+    {
+        // Mutable acess to node
+        let mut root_node = ygg.node_mut(root_node_id)?;
+        root_node.features.push(Feature::new("is_root", "true"));
+    }
+
+    // Layer by id
+    let root_layer = ygg.layer(3)?;
+    assert_eq!(root_layer.id, ygg.layer_of(root_node_id));
+
+
+
+    // Subgraph retrieval: retrieve the subtree under the "car" node. This query would return a new
+    // scene graph containing only the nodes in the subtree under the "car" node, along with the
+    // edges between those nodes.
+    let car_node_id = ygg
+        .layer(1)?
+        .nodes_matching(&[&Feature::new("type", "car")])[0]
+        .id;
+    let car_subgraph = ygg.subgraph(car_node_id)?;
+    // We expect the subgraph to contain the "car" node and its 10 point cloud nodes, and no other
+    // nodes.
+    assert_eq!(car_subgraph.layer(0)?.all_nodes().len(), 10);
+    assert_eq!(car_subgraph.layer(1)?.all_nodes().len(), 1);
+    assert_eq!(car_subgraph.layer(2)?.all_nodes().len(), 0);
+    assert_eq!(car_subgraph.layer(3)?.all_nodes().len(), 0);
 
     Ok(())
 }
@@ -81,18 +128,27 @@ fn run_field_of_view_queries(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result
         .nodes_matching(&[&Feature::new("type", "Human")])[0]
         .id;
     let subgraph = ygg.visible_subgraph(&observer, human_node_id)?;
-    assert_eq!(subgraph.layer(0)?.all_nodes().len(),0);
-    assert_eq!(subgraph.layer(1)?.all_nodes().len(),0);
-    assert_eq!(subgraph.layer(2)?.all_nodes().len(),0);
+    assert_eq!(subgraph.layer(0)?.all_nodes().len(), 0);
+    assert_eq!(subgraph.layer(1)?.all_nodes().len(), 0);
+    assert_eq!(subgraph.layer(2)?.all_nodes().len(), 0);
 
     // Expanding the `far` reach of the observer to 35 should include all the dynamic objects as
     // well as the static ones, meaning that the subgraph should be the same as the original scene
     // graph.
     let observer = Observer::from_ypr(pos, yaw, pitch, roll, half_angle, near, 35.0);
     let subgraph = ygg.visible_subgraph(&observer, root_node_id)?;
-    assert_eq!(subgraph.layer(0)?.all_nodes().len(),ygg.layer(0)?.all_nodes().len());
-    assert_eq!(subgraph.layer(1)?.all_nodes().len(),ygg.layer(1)?.all_nodes().len());
-    assert_eq!(subgraph.layer(2)?.all_nodes().len(),ygg.layer(2)?.all_nodes().len());
+    assert_eq!(
+        subgraph.layer(0)?.all_nodes().len(),
+        ygg.layer(0)?.all_nodes().len()
+    );
+    assert_eq!(
+        subgraph.layer(1)?.all_nodes().len(),
+        ygg.layer(1)?.all_nodes().len()
+    );
+    assert_eq!(
+        subgraph.layer(2)?.all_nodes().len(),
+        ygg.layer(2)?.all_nodes().len()
+    );
 
     Ok(())
 }

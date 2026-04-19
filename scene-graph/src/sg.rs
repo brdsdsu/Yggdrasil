@@ -341,6 +341,77 @@ impl SceneGraph {
         Ok(subgraph)
     }
 
+    /// Create a subgraph rooted at the specified node ID.
+    /// The subgraph includes the specified node and all its descendants.
+    /// If the node is not found, an error is returned.
+    pub fn subgraph(&self, root_node_id: NodeId) -> Result<SceneGraph> {
+        let mut subgraph = SceneGraph::default();
+        let root_layer_id = self.layer_of(root_node_id);
+        let mut layers = HashSet::new();
+
+        // BFS to get all layers accissable from root_layer_id downwards
+        let mut layers_queue = VecDeque::new();
+        layers_queue.push_back(root_layer_id);
+        while let Some(layer_id) = layers_queue.pop_front() {
+            let layer = self.layer(layer_id)?;
+            layers.insert(layer_id);
+            for &clid in layer.children.iter() {
+                layers_queue.push_back(clid);
+            }
+        }
+        let mut layers = layers.into_iter().collect::<Vec<u32>>();
+        layers.sort();
+        let mut layers = layers
+            .iter()
+            .map(|&lid| (lid, HashSet::new()))
+            .collect::<Vec<_>>();
+
+        // layers are in topological order from root downwards. so by the time we reach to a layer,
+        // all its parents have been processed.
+        let last_index = layers.len() - 1;
+        layers[last_index].1.insert(root_node_id);
+        let mut new_layers = Vec::new();
+        while let Some((lid, nodes)) = layers.pop() {
+            if nodes.is_empty() {
+                continue;
+            }
+            let layer = self.layer(lid)?;
+            let nodes: Vec<_> = nodes.into_iter().collect();
+            let l = layer.subset(&nodes);
+            for nid in nodes {
+                for cid in l.node(nid)?.children() {
+                    let clid = self.layer_of(*cid);
+                    let ptr = layers
+                        .binary_search_by_key(&clid, |(lid, _)| *lid)
+                        .map_err(|_| SceneGraphError::LayerNotFound)?;
+                    layers[ptr].1.insert(*cid);
+                }
+            }
+            new_layers.push(l);
+        }
+        let mut ptr = 0u32;
+
+        while let Some(new_layer) = new_layers.pop()
+            && ptr < self.layers_count() as u32
+        {
+            while ptr < new_layer.id {
+                subgraph.layers.push(Layer::new(ptr));
+                ptr += 1;
+            }
+            subgraph.layers.push(new_layer);
+            ptr += 1;
+        }
+        while ptr < self.layers_count() as u32 {
+            subgraph.layers.push(Layer::new(ptr));
+            ptr += 1;
+        }
+
+        // subgraph.layers.reverse();
+        subgraph.layer_counter = self.layer_counter;
+        subgraph.node_counter = self.node_counter;
+        Ok(subgraph)
+    }
+
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
@@ -533,79 +604,6 @@ impl SceneGraph {
             .iter_mut()
             .find_map(|layer| unsafe { layer.node_mut_unsynced(id) }.ok())
             .ok_or(SceneGraphError::NodeNotFound)
-    }
-
-    /// Create a subgraph rooted at the specified node ID.
-    /// The subgraph includes the specified node and all its descendants.
-    /// If the node is not found, an error is returned.
-    fn subgraph(&self, root_node_id: NodeId) -> Result<SceneGraph> {
-        let mut subgraph = SceneGraph::default();
-        let root_layer_id = self.layer_of(root_node_id);
-        let mut layers = HashSet::new();
-
-        // BFS to get all layers accissable from root_layer_id downwards
-        let mut layers_queue = VecDeque::new();
-        layers_queue.push_back(root_layer_id);
-        while let Some(layer_id) = layers_queue.pop_front() {
-            let layer = self.layer(layer_id)?;
-            layers.insert(layer_id);
-            for &clid in layer.children.iter() {
-                layers_queue.push_back(clid);
-            }
-        }
-        let mut layers = layers.into_iter().collect::<Vec<u32>>();
-        layers.sort();
-        let mut layers = layers
-            .iter()
-            .map(|&lid| (lid, HashSet::new()))
-            .collect::<Vec<_>>();
-
-        // layers are in topological order from root downwards. so by the time we reach to a layer,
-        // all its parents have been processed.
-        let last_index = layers.len() - 1;
-        layers[last_index].1.insert(root_node_id);
-        let mut new_layers = Vec::new();
-        while let Some((lid, nodes)) = layers.pop() {
-            if nodes.is_empty() {
-                continue;
-            }
-            let layer = self.layer(lid)?;
-            let nodes: Vec<_> = nodes.into_iter().collect();
-            let l = layer.subset(&nodes);
-            for nid in nodes {
-                for cid in l.node(nid)?.children() {
-                    let clid = self.layer_of(*cid);
-                    let ptr = layers
-                        .binary_search_by_key(&clid, |(lid, _)| *lid)
-                        .map_err(|_| SceneGraphError::LayerNotFound)?;
-                    layers[ptr].1.insert(*cid);
-                }
-            }
-            new_layers.push(l);
-        }
-        dbg!(new_layers.iter().map(|l| l.id).collect::<Vec<_>>());
-        dbg!(new_layers.iter().map(|l| l.nodes.len()).collect::<Vec<_>>());
-        let mut ptr = 0u32;
-
-        while let Some(new_layer) = new_layers.pop()
-            && ptr < self.layers_count() as u32
-        {
-            while ptr < new_layer.id {
-                subgraph.layers.push(Layer::new(ptr));
-                ptr += 1;
-            }
-            subgraph.layers.push(new_layer);
-            ptr += 1;
-        }
-        while ptr < self.layers_count() as u32 {
-            subgraph.layers.push(Layer::new(ptr));
-            ptr += 1;
-        }
-
-        // subgraph.layers.reverse();
-        subgraph.layer_counter = self.layer_counter;
-        subgraph.node_counter = self.node_counter;
-        Ok(subgraph)
     }
 
     fn bounds_of(&self, nid: NodeId) -> Result<Option<BoundingBox>> {
