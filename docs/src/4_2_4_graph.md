@@ -62,3 +62,16 @@ Using the retrieved layer, one can iterate over all nodes in the layer
     assert_eq!(car_subgraph.layer(2)?.all_nodes().len(), 0);
     assert_eq!(car_subgraph.layer(3)?.all_nodes().len(), 0);
 ```
+
+## Merge
+Updates in `yggdrasil` can be in the form of sub graph merge requests, that is, merging a newer version of a sub graph of the original scene graph into the scene graph. This is usefull in scenarios where a global scene graph is maintained somewhere and agents can send their local updates to it.
+
+`yggdrasil` will do the following during the merge:
+1. Nodes with the same ID will be merged, meaning the node in the original scene graph gets updated.
+2. New nodes in the subgraph will be added to the original scene graph.
+3. Node deletion is not supported in this operation.
+4. Edges from the original scene graph from `src` to `dst` where both `src` and `dst` are present in the subgraph but the edge itself is not, are removed from the scene graph.
+5. New edges in the subgraph will be added to the original scene graph.
+```rust 
+    ygg.merge(car_subgraph)?;
+```
