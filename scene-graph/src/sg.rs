@@ -375,7 +375,10 @@ impl SceneGraph {
             .flat_map(|l| l.nearest_nodes(coord, count))
             .collect::<Vec<_>>();
         distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        distances.into_iter().take(count.as_capped_usize()).collect()
+        distances
+            .into_iter()
+            .take(count.as_capped_usize())
+            .collect()
     }
 
     /// Retrieve at most `count` nodes within a specified radius to the given position.
@@ -410,9 +413,15 @@ impl SceneGraph {
         radius: f32,
         count: PosQueryCount,
     ) -> Vec<(&Node, f32)> {
-        self.layers
+        let mut distances = self
+            .layers
             .iter()
             .flat_map(|l| l.nodes_within(coord, radius, count))
+            .collect::<Vec<_>>();
+        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        distances
+            .into_iter()
+            .take(count.as_capped_usize())
             .collect()
     }
 

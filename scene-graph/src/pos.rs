@@ -120,13 +120,19 @@ impl PositionQuery for Vec<Node> {
         count: PosQueryCount,
     ) -> Vec<(NodeId, f32)> {
         let count = count.as_capped_usize();
-        self.iter()
+        let mut distances = self
+            .iter()
             .filter(|n| n.coordinates.is_some())
             .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
             .filter(|(_, d)| *d <= radius * radius)
             .map(|(node, dist)| (node.id, dist))
-            .map(|(id, d)| (id, d.sqrt()))
+            .collect::<Vec<(NodeId, f32)>>();
+
+        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        distances
+            .into_iter()
             .take(count)
+            .map(|(id, d)| (id, d.sqrt()))
             .collect::<Vec<_>>()
     }
 }
@@ -145,7 +151,7 @@ impl PositionQuery for Vec<(Coordinate, NodeId)> {
                     .iter()
                     .map(|(c, id)| (*id, c.distance_squared(*pos)))
                     .map(|(id, d)| (id, d.sqrt()))
-                    .collect::<Vec<(NodeId, f32)>>();
+                    .collect::<Vec<_>>();
                 distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
                 distances.into_iter().take(c).collect()
             }
@@ -161,11 +167,13 @@ impl PositionQuery for Vec<(Coordinate, NodeId)> {
         count: PosQueryCount,
     ) -> Vec<(NodeId, f32)> {
         let count = count.as_capped_usize();
-        self.iter()
+        let mut distances = self
+            .iter()
             .map(|(c, id)| (*id, c.distance_squared(*pos)))
             .map(|(id, d)| (id, d.sqrt()))
             .filter(|(_, d)| *d <= radius * radius)
-            .take(count)
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        distances.into_iter().take(count).collect::<Vec<_>>()
     }
 }
