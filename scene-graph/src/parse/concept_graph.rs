@@ -71,10 +71,7 @@ impl TryFrom<ConceptGraph> for SceneGraph {
 
             // pointcloud points as coordinates
             for (p, c) in node.pcd_points.iter().zip(node.pcd_colors.iter()) {
-                let features = vec![Feature::new(
-                    "color",
-                    &format!("{},{},{}", c[0], c[1], c[2]),
-                )];
+                let features = vec![Feature::new("color", format!("{},{},{}", c[0], c[1], c[2]))];
                 let coord = sg.new_coordinates(p[0], p[1], p[2], features);
                 // push to the pointcloud layer
                 let coord_id = sg.layer_mut(0)?.push_node(coord);
