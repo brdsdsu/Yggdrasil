@@ -1,5 +1,5 @@
 use scene_graph as yggdrasil;
-use yggdrasil::{Feature, PosQueryCount};
+use yggdrasil::{Coordinate, Feature, Observer, PosQueryCount};
 
 fn main() -> yggdrasil::Result<()> {
     // Create a demo scene graph with the following structure:
@@ -21,6 +21,78 @@ fn main() -> yggdrasil::Result<()> {
 
     // Queries that work with coordinates and spatial relationships.
     run_nearest_neighbors_queris(&ygg)?;
+
+    // Queries for field of view retrieval.
+    run_field_of_view_queries(&ygg)?;
+
+    Ok(())
+}
+
+fn run_field_of_view_queries(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result<()> {
+    // Create a cone observer which can view all the positive space, i.e. the space where none of the
+    // x, y, z coordinates are negative. The observer is located at the origin and is looking
+    // towards the (1, 1, 1) direction, with a field of view of 90 degrees and a far reach of 6
+    // units.
+    let pos = Coordinate::ZERO;
+    let yaw = 45_f32.to_radians();
+    let pitch = -35.26439_f32.to_radians();
+    let roll = 0.0;
+    let half_angle = (1.0 / 3.0_f32.sqrt()).acos() + 0.001;
+
+    let near = 0.001;
+    let far = 6_f32;
+
+    let observer = Observer::from_ypr(pos, yaw, pitch, roll, half_angle, near, far);
+
+    // Retrieve the root node of the scene graph.
+    let root_node_id = ygg
+        .layer(3)?
+        .nodes_matching(&[&Feature::new("name", "root")])[0]
+        .id;
+
+    // Observable subgraph of this observer would contain some of the static objects and none of
+    // the dynamic ones, since they are all located in the (10, 10, 10) to (20, 20, 20) region,
+    // which is outside the observer's view frustum's far range.
+    // We use the root node as the reference node for this query to check the visibility of all
+    // nodes in the scene graph.
+    let subgraph = ygg.visible_subgraph(&observer, root_node_id)?;
+
+    // We expect to see some of the point cloud nodes in the subgraph
+    assert!(subgraph.layer(0)?.all_nodes().len() > 0);
+
+    // For each observed point cloud node, we expect its parent static object to also apear in the
+    // subgraph.
+    let uniq_static_objects = subgraph
+        .layer(0)?
+        .all_nodes()
+        .filter_map(|n| n.pid)
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    assert_eq!(subgraph.layer(1)?.all_nodes().len(), uniq_static_objects);
+
+    // We expect to see none of the dynamic objects in the subgraph.
+    assert_eq!(subgraph.layer(2)?.all_nodes().len(), 0);
+
+    // Running the same field of view query with a dynamic object node as the reference node should
+    // return an empty subgraph, since none of the dynamic objects are within the field of view of
+    // the observer.
+    let human_node_id = ygg
+        .layer(2)?
+        .nodes_matching(&[&Feature::new("type", "Human")])[0]
+        .id;
+    let subgraph = ygg.visible_subgraph(&observer, human_node_id)?;
+    assert_eq!(subgraph.layer(0)?.all_nodes().len(),0);
+    assert_eq!(subgraph.layer(1)?.all_nodes().len(),0);
+    assert_eq!(subgraph.layer(2)?.all_nodes().len(),0);
+
+    // Expanding the `far` reach of the observer to 35 should include all the dynamic objects as
+    // well as the static ones, meaning that the subgraph should be the same as the original scene
+    // graph.
+    let observer = Observer::from_ypr(pos, yaw, pitch, roll, half_angle, near, 35.0);
+    let subgraph = ygg.visible_subgraph(&observer, root_node_id)?;
+    assert_eq!(subgraph.layer(0)?.all_nodes().len(),ygg.layer(0)?.all_nodes().len());
+    assert_eq!(subgraph.layer(1)?.all_nodes().len(),ygg.layer(1)?.all_nodes().len());
+    assert_eq!(subgraph.layer(2)?.all_nodes().len(),ygg.layer(2)?.all_nodes().len());
 
     Ok(())
 }
@@ -100,23 +172,22 @@ fn run_nearest_neighbors_queris(ygg: &scene_graph::SceneGraph) -> yggdrasil::Res
     )?;
     assert_eq!(neighbors_in_human_subtree.len(), 10);
 
-
     // Retrieving all nodes within a radius of 5 from the (5, 5, 5) coordinates. The results should
     // contain less than or equal to 70 nodes, since this is the number of point cloud nodes that
     // are located in the (0, 0, 0) to (10, 10, 10) region.
-    let nodes_within = ygg.nodes_within(&[5.0, 5.0, 5.0].into(), 5.0, PosQueryCount::All);
-    assert!(nodes_within.len() <= 70);
+    let nodes_within_5 = ygg.nodes_within(&[5.0, 5.0, 5.0].into(), 5.0, PosQueryCount::All);
+    assert!(nodes_within_5.len() <= 70);
 
     // Expanding the radious to 26 should return all the point cloud nodes, since now both the
     // static and dynamic nodes are within the radius.
-    let nodes_within = ygg.nodes_within(&[5.0, 5.0, 5.0].into(), 26.0, PosQueryCount::All);
-    assert_eq!(nodes_within.len(), 100);
+    let nodes_within_26 = ygg.nodes_within(&[5.0, 5.0, 5.0].into(), 26.0, PosQueryCount::All);
+    assert_eq!(nodes_within_26.len(), 100);
 
     // Retrieving exactly 1 node within a radius of 5 from the (5, 5, 5) coordinates should return
     // the first node retured by the first nodes_within query.
     let nodes_within = ygg.nodes_within(&[5.0, 5.0, 5.0].into(), 5.0, PosQueryCount::Count(1));
     assert_eq!(nodes_within.len(), 1);
-    assert_eq!(nodes_within[0].id, neighbors[0].0.id);
+    assert_eq!(nodes_within[0].0.id, nodes_within_5[0].0.id);
 
     Ok(())
 }

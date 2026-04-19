@@ -12,6 +12,8 @@ With that explained, lets look at how we can run different nearest neighbor quer
 ## Nearest Node
 First lets start by retrieving the 5 nearest nodes ot coordinates (5, 5, 5) in the entire scene graph.
 ```rust 
+    use yggdrasil::PosQueryCount;
+
     let neighbors = ygg.nearest_nodes(&[5.0, 5.0, 5.0].into(), PosQueryCount::Count(5));
     assert_eq!(neighbors.len(), 5);
 ```
