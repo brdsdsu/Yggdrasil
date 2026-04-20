@@ -12,4 +12,5 @@
         - [Field of View Queries](./4_2_3_filed_of_view.md)
         - [Graph Queries](./4_2_4_graph.md)
 - [Bounding Box](./5_bounding_box.md)
+- [A Note On Performance](./6_a_note_on_performance.md)
 

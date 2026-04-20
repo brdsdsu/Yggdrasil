@@ -2,7 +2,7 @@
 
 A common practice in scene graph usage is to keep track of bounding boxes for different objects in the scene. A Bounding Box is an axis-aligned Box that represents the bounds of the coordinates of an object. It can be used for efficient spatial estimation and optimization.
 
-`yggdrasil` supports this functionality through `bounds`. `bounds` is an optional feature that we can activate for any arbitrary node. By default, all nodes that are created via call to `SceneGraph::new_coordinates` or `SceneGraph::new_indexed_node` (which we will talk about in the next chapter, a talk on performance) have theirs `bounds` enabled.
+`yggdrasil` supports this functionality through `bounds`. `bounds` is an optional feature that we can activate for any arbitrary node. By default, all nodes that are created via call to `SceneGraph::new_coordinates` or `SceneGraph::new_indexed_node` (which we will talk about in the next chapter, [a note on performance](./6_a_note_on_performance.md)) have theirs `bounds` enabled.
 ```rust 
 // Scene Graph Construction
 let mut ygg = yggdrasil::SceneGraph::default();
