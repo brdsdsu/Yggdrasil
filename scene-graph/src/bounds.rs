@@ -7,7 +7,7 @@ use crate::Coordinate;
 ///    node subtree has no coordinates yet, or
 /// 2. A `BoundingBox`, which is an axis-aligned box that represents the bounds of the coordinates in
 ///    the subtree of a node.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 pub enum Bounds {
     /// State of which a node has bounds but they can not yet be calculated, e.g. because the node
     /// subtree has no coordinates yet. This is used to distinguish between nodes with no bounds
@@ -25,7 +25,7 @@ pub enum Bounds {
 /// subtree of a node. It is used for efficient spatial queries and Field-of-View calculations.
 /// It is defined by two points: the all-minimum point (minx, miny, minz) and the all-maximum
 /// point (maxx, maxy, maxz).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct BoundingBox {
     x: (f32, f32),
     y: (f32, f32),
@@ -127,14 +127,7 @@ impl Bounds {
 
     /// Create a bounding box for a single point, where the minimum and maximum coordinates are the same.
     pub fn point(coordinate: Coordinate) -> Self {
-        Self::bounding_box(
-            coordinate.x,
-            coordinate.x,
-            coordinate.y,
-            coordinate.y,
-            coordinate.z,
-            coordinate.z,
-        )
+        Self::Bounded(BoundingBox::point(coordinate))
     }
     /// Create a BoundingBox that encompasses all the given coordinates.
     pub fn of(coordinates: Vec<Coordinate>) -> Self {

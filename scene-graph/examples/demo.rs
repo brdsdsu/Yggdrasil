@@ -55,8 +55,6 @@ fn run_common_graph_queries(ygg: &mut scene_graph::SceneGraph) -> yggdrasil::Res
     let root_layer = ygg.layer(3)?;
     assert_eq!(root_layer.id, ygg.layer_of(root_node_id));
 
-
-
     // Subgraph retrieval: retrieve the subtree under the "car" node. This query would return a new
     // scene graph containing only the nodes in the subtree under the "car" node, along with the
     // edges between those nodes.

@@ -11,4 +11,5 @@
         - [Nearest Neighbors Queries](./4_2_2_nearest_neighbors.md)
         - [Field of View Queries](./4_2_3_filed_of_view.md)
         - [Graph Queries](./4_2_4_graph.md)
+- [Bounding Box](./5_bounding_box.md)
 
