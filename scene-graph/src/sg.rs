@@ -663,17 +663,22 @@ impl SceneGraph {
         match deleted {
             Bounds::Unbounded => Ok(()),
             Bounds::Bounded(_) => {
-                if let Some(bounds) = self.node(pid)?.bounds
-                    && bounds.shares_border_with(&deleted)
-                {
-                    let new_bounds = self.build_bounds(pid)?;
-                    unsafe {
-                        // SAFETY: Operations done on the parent:
-                        // 1. Updating the bounds of the parent if it exists
-                        //
-                        // So no layer-level logic is violated
-                        let parent = self.node_mut_unsynced(pid)?;
-                        parent.bounds = Some(new_bounds);
+                if let Some(bounds) = self.node(pid)?.bounds {
+                    if bounds.shares_border_with(&deleted) {
+                        let new_bounds = self.build_bounds(pid)?;
+                        unsafe {
+                            // SAFETY: Operations done on the parent:
+                            // 1. Updating the bounds of the parent if it exists
+                            //
+                            // So no layer-level logic is violated
+                            let parent = self.node_mut_unsynced(pid)?;
+                            parent.bounds = Some(new_bounds);
+                        }
+                    } else {
+                        // If the deleted bounds do not share a border with the parent's bounds,
+                        // then the parent's bounds are not affected and we can cease the
+                        // propagation.
+                        return Ok(());
                     }
                 }
 
