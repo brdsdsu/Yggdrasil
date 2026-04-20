@@ -1,7 +1,7 @@
 use kiddo::float::kdtree::KdTree;
 use serde::{Deserialize, Serialize};
 
-use crate::BoundingBox;
+use crate::Bounds;
 
 use super::NodeId;
 
@@ -32,8 +32,9 @@ pub struct Node {
     /// This is used for efficient spatial queries.
     #[serde(skip)]
     pub(crate) pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
-    /// Optional bounding box for the node, which can be used for spatial queries and optimizations.
-    pub bounds: Option<BoundingBox>,
+    /// Optional bounds for the node and all the nodes nested in it's subtree.
+    /// This can be used for spatial queries and optimizations.
+    pub bounds: Option<Bounds>,
 }
 
 impl Node {
@@ -43,7 +44,7 @@ impl Node {
         features: Vec<Feature>,
         coordinates: Option<Coordinate>,
         pos_index_enabled: bool,
-        bounds: Option<BoundingBox>,
+        bounds: Option<Bounds>,
     ) -> Self {
         let pos_index = if pos_index_enabled {
             Some(KdTree::new())
@@ -202,7 +203,7 @@ pub struct AnonNode {
     #[serde(skip)]
     pub(crate) pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
     /// Optional bounding box for the node, which can be used for spatial queries and optimizations.
-    pub bounds: Option<BoundingBox>,
+    pub bounds: Option<Bounds>,
 }
 
 impl AnonNode {
@@ -212,7 +213,7 @@ impl AnonNode {
         features: Vec<Feature>,
         coordinates: Option<Coordinate>,
         pos_index_enabled: bool,
-        bounds: Option<BoundingBox>,
+        bounds: Option<Bounds>,
     ) -> Self {
         let pos_index = if pos_index_enabled {
             Some(KdTree::new())

@@ -1,4 +1,4 @@
-mod bounding_box;
+mod bounds;
 mod error;
 mod fov;
 mod layer;
@@ -8,7 +8,7 @@ pub mod parse;
 mod pos;
 mod sg;
 
-pub use bounding_box::BoundingBox;
+pub use bounds::{BoundingBox, Bounds};
 pub use error::{Result, SceneGraphError};
 pub use fov::Observer;
 pub use layer::{Layer, NodeMut};

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
-    AnonNode, BoundingBox, NodeId, NodeMut,
+    AnonNode, Bounds, NodeId, NodeMut,
     error::{Result, SceneGraphError},
     fov::Observer,
     layer::Layer,
@@ -147,7 +147,7 @@ impl SceneGraph {
             features,
             Some(Coordinate::new(x, y, z)),
             false,
-            Some(BoundingBox::point(Coordinate::new(x, y, z))),
+            Some(Bounds::point(Coordinate::new(x, y, z))),
         );
         self.node_counter += 1;
         node
@@ -606,43 +606,24 @@ impl SceneGraph {
             .ok_or(SceneGraphError::NodeNotFound)
     }
 
-    fn bounds_of(&self, nid: NodeId) -> Result<Option<BoundingBox>> {
+    fn bounds_of(&self, nid: NodeId) -> Result<Bounds> {
         let node = self.node(nid)?;
         if let Some(bounds) = node.bounds {
-            Ok(Some(bounds))
+            Ok(bounds)
         } else {
-            self.build_bounding_box(nid)
+            self.build_bounds(nid)
         }
     }
 
-    fn build_bounding_box(&self, nid: NodeId) -> Result<Option<BoundingBox>> {
+    fn build_bounds(&self, nid: NodeId) -> Result<Bounds> {
         let node = self.node(nid)?;
-        let bounds_iter = node
+        let coordinate_bounds = node.coordinates.map(Bounds::point).unwrap_or_default();
+        let bounds = node
             .children()
             .iter()
             .map(|&cid| self.bounds_of(cid))
-            .filter_map(Result::ok);
-        let x = bounds_iter.chain(vec![node.coordinates.map(BoundingBox::point)]);
-
-        let bounds = x.fold(None, |acc: Option<BoundingBox>, b| match acc {
-            Some(mut acc) => {
-                if let Some(b) = b {
-                    acc.merge(&b);
-                }
-                Some(acc)
-            }
-            None => b,
-        });
-
-        if let Some(coords) = node.coordinates {
-            match bounds {
-                Some(mut b) => {
-                    b.merge(&BoundingBox::point(coords));
-                    return Ok(Some(b));
-                }
-                None => return Ok(Some(BoundingBox::point(coords))),
-            }
-        }
+            .filter_map(Result::ok)
+            .fold(coordinate_bounds, |mut acc, b| *acc.merge(&b));
 
         Ok(bounds)
     }
@@ -677,43 +658,31 @@ impl SceneGraph {
     ///
     /// Invariantes:
     /// - This function should only be called when the child node is removed from the parent's
-    ///   subtree since it might try to rebuild the bounding box using the subtree.
-    fn bubble_up_bounds_removal(
-        &mut self,
-        pid: NodeId,
-        deleted: Option<BoundingBox>,
-    ) -> Result<()> {
+    ///   subtree since it might try to rebuild the bounds using the subtree.
+    fn bubble_up_bounds_removal(&mut self, pid: NodeId, deleted: Bounds) -> Result<()> {
         match deleted {
-            Some(deleted) => {
-                if let Some(bounds) = self.node(pid)?.bounds {
-                    // recalculate the bounding box of the parent if it shares border with the deleted bounds.
-                    if bounds.shares_border_with(&deleted) {
-                        let bounds = self.build_bounding_box(pid)?;
-                        unsafe {
-                            // SAFETY: Operations done on the parent:
-                            // 1. Updating the bounding box of the parent if it exists
-                            //
-                            // So no layer-level logic is violated
-                            let parent = self.node_mut_unsynced(pid)?;
-                            parent.bounds = bounds;
-                        }
-                        // propagate the new bounds to the ancestors if available
-                        match self.node(pid)?.pid {
-                            Some(ppid) => self.bubble_up_bounds_removal(ppid, bounds),
-                            None => Ok(()),
-                        }
-                    } else {
-                        // no change made to the bounds, propagation haults
-                        Ok(())
-                    }
-                } else {
-                    match self.node(pid)?.pid {
-                        Some(ppid) => self.bubble_up_bounds_removal(ppid, Some(deleted)),
-                        None => Ok(()),
+            Bounds::Unbounded => Ok(()),
+            Bounds::Bounded(_) => {
+                if let Some(bounds) = self.node(pid)?.bounds
+                    && bounds.shares_border_with(&deleted)
+                {
+                    let new_bounds = self.build_bounds(pid)?;
+                    unsafe {
+                        // SAFETY: Operations done on the parent:
+                        // 1. Updating the bounds of the parent if it exists
+                        //
+                        // So no layer-level logic is violated
+                        let parent = self.node_mut_unsynced(pid)?;
+                        parent.bounds = Some(new_bounds);
                     }
                 }
+
+                // propagate the new bounds to the ancestors if available
+                match self.node(pid)?.pid {
+                    Some(ppid) => self.bubble_up_bounds_removal(ppid, deleted),
+                    None => Ok(()),
+                }
             }
-            None => Ok(()),
         }
     }
 
@@ -741,29 +710,31 @@ impl SceneGraph {
     }
 
     /// Propagate the new bounds of the child to the parent node and all the way up to the root.
-    fn bubble_up_bounds_addition(
-        &mut self,
-        parent: NodeId,
-        new_bounds: Option<BoundingBox>,
-    ) -> Result<()> {
-        if new_bounds.is_none() {
-            return Ok(());
-        }
-        // SAFETY: Operations done to the nester node:
-        // 1. Update bounding box with the new child
-        //
-        // So no layer-level logic is violated
-        let node = unsafe { self.node_mut_unsynced(parent)? };
+    fn bubble_up_bounds_addition(&mut self, parent: NodeId, new_bounds: Bounds) -> Result<()> {
+        match new_bounds {
+            Bounds::Unbounded => Ok(()),
+            Bounds::Bounded(_) => {
+                // SAFETY: Operations done to the nester node:
+                // 1. Update bounds with the new child
+                //
+                // So no layer-level logic is violated
+                let node = unsafe { self.node_mut_unsynced(parent)? };
 
-        if let Some(node_bounds) = node.bounds.as_mut()
-            && let Some(new_bounds) = new_bounds
-        {
-            node_bounds.merge(&new_bounds);
-        }
+                if let Some(node_bounds) = node.bounds.as_mut() {
+                    // If the new bounds are already encompassed by the node's bounds, we can stop
+                    // the propagation since the ancestors' bounds will also encompass the new
+                    // bounds.
+                    if node_bounds.encompasses(&new_bounds) {
+                        return Ok(());
+                    }
+                    node_bounds.merge(&new_bounds);
+                }
 
-        match node.pid {
-            Some(pid) => self.bubble_up_bounds_addition(pid, new_bounds),
-            None => Ok(()),
+                match node.pid {
+                    Some(pid) => self.bubble_up_bounds_addition(pid, new_bounds),
+                    None => Ok(()),
+                }
+            }
         }
     }
 }
@@ -974,7 +945,7 @@ mod test {
         let m0 = sg.new_indexed_node(vec![Feature::new("name", "m0")]);
         let m0_id = sg.layer_mut(1)?.push_node(m0);
         for i in 0..10 {
-            let mut n = sg.new_indexed_node(vec![Feature::new("name", &format!("n{}", i))]);
+            let mut n = sg.new_indexed_node(vec![Feature::new("name", format!("n{i}"))]);
             n.coordinates = Some(Coordinate::new(i as f32, i as f32, i as f32));
             let n_id = sg.layer_mut(0)?.push_node(n);
             sg.nest(n_id).under(m0_id)?;
