@@ -18,12 +18,12 @@ pub struct SceneGraphRes(pub Arc<SceneGraph>);
 #[derive(Resource, Default)]
 pub struct LayoutPositions(pub HashMap<NodeId, Vec3>);
 
-/// Caches the `StandardMaterial` handle for each layer, keyed by layer ID.
+/// Caches the `StandardMaterial` handle for each node sphere, keyed by node ID.
 ///
-/// Stored here so the hover/query systems can update material alpha without
-/// querying assets every frame.
+/// Each node gets its own material so the hover/query systems can independently
+/// control per-node opacity without affecting other nodes in the same layer.
 #[derive(Resource, Default)]
-pub struct MaterialHandles(pub HashMap<u32, Handle<StandardMaterial>>);
+pub struct MaterialHandles(pub HashMap<NodeId, Handle<StandardMaterial>>);
 
 /// Tracks which node or edge the cursor is currently over, and the set of
 /// node IDs that should remain fully opaque (the hovered node and all its descendants).
