@@ -1,5 +1,6 @@
 pub mod components;
 pub mod layout;
+pub mod loader;
 pub mod resources;
 
 use scene_graph::SceneGraph;
