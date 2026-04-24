@@ -118,6 +118,11 @@ impl Layer {
         self.nodes.iter()
     }
 
+    /// Returns the IDs of layers that are direct children of this layer in the layer DAG.
+    pub fn child_layer_ids(&self) -> &[u32] {
+        &self.children
+    }
+
     /// Get List of all nodes matching a specific node features.
     pub fn nodes_having(&self, keys: &[&str]) -> Vec<&Node> {
         self.nodes
