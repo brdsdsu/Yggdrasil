@@ -2,17 +2,20 @@ use std::collections::HashMap;
 
 use bevy::math::Vec3;
 use rand::{Rng, RngExt};
-use scene_graph::{NodeId, SceneGraph};
+use scene_graph::{Bounds, NodeId, SceneGraph};
 
 /// Computes the default z-separation between layers.
 ///
-/// The separation is set to half the maximum spatial extent of the scene so that
-/// layers are visually spaced in proportion to the data's own scale. Falls back
-/// to `1.0` when the scene contains no coordinate nodes.
+/// The separation must exceed the full z-range of the scene data so that no node
+/// in layer N can visually overlap with a node in layer N+1. We use 1.5× the
+/// z-range plus a minimum padding of 1.0, which gives a 50% visual gap between
+/// the top of one layer and the bottom of the next.
+///
+/// Falls back to `1.0` when the scene contains no coordinate nodes.
 pub fn compute_z_separation(sg: &SceneGraph) -> f32 {
     let (min, max) = global_bounds(sg);
-    let extent = (max - min).max_element();
-    if extent > 0.0 { extent * 0.5 } else { 1.0 }
+    let z_range = max.z - min.z;
+    z_range * 1.5 + 1.0
 }
 
 /// Assigns a 3D visual position to every node in the scene graph.
@@ -94,22 +97,24 @@ pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, Vec
 /// Returns `(Vec3::ZERO, Vec3::ONE)` as a unit fallback when no coordinate
 /// nodes exist, ensuring downstream calculations always have a valid range.
 fn global_bounds(sg: &SceneGraph) -> (Vec3, Vec3) {
-    let mut min = Vec3::splat(f32::MAX);
-    let mut max = Vec3::splat(f32::MIN);
-    let mut found = false;
-
-    for layer in sg.layers() {
-        for node in layer.all_nodes() {
-            if let Some(c) = node.coordinates {
-                let p = Vec3::new(c.x, c.y, c.z);
-                min = min.min(p);
-                max = max.max(p);
-                found = true;
-            }
+    let coordinates = sg
+        .layers()
+        .flat_map(|l| l.all_nodes())
+        .filter_map(|n| n.coordinates)
+        .collect::<Vec<_>>();
+    let bounds = Bounds::of(coordinates);
+    match bounds {
+        Bounds::Unbounded => (Vec3::ZERO, Vec3::ONE),
+        Bounds::Bounded(bounding_box) => {
+            let min = bounding_box.min();
+            let max = bounding_box.max();
+            // TODO: This wierd conversion is only due to bevy's glam and scene-graph's
+            // glam version mismatch.
+            let min = Vec3::new(min.x, min.y, min.z);
+            let max = Vec3::new(max.x, max.y, max.z);
+            (min, max)
         }
     }
-
-    if found { (min, max) } else { (Vec3::ZERO, Vec3::ONE) }
 }
 
 /// Picks a random XY position within `[global_min, global_max]` at the given `z`.
