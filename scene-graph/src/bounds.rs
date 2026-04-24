@@ -93,6 +93,16 @@ impl BoundingBox {
         self.z.1 = self.z.1.max(other.z.1);
     }
 
+    /// Returns the minimum corner of the bounding box.
+    pub fn min(&self) -> Coordinate {
+        Coordinate::new(self.x.0, self.y.0, self.z.0)
+    }
+
+    /// Returns the maximum corner of the bounding box.
+    pub fn max(&self) -> Coordinate {
+        Coordinate::new(self.x.1, self.y.1, self.z.1)
+    }
+
     /// Check if this BoundingBox entierly encompasses another. The check fails if the other
     /// BoundingBox shares a border with this one, i.e. if any of the min or max coordinates are
     /// equal.
