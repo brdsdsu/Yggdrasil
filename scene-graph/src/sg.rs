@@ -66,6 +66,11 @@ impl SceneGraph {
     pub fn layers_count(&self) -> usize {
         self.layers.len()
     }
+
+    /// Returns an iterator over all layers in the scene graph.
+    pub fn layers(&self) -> impl ExactSizeIterator<Item = &Layer> {
+        self.layers.iter()
+    }
 }
 
 /// SceneGraph Update
