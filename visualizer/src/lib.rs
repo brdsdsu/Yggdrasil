@@ -1,4 +1,5 @@
 pub mod components;
+pub mod interaction;
 pub mod layout;
 pub mod loader;
 pub mod render;
@@ -45,7 +46,7 @@ pub fn run(sg: SceneGraph) {
         .insert_resource(MaterialHandles::default())
         .insert_resource(VisibilityToggles {
             layer_visible,
-            show_aabbs: false,
+            show_aabbs: true,
             z_separation: z_sep,
         })
         .insert_resource(HoverState::default())
@@ -66,6 +67,10 @@ pub fn run(sg: SceneGraph) {
                 render::edges::draw_intra_layer_edges,
                 render::edges::draw_nesting_lines,
                 render::bounds::draw_aabb_wireframes,
+                // Hover: detect → set targets → lerp and write to materials.
+                interaction::hover::detect_node_hover,
+                interaction::hover::apply_hover_fade,
+                interaction::hover::lerp_opacity,
             ),
         )
         .run();
