@@ -78,6 +78,7 @@ pub fn run(sg: SceneGraph) {
                 render::nodes::apply_layer_visibility,
                 // UI panels.
                 ui::panels::draw_layer_panel,
+                ui::props::draw_properties_panel,
             ),
         )
         .run();
