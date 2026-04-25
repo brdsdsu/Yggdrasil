@@ -29,6 +29,11 @@ pub fn draw_aabb_wireframes(
     let hovering = hover.hovered_node.is_some();
 
     for layer in sg.layers() {
+        // Skip AABBs for nodes belonging to a hidden layer.
+        if !vis.layer_visible.get(&layer.id).copied().unwrap_or(true) {
+            continue;
+        }
+
         for node in layer.all_nodes() {
             // During hover, only draw AABBs for nodes inside the active subtree.
             if hovering && !hover.subtree_ids.contains(&node.id) {
@@ -50,8 +55,13 @@ pub fn draw_aabb_wireframes(
                 (bb_max.y - bb_min.y).max(0.1),
             );
 
-            // Draw one box per layer from 0 up to this node's own layer.
+            // Draw one box per layer from 0 up to this node's own layer,
+            // skipping any sub-layer that is currently hidden.
             for sub_id in 0..=layer.id {
+                if !vis.layer_visible.get(&sub_id).copied().unwrap_or(true) {
+                    continue;
+                }
+
                 let hue = (sub_id as f32 / num_layers.max(1) as f32) * 360.0;
                 let color = Color::hsla(hue, 0.9, 0.7, 0.8);
 
