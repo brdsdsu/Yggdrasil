@@ -46,6 +46,9 @@ pub struct SelectionState {
     pub selected_node: Option<NodeId>,
     /// The layer ID derived from the last clicked node, if any.
     pub selected_layer: Option<u32>,
+    /// The selected node plus all its descendants, collected via downward BFS.
+    /// All nodes outside this set are faded while a selection is active.
+    pub subtree_ids: HashSet<NodeId>,
 }
 
 /// Controls per-layer visibility and optional overlays.

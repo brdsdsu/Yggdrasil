@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 
 use crate::components::{LayerTag, NodeSphere, Opacity};
-use crate::resources::{HoverState, LayoutPositions, MaterialHandles, QueryPanelState, SelectionState, VisibilityToggles};
+use crate::resources::{
+    HoverState, LayoutPositions, MaterialHandles, QueryPanelState, SelectionState, VisibilityToggles,
+};
 
 /// Shows or hides each node sphere based on `VisibilityToggles.layer_visible`.
 ///
@@ -46,13 +48,20 @@ pub fn update_node_appearance(
     for (sphere, mut opacity) in &mut query {
         let nid = sphere.node_id;
         let in_results = qps.highlighted_nodes.contains(&nid);
-        let in_subtree = hover.subtree_ids.contains(&nid);
+        let in_hover_subtree = hover.subtree_ids.contains(&nid);
+        let in_selection_subtree = selection.subtree_ids.contains(&nid);
         let is_selected = selection.selected_node == Some(nid);
+        let selected = selection.selected_node.is_some();
 
         opacity.target = if has_results {
+            // Query results override everything.
             if in_results { 1.0 } else { 0.15 }
         } else if hovering {
-            if in_subtree { 1.0 } else { 0.15 }
+            // Hover overrides selection fade while the cursor is over a node.
+            if in_hover_subtree { 1.0 } else { 0.15 }
+        } else if selected {
+            // Selection fade: only selected node + descendants stay visible.
+            if in_selection_subtree { 1.0 } else { 0.15 }
         } else {
             1.0
         };
