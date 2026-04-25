@@ -25,9 +25,9 @@ pub fn draw_properties_panel(
     };
 
     egui::Window::new("Properties")
-        .anchor(egui::Align2::RIGHT_TOP, [-8.0, 8.0])
+        .default_pos(egui::pos2(220.0, 8.0))  // starts after left panel, clear of right panel
         .resizable(true)
-        .collapsible(false)
+        .collapsible(true)
         .min_width(220.0)
         .show(contexts.ctx_mut(), |ui| {
             // Identity

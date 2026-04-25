@@ -2,6 +2,7 @@ pub mod components;
 pub mod interaction;
 pub mod layout;
 pub mod loader;
+pub mod query;
 pub mod render;
 pub mod resources;
 pub mod spawn;
@@ -68,17 +69,22 @@ pub fn run(sg: SceneGraph) {
                 render::edges::draw_intra_layer_edges,
                 render::edges::draw_nesting_lines,
                 render::bounds::draw_aabb_wireframes,
-                // Hover: detect → set targets → lerp and write to materials.
+                // Hover detection.
                 interaction::hover::detect_node_hover,
-                interaction::hover::apply_hover_fade,
-                interaction::hover::lerp_opacity,
-                // Selection.
+                // Click selection (also auto-updates query scope).
                 interaction::selection::handle_node_click,
+                // Unified material update: opacity fade + emissive for selection/results.
+                render::nodes::update_node_appearance,
+                // Selection ring gizmo.
+                render::nodes::draw_selection_ring,
                 // Layer visibility.
                 render::nodes::apply_layer_visibility,
+                // Query dispatch.
+                query::dispatch::execute_query,
                 // UI panels.
                 ui::panels::draw_layer_panel,
                 ui::props::draw_properties_panel,
+                ui::query::draw_query_panel,
             ),
         )
         .run();
