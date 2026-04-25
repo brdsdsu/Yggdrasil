@@ -81,9 +81,10 @@ pub fn run(sg: SceneGraph) {
                 render::nodes::apply_layer_visibility,
                 // Query dispatch.
                 query::dispatch::execute_query,
-                // UI panels.
-                ui::panels::draw_layer_panel,
-                ui::props::draw_properties_panel,
+                // UI panels — must run in this order: left panel first so
+                // available_rect() is correct when the properties window positions itself.
+                ui::panels::draw_layer_panel.before(ui::props::draw_properties_panel),
+                ui::props::draw_properties_panel.before(ui::query::draw_query_panel),
                 ui::query::draw_query_panel,
             ),
         )

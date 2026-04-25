@@ -24,12 +24,18 @@ pub fn draw_properties_panel(
         return;
     };
 
+    // Position the window just to the right of the left panel.
+    // available_rect() reflects the central area after all side panels are allocated,
+    // so left() gives the exact x where the left panel ends.
+    let ctx = contexts.ctx_mut();
+    let start_x = ctx.available_rect().left() + 8.0;
+
     egui::Window::new("Properties")
-        .default_pos(egui::pos2(220.0, 8.0))  // starts after left panel, clear of right panel
+        .default_pos(egui::pos2(start_x, 8.0))
         .resizable(true)
         .collapsible(true)
         .min_width(220.0)
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             // Identity
             egui::Grid::new("identity_grid")
                 .num_columns(2)
