@@ -13,7 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 scene-graph = { path = "../scene-graph" }
-bevy        = { version = "0.15", features = ["wayland"] }
+bevy        = { version = "0.15", features = ["wayland", "dynamic_linking"] }
 bevy_egui   = "0.31"
 bevy_panorbit_camera = "0.22"
 clap        = { version = "4", features = ["derive"] }

@@ -1,6 +1,7 @@
 pub mod components;
 pub mod layout;
 pub mod loader;
+pub mod render;
 pub mod resources;
 pub mod spawn;
 
@@ -58,6 +59,14 @@ pub fn run(sg: SceneGraph) {
                 spawn::spawn_node_spheres,
             )
                 .chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                render::edges::draw_intra_layer_edges,
+                render::edges::draw_nesting_lines,
+                render::bounds::draw_aabb_wireframes,
+            ),
         )
         .run();
 }

@@ -165,6 +165,19 @@ impl SceneGraph {
         node
     }
 
+    /// Create a new Bounded Semantic Node with specified features.
+    pub fn new_bounded_node(&mut self, features: Vec<Feature>) -> AnonNode {
+        let node = AnonNode::new(
+            self.node_counter,
+            features,
+            None,
+            false,
+            Some(Bounds::Unbounded),
+        );
+        self.node_counter += 1;
+        node
+    }
+
     /// Create a new Indexed Semantic Node with specified features.
     /// This node will have position indexing enabled and will track of the coordinates of its
     /// sub-tree for efficient spatial queries.

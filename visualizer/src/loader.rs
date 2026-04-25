@@ -89,7 +89,7 @@ fn create_demo_graph() -> scene_graph::Result<SceneGraph> {
     let mut dyn_ids = Vec::with_capacity(3);
     let offset = static_types.len() * 10;
     for (i, &obj_type) in dynamic_types.iter().enumerate() {
-        let node = sg.new_node(vec![Feature::new("type", obj_type)]);
+        let node = sg.new_bounded_node(vec![Feature::new("type", obj_type)]);
         let obj_id = sg.layer_mut(dynamic_layer)?.push_node(node);
         dyn_ids.push(obj_id);
         for &pc_id in &pc_ids[offset + i * 10..offset + (i + 1) * 10] {
