@@ -5,6 +5,7 @@ pub mod loader;
 pub mod render;
 pub mod resources;
 pub mod spawn;
+pub mod ui;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -71,6 +72,12 @@ pub fn run(sg: SceneGraph) {
                 interaction::hover::detect_node_hover,
                 interaction::hover::apply_hover_fade,
                 interaction::hover::lerp_opacity,
+                // Selection.
+                interaction::selection::handle_node_click,
+                // Layer visibility.
+                render::nodes::apply_layer_visibility,
+                // UI panels.
+                ui::panels::draw_layer_panel,
             ),
         )
         .run();

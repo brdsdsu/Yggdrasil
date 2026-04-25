@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::resources::{HoverState, LayoutPositions, SceneGraphRes};
+use crate::resources::{HoverState, LayoutPositions, SceneGraphRes, VisibilityToggles};
 
 /// Number of dash segments drawn per nesting line.
 /// Every other segment is skipped to produce a dashed appearance.
@@ -16,12 +16,18 @@ pub fn draw_intra_layer_edges(
     sg_res: Res<SceneGraphRes>,
     layout: Res<LayoutPositions>,
     hover: Res<HoverState>,
+    vis: Res<VisibilityToggles>,
 ) {
     let sg = &sg_res.0;
     let num_layers = sg.layers_count();
     let hovering = hover.hovered_node.is_some();
 
     for layer in sg.layers() {
+        // Skip edges belonging to a hidden layer entirely.
+        if !vis.layer_visible.get(&layer.id).copied().unwrap_or(true) {
+            continue;
+        }
+
         // Dimmed, semi-transparent version of the layer color for edge lines.
         let hue = (layer.id as f32 / num_layers.max(1) as f32) * 360.0;
         let edge_color = Color::hsla(hue, 0.75, 0.35, if hovering { 0.15 } else { 0.85 });
@@ -62,6 +68,7 @@ pub fn draw_nesting_lines(
     sg_res: Res<SceneGraphRes>,
     layout: Res<LayoutPositions>,
     hover: Res<HoverState>,
+    vis: Res<VisibilityToggles>,
 ) {
     let sg = &sg_res.0;
     let hovering = hover.hovered_node.is_some();
@@ -69,8 +76,19 @@ pub fn draw_nesting_lines(
     let nesting_color_active = Color::srgba(1.0, 1.0, 1.0, 0.9);
 
     for layer in sg.layers() {
+        // Skip nesting lines originating from a hidden layer.
+        if !vis.layer_visible.get(&layer.id).copied().unwrap_or(true) {
+            continue;
+        }
+
         for node in layer.all_nodes() {
             let Some(pid) = node.pid else { continue };
+
+            // Also skip if the parent node's layer is hidden.
+            let parent_layer_id = pid.layer_id();
+            if !vis.layer_visible.get(&parent_layer_id).copied().unwrap_or(true) {
+                continue;
+            }
 
             let Some(&child_pos) = layout.0.get(&node.id) else {
                 continue;
