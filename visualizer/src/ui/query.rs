@@ -137,12 +137,11 @@ pub fn draw_query_panel(
                 QueryType::EdgesFrom | QueryType::EdgesTo => {
                     ui.label("Node ID (layer:node):");
                     ui.text_edit_singleline(&mut qps.root_node);
-                    if let Some(nid) = selection.selected_node {
-                        if ui.small_button("Use selection").clicked() {
+                    if let Some(nid) = selection.selected_node
+                        && ui.small_button("Use selection").clicked() {
                             qps.root_node =
                                 format!("{}:{}", nid.layer_id(), nid.node_id());
                         }
-                    }
                 }
                 QueryType::NearestNode => {
                     ui.label("Position:");
@@ -251,8 +250,8 @@ pub fn draw_query_panel(
                     });
                     ui.label("Root Node (layer:node):");
                     ui.text_edit_singleline(&mut qps.root_node);
-                    if ui.button("Use Camera").clicked() {
-                        if let Ok(transform) = camera_query.get_single() {
+                    if ui.button("Use Camera").clicked()
+                        && let Ok(transform) = camera_query.get_single() {
                             let p = transform.translation;
                             qps.fov_pos[0] = format!("{:.3}", p.x);
                             qps.fov_pos[1] = format!("{:.3}", p.y);
@@ -263,7 +262,6 @@ pub fn draw_query_panel(
                             qps.fov_pitch = format!("{:.2}", pitch.to_degrees());
                             qps.fov_roll = format!("{:.2}", roll.to_degrees());
                         }
-                    }
                 }
             }
 

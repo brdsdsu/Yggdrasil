@@ -82,10 +82,9 @@ pub fn lerp_opacity(
         let t = (dt * 8.0).min(1.0);
         opacity.current += (opacity.target - opacity.current) * t;
 
-        if let Some(handle) = mat_handles.0.get(&sphere.node_id) {
-            if let Some(mat) = materials.get_mut(handle) {
+        if let Some(handle) = mat_handles.0.get(&sphere.node_id)
+            && let Some(mat) = materials.get_mut(handle) {
                 mat.base_color.set_alpha(opacity.current);
             }
-        }
     }
 }

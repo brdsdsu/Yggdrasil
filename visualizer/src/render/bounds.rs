@@ -13,6 +13,7 @@ use crate::resources::{HoverState, SceneGraphRes, VisibilityToggles};
 /// - At layer 0 the box uses the raw data z-extent (where the leaf coordinates live).
 /// - At each higher layer the box is a flat slab centered on that layer's visual z-center,
 ///   preserving the same XY footprint so the spatial extent is visible at every tier.
+///
 /// Each slab is colored with that sub-layer's hue so layers remain visually distinct.
 pub fn draw_aabb_wireframes(
     mut gizmos: Gizmos,
@@ -67,10 +68,7 @@ pub fn draw_aabb_wireframes(
 
                 let (center_z, size_z) = if sub_id == 0 {
                     // Layer 0: use the actual z-extent from the raw bounding box.
-                    (
-                        (bb_min.z + bb_max.z) * 0.5,
-                        (bb_max.z - bb_min.z).max(0.1),
-                    )
+                    ((bb_min.z + bb_max.z) * 0.5, (bb_max.z - bb_min.z).max(0.1))
                 } else {
                     // Higher layers: flat slab centered on that layer's visual z.
                     (sub_id as f32 * vis.z_separation, 0.5)
