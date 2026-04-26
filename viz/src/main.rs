@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use visualizer::loader::{SceneInput, load};
+use viz::loader::{SceneInput, load};
 
 /// Interactive 3D visualizer for Yggdrasil scene graphs.
 ///
@@ -29,6 +29,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let sg = load(input)?;
-    visualizer::run(sg);
+    viz::run(sg);
     Ok(())
 }
