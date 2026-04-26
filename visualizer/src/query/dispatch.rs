@@ -88,7 +88,14 @@ fn run_query(
                         .map(|n| n.id)
                         .collect()
                 }
-                _ => sg
+                QueryScope::Node => sg
+                    .nodes_matching(&[&feat])
+                    .into_iter()
+                    .flatten()
+                    .filter(|n| selection.subtree_ids.contains(&n.id))
+                    .map(|n| n.id)
+                    .collect(),
+                QueryScope::Graph => sg
                     .nodes_matching(&[&feat])
                     .into_iter()
                     .flatten()
@@ -115,7 +122,14 @@ fn run_query(
                         .map(|n| n.id)
                         .collect()
                 }
-                _ => sg
+                QueryScope::Node => sg
+                    .nodes_having(&[key])
+                    .into_iter()
+                    .flatten()
+                    .filter(|n| selection.subtree_ids.contains(&n.id))
+                    .map(|n| n.id)
+                    .collect(),
+                QueryScope::Graph => sg
                     .nodes_having(&[key])
                     .into_iter()
                     .flatten()
@@ -142,7 +156,17 @@ fn run_query(
                         .map(|e| (e.src, e.dst))
                         .collect()
                 }
-                _ => sg
+                QueryScope::Node => sg
+                    .edges_matching(label)
+                    .into_iter()
+                    .flatten()
+                    .filter(|e| {
+                        selection.subtree_ids.contains(&e.src)
+                            && selection.subtree_ids.contains(&e.dst)
+                    })
+                    .map(|e| (e.src, e.dst))
+                    .collect(),
+                QueryScope::Graph => sg
                     .edges_matching(label)
                     .into_iter()
                     .flatten()
@@ -187,8 +211,24 @@ fn run_query(
                     .map_err(|_| "Count must be a positive integer".to_string())?;
                 PosQueryCount::Count(n)
             };
-            for (node, _dist) in sg.nearest_nodes(&pos, count) {
-                nodes.insert(node.id);
+            match qps.scope {
+                QueryScope::Graph => {
+                    for (node, _dist) in sg.nearest_nodes(&pos, count) {
+                        nodes.insert(node.id);
+                    }
+                }
+                QueryScope::Layer => todo!(),
+                QueryScope::Node => {
+                    let root = selection
+                        .selected_node
+                        .ok_or("No node selected for Node scope")?;
+                    for (node, _dist) in sg
+                        .nearest_in_subtree(&pos, root, count)
+                        .map_err(|e| e.to_string())?
+                    {
+                        nodes.insert(node.id);
+                    }
+                }
             }
         }
 

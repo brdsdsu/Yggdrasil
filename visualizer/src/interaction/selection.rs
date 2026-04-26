@@ -4,7 +4,7 @@ use bevy::picking::events::{Click, Pointer};
 use bevy::prelude::*;
 
 use crate::components::NodeSphere;
-use crate::resources::{QueryPanelState, QueryScope, SceneGraphRes, SelectionState};
+use crate::resources::{QueryPanelState, QueryScope, QueryType, SceneGraphRes, SelectionState};
 
 /// Handles click events on node spheres to toggle selection.
 ///
@@ -50,7 +50,13 @@ pub fn handle_node_click(
             selection.selected_node = Some(node_id);
             selection.selected_layer = Some(sg_res.0.layer_of(node_id));
             selection.subtree_ids = subtree;
-            qps.scope = QueryScope::Node;
+            // Only auto-switch to Node scope for query types that actually filter
+            // by subtree; the others (EdgesFrom/To, VisibleSubgraph) take an explicit
+            // node ID as input and ignore scope entirely.
+            match qps.query_type {
+                QueryType::EdgesFrom | QueryType::EdgesTo | QueryType::VisibleSubgraph => {}
+                _ => qps.scope = QueryScope::Node,
+            }
         }
     }
 }
