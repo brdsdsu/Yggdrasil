@@ -48,7 +48,7 @@ pub fn run(sg: SceneGraph) {
         .insert_resource(MaterialHandles::default())
         .insert_resource(VisibilityToggles {
             layer_visible,
-            show_aabbs: true,
+            show_aabbs: false,
             z_separation: z_sep,
         })
         .insert_resource(HoverState::default())
