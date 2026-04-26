@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 
-use crate::resources::{HoverState, LayoutPositions, SceneGraphRes, SelectionState, VisibilityToggles};
+use crate::resources::{
+    HoverState, LayoutPositions, QueryPanelState, SceneGraphRes, SelectionState, VisibilityToggles,
+};
 
 /// Number of dash segments drawn per nesting line.
 /// Every other segment is skipped to produce a dashed appearance.
@@ -10,21 +12,24 @@ const NESTING_DASH_SEGMENTS: u32 = 10;
 ///
 /// Visibility priority (highest first):
 /// 1. Layer hidden → skip entirely.
-/// 2. Hover active → only edges with both endpoints in the hover subtree are drawn.
-/// 3. Selection active → only edges with both endpoints in the selection subtree are drawn.
-/// 4. Default → all edges drawn.
+/// 2. Query results active → only edges with both endpoints in the result subgraph.
+/// 3. Hover active → only edges with both endpoints in the hover subtree.
+/// 4. Selection active → only edges with both endpoints in the selection subtree.
+/// 5. Default → all edges drawn.
 pub fn draw_intra_layer_edges(
     mut gizmos: Gizmos,
     sg_res: Res<SceneGraphRes>,
     layout: Res<LayoutPositions>,
     hover: Res<HoverState>,
     selection: Res<SelectionState>,
+    qps: Res<QueryPanelState>,
     vis: Res<VisibilityToggles>,
 ) {
     let sg = &sg_res.0;
     let num_layers = sg.layers_count();
     let hovering = hover.hovered_node.is_some();
     let selected = selection.selected_node.is_some();
+    let has_results = !qps.highlighted_nodes.is_empty();
 
     for layer in sg.layers() {
         if !vis.layer_visible.get(&layer.id).copied().unwrap_or(true) {
@@ -32,12 +37,15 @@ pub fn draw_intra_layer_edges(
         }
 
         let hue = (layer.id as f32 / num_layers.max(1) as f32) * 360.0;
-        let faded = hovering || selected;
+        let faded = has_results || hovering || selected;
         let edge_color = Color::hsla(hue, 0.75, 0.35, if faded { 0.15 } else { 0.85 });
 
         for node in layer.all_nodes() {
             for edge in &node.edges {
-                let active = if hovering {
+                let active = if has_results {
+                    qps.highlighted_nodes.contains(&edge.src)
+                        && qps.highlighted_nodes.contains(&edge.dst)
+                } else if hovering {
                     hover.subtree_ids.contains(&edge.src)
                         && hover.subtree_ids.contains(&edge.dst)
                 } else if selected {
@@ -65,22 +73,25 @@ pub fn draw_intra_layer_edges(
 ///
 /// Visibility priority (highest first):
 /// 1. Either endpoint's layer hidden → skip.
-/// 2. Hover active → only connections inside the hover subtree are drawn.
-/// 3. Selection active → only connections inside the selection subtree are drawn.
-/// 4. Default → all nesting lines drawn.
+/// 2. Query results active → only connections inside the result subgraph.
+/// 3. Hover active → only connections inside the hover subtree.
+/// 4. Selection active → only connections inside the selection subtree.
+/// 5. Default → all nesting lines drawn.
 pub fn draw_nesting_lines(
     mut gizmos: Gizmos,
     sg_res: Res<SceneGraphRes>,
     layout: Res<LayoutPositions>,
     hover: Res<HoverState>,
     selection: Res<SelectionState>,
+    qps: Res<QueryPanelState>,
     vis: Res<VisibilityToggles>,
 ) {
     let sg = &sg_res.0;
     let hovering = hover.hovered_node.is_some();
     let selected = selection.selected_node.is_some();
+    let has_results = !qps.highlighted_nodes.is_empty();
 
-    let faded = hovering || selected;
+    let faded = has_results || hovering || selected;
     let color_dim = Color::srgba(1.0, 1.0, 1.0, if faded { 0.08 } else { 0.45 });
     let color_active = Color::srgba(1.0, 1.0, 1.0, 0.9);
 
@@ -100,7 +111,10 @@ pub fn draw_nesting_lines(
             let Some(&child_pos) = layout.0.get(&node.id) else { continue };
             let Some(&parent_pos) = layout.0.get(&pid) else { continue };
 
-            let in_active_set = if hovering {
+            let in_active_set = if has_results {
+                qps.highlighted_nodes.contains(&node.id)
+                    && qps.highlighted_nodes.contains(&pid)
+            } else if hovering {
                 hover.subtree_ids.contains(&node.id) && hover.subtree_ids.contains(&pid)
             } else if selected {
                 selection.subtree_ids.contains(&node.id)

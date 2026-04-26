@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use scene_graph::{Coordinate, Feature, NodeId, Observer, PosQueryCount};
 
 use bevy::prelude::*;
@@ -24,7 +26,22 @@ pub fn execute_query(
     let result = run_query(&qps, &selection, sg);
 
     match result {
-        Ok((nodes, edges)) => {
+        Ok((mut nodes, edges)) => {
+            // Expand every direct result node to include its full descendant subgraph
+            // so that the highlight covers the complete subtree, not just the top node.
+            let roots: Vec<NodeId> = nodes.iter().copied().collect();
+            for root in roots {
+                let mut queue = VecDeque::from([root]);
+                while let Some(nid) = queue.pop_front() {
+                    if let Ok(node) = sg.node(nid) {
+                        for &child_id in node.children() {
+                            if nodes.insert(child_id) {
+                                queue.push_back(child_id);
+                            }
+                        }
+                    }
+                }
+            }
             qps.highlighted_nodes = nodes;
             qps.highlighted_edges = edges;
             qps.error = None;

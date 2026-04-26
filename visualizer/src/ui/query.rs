@@ -267,13 +267,26 @@ pub fn draw_query_panel(
 
             ui.separator();
 
-            // --- Run button ---
-            if ui.button("▶  Run Query").clicked() {
-                qps.submitted = true;
-                qps.error = None;
-                qps.highlighted_nodes.clear();
-                qps.highlighted_edges.clear();
-            }
+            // --- Run / Clear buttons ---
+            ui.horizontal(|ui| {
+                if ui.button("▶  Run Query").clicked() {
+                    qps.submitted = true;
+                    qps.error = None;
+                    qps.highlighted_nodes.clear();
+                    qps.highlighted_edges.clear();
+                }
+
+                let has_results =
+                    !qps.highlighted_nodes.is_empty() || !qps.highlighted_edges.is_empty();
+                if ui
+                    .add_enabled(has_results, egui::Button::new("✕  Clear"))
+                    .clicked()
+                {
+                    qps.highlighted_nodes.clear();
+                    qps.highlighted_edges.clear();
+                    qps.error = None;
+                }
+            });
 
             // --- Error ---
             if let Some(ref err) = qps.error.clone() {
