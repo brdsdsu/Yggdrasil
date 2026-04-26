@@ -4,9 +4,10 @@ use crate::resources::{
     HoverState, LayoutPositions, QueryPanelState, SceneGraphRes, SelectionState, VisibilityToggles,
 };
 
-/// Number of dash segments drawn per nesting line.
-/// Every other segment is skipped to produce a dashed appearance.
-const NESTING_DASH_SEGMENTS: u32 = 10;
+/// World-space length of each dash (and each gap) along a nesting line.
+/// The total number of segments is derived per-line so the pitch stays constant
+/// regardless of how long the line is.
+const NESTING_DASH_WORLD_LEN: f32 = 0.3;
 
 /// Draws intra-layer edges as solid lines in a dimmed layer color.
 ///
@@ -92,8 +93,8 @@ pub fn draw_nesting_lines(
     let has_results = !qps.highlighted_nodes.is_empty();
 
     let faded = has_results || hovering || selected;
-    let color_dim = Color::srgba(1.0, 1.0, 1.0, if faded { 0.08 } else { 0.45 });
-    let color_active = Color::srgba(1.0, 1.0, 1.0, 0.9);
+    let color_dim = Color::srgba(1.0, 1.0, 1.0, if faded { 0.04 } else { 0.18 });
+    let color_active = Color::srgba(1.0, 1.0, 1.0, 0.45);
 
     for layer in sg.layers() {
         if !vis.layer_visible.get(&layer.id).copied().unwrap_or(true) {
@@ -134,11 +135,24 @@ pub fn draw_nesting_lines(
     }
 }
 
-/// Draws a dashed line between `start` and `end` by rendering every other segment.
+/// Draws a dashed line between `start` and `end` with a constant world-space dash pitch.
+///
+/// Segment count is derived from the line length so that each dash (and each gap)
+/// is approximately `NESTING_DASH_WORLD_LEN` world units regardless of line length.
+/// The count is rounded up to the nearest even number so the pattern starts and
+/// ends on a dash.
 fn draw_dashed_line(gizmos: &mut Gizmos, start: Vec3, end: Vec3, color: Color) {
-    for i in (0..NESTING_DASH_SEGMENTS).step_by(2) {
-        let t0 = i as f32 / NESTING_DASH_SEGMENTS as f32;
-        let t1 = (i + 1) as f32 / NESTING_DASH_SEGMENTS as f32;
+    let len = start.distance(end);
+    if len < 1e-6 {
+        return;
+    }
+    // Each segment covers one dash or one gap; round up to nearest even number.
+    let raw = (len / NESTING_DASH_WORLD_LEN).ceil() as u32;
+    let segments = raw + (raw % 2);
+
+    for i in (0..segments).step_by(2) {
+        let t0 = i as f32 / segments as f32;
+        let t1 = (i + 1) as f32 / segments as f32;
         gizmos.line(start.lerp(end, t0), start.lerp(end, t1), color);
     }
 }
