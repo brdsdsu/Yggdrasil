@@ -1,7 +1,25 @@
+use std::collections::VecDeque;
+
 use bevy::prelude::*;
 use scene_graph::Bounds;
 
 use crate::resources::{HoverState, SceneGraphRes, VisibilityToggles};
+
+/// Collects the given layer ID plus all layer IDs reachable by following
+/// `child_layer_ids()` downward in the layer DAG (BFS).
+fn descendant_layer_ids(sg: &scene_graph::SceneGraph, root_layer_id: u32) -> Vec<u32> {
+    let mut result = Vec::new();
+    let mut queue = VecDeque::from([root_layer_id]);
+    while let Some(lid) = queue.pop_front() {
+        result.push(lid);
+        if let Ok(layer) = sg.layer(lid) {
+            for &child_id in layer.child_layer_ids() {
+                queue.push_back(child_id);
+            }
+        }
+    }
+    result
+}
 
 /// Draws axis-aligned bounding box wireframes for nodes that have `Bounds::Bounded`.
 ///
@@ -9,10 +27,10 @@ use crate::resources::{HoverState, SceneGraphRes, VisibilityToggles};
 /// When a node is hovered, only nodes inside the hover subtree have their AABBs drawn.
 /// When nothing is hovered, all bounded nodes are drawn.
 ///
-/// For each bounded node on layer `L`, one wireframe is drawn per layer in `[0, L]`:
-/// - At layer 0 the box uses the raw data z-extent (where the leaf coordinates live).
-/// - At each higher layer the box is a flat slab centered on that layer's visual z-center,
-///   preserving the same XY footprint so the spatial extent is visible at every tier.
+/// For each bounded node on layer `L`, one wireframe slab is drawn per layer that is
+/// `L` itself or a descendant of `L` in the layer DAG (not simply all layers 0..=L).
+/// This correctly handles non-linear layer topologies where some lower-ID layers are
+/// not actually reachable from `L`.
 ///
 /// Each slab is colored with that sub-layer's hue so layers remain visually distinct.
 pub fn draw_aabb_wireframes(
@@ -30,13 +48,14 @@ pub fn draw_aabb_wireframes(
     let hovering = hover.hovered_node.is_some();
 
     for layer in sg.layers() {
-        // Skip AABBs for nodes belonging to a hidden layer.
         if !vis.layer_visible.get(&layer.id).copied().unwrap_or(true) {
             continue;
         }
 
+        // Precompute descendant layers for this layer (including itself).
+        let descendant_ids = descendant_layer_ids(sg, layer.id);
+
         for node in layer.all_nodes() {
-            // During hover, only draw AABBs for nodes inside the active subtree.
             if hovering && !hover.subtree_ids.contains(&node.id) {
                 continue;
             }
@@ -45,8 +64,6 @@ pub fn draw_aabb_wireframes(
                 continue;
             };
 
-            // Convert scene-graph Vec3 to Bevy Vec3 explicitly to guard against
-            // cross-crate glam version differences.
             let bb_min = Vec3::new(bb.min().x, bb.min().y, bb.min().z);
             let bb_max = Vec3::new(bb.max().x, bb.max().y, bb.max().z);
 
@@ -56,9 +73,13 @@ pub fn draw_aabb_wireframes(
                 (bb_max.y - bb_min.y).max(0.1),
             );
 
-            // Draw one box per layer from 0 up to this node's own layer,
-            // skipping any sub-layer that is currently hidden.
-            for sub_id in 0..=layer.id {
+            // The leaf layer (lowest ID among descendants) holds the actual
+            // coordinate data, so its slab uses the raw z-extent from the
+            // bounding box. All other layers get a flat slab at their visual z.
+            let leaf_layer_id = descendant_ids.iter().copied().min().unwrap_or(layer.id);
+
+            // Draw one slab per descendant layer (skip hidden layers).
+            for &sub_id in &descendant_ids {
                 if !vis.layer_visible.get(&sub_id).copied().unwrap_or(true) {
                     continue;
                 }
@@ -66,11 +87,9 @@ pub fn draw_aabb_wireframes(
                 let hue = (sub_id as f32 / num_layers.max(1) as f32) * 360.0;
                 let color = Color::hsla(hue, 0.9, 0.7, 0.8);
 
-                let (center_z, size_z) = if sub_id == 0 {
-                    // Layer 0: use the actual z-extent from the raw bounding box.
+                let (center_z, size_z) = if sub_id == leaf_layer_id {
                     ((bb_min.z + bb_max.z) * 0.5, (bb_max.z - bb_min.z).max(0.1))
                 } else {
-                    // Higher layers: flat slab centered on that layer's visual z.
                     (sub_id as f32 * vis.z_separation, 0.5)
                 };
 
