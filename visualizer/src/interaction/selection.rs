@@ -4,14 +4,16 @@ use bevy::picking::events::{Click, Pointer};
 use bevy::prelude::*;
 
 use crate::components::NodeSphere;
-use crate::resources::{QueryPanelState, QueryScope, QueryType, SceneGraphRes, SelectionState};
+use crate::resources::{QueryPanelState, QueryScope, SceneGraphRes, SelectionState};
 
 /// Handles click events on node spheres to toggle selection.
 ///
 /// Clicking a node sets it as the active selection, computes its full descendant
 /// subtree via BFS (stored in `SelectionState.subtree_ids` for the fade system),
-/// derives its layer, and automatically switches the query scope to `Node`.
-/// Clicking the same node again clears everything and resets scope to `Graph`.
+/// derives its layer, and switches the query scope to `Node` when the current
+/// query type supports node-level execution. For unsupported query types an error
+/// is shown instead. Clicking the same node again clears everything and resets
+/// scope to `Graph`.
 pub fn handle_node_click(
     mut click_events: EventReader<Pointer<Click>>,
     sphere_query: Query<&NodeSphere>,
@@ -50,12 +52,14 @@ pub fn handle_node_click(
             selection.selected_node = Some(node_id);
             selection.selected_layer = Some(sg_res.0.layer_of(node_id));
             selection.subtree_ids = subtree;
-            // Only auto-switch to Node scope for query types that actually filter
-            // by subtree; the others (EdgesFrom/To, VisibleSubgraph) take an explicit
-            // node ID as input and ignore scope entirely.
-            match qps.query_type {
-                QueryType::EdgesFrom | QueryType::EdgesTo | QueryType::VisibleSubgraph => {}
-                _ => qps.scope = QueryScope::Node,
+            if qps.query_type.supports_node_scope() {
+                qps.scope = QueryScope::Node;
+            } else {
+                qps.error = Some(
+                    "This query type has no node-level implementation. \
+                     Switch to Nearest Node or Visible Subgraph to use node scope."
+                        .into(),
+                );
             }
         }
     }

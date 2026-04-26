@@ -88,14 +88,7 @@ fn run_query(
                         .map(|n| n.id)
                         .collect()
                 }
-                QueryScope::Node => sg
-                    .nodes_matching(&[&feat])
-                    .into_iter()
-                    .flatten()
-                    .filter(|n| selection.subtree_ids.contains(&n.id))
-                    .map(|n| n.id)
-                    .collect(),
-                QueryScope::Graph => sg
+                _ => sg
                     .nodes_matching(&[&feat])
                     .into_iter()
                     .flatten()
@@ -122,14 +115,7 @@ fn run_query(
                         .map(|n| n.id)
                         .collect()
                 }
-                QueryScope::Node => sg
-                    .nodes_having(&[key])
-                    .into_iter()
-                    .flatten()
-                    .filter(|n| selection.subtree_ids.contains(&n.id))
-                    .map(|n| n.id)
-                    .collect(),
-                QueryScope::Graph => sg
+                _ => sg
                     .nodes_having(&[key])
                     .into_iter()
                     .flatten()
@@ -156,17 +142,7 @@ fn run_query(
                         .map(|e| (e.src, e.dst))
                         .collect()
                 }
-                QueryScope::Node => sg
-                    .edges_matching(label)
-                    .into_iter()
-                    .flatten()
-                    .filter(|e| {
-                        selection.subtree_ids.contains(&e.src)
-                            && selection.subtree_ids.contains(&e.dst)
-                    })
-                    .map(|e| (e.src, e.dst))
-                    .collect(),
-                QueryScope::Graph => sg
+                _ => sg
                     .edges_matching(label)
                     .into_iter()
                     .flatten()

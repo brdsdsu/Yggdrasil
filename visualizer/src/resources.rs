@@ -142,6 +142,16 @@ pub enum QueryType {
     VisibleSubgraph,
 }
 
+impl QueryType {
+    /// Returns true if this query type can be scoped to a selected node's subtree.
+    ///
+    /// Only `NearestNode` and `VisibleSubgraph` support node-level execution.
+    /// All other query types operate at graph or layer granularity only.
+    pub fn supports_node_scope(&self) -> bool {
+        matches!(self, QueryType::NearestNode | QueryType::VisibleSubgraph)
+    }
+}
+
 /// The scope at which a query is executed.
 #[derive(Default, PartialEq, Clone)]
 pub enum QueryScope {

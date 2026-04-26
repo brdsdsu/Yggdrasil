@@ -40,9 +40,11 @@ pub fn draw_query_panel(
     camera_query: Query<&Transform, With<PanOrbitCamera>>,
 ) {
     let can_scope_layer = selection.selected_layer.is_some();
-    let can_scope_node = selection.selected_node.is_some();
+    let can_scope_node =
+        selection.selected_node.is_some() && qps.query_type.supports_node_scope();
 
-    // Downgrade scope if the backing selection was cleared.
+    // Downgrade scope when the backing selection is cleared or the query type no
+    // longer supports the active scope.
     if qps.scope == QueryScope::Layer && !can_scope_layer {
         qps.scope = QueryScope::Graph;
     }
