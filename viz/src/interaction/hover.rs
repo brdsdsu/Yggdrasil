@@ -11,13 +11,27 @@ use crate::resources::{HoverState, SceneGraphRes};
 /// On `Pointer<Over>`, the hovered node and its full descendant subtree (BFS through
 /// `node.children()`) are collected into `HoverState.subtree_ids`.
 /// On `Pointer<Out>`, the hover state is cleared.
+/// Hover activation is suppressed while any mouse button is pressed so that clicking
+/// or camera-dragging does not trigger subtree highlighting.
 pub fn detect_node_hover(
     mut over_events: EventReader<Pointer<Over>>,
     mut out_events: EventReader<Pointer<Out>>,
     sphere_query: Query<&NodeSphere>,
     sg_res: Res<SceneGraphRes>,
     mut hover: ResMut<HoverState>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
 ) {
+    // While any button is held (click or drag), suppress hover highlighting.
+    if mouse_buttons.any_pressed([MouseButton::Left, MouseButton::Right, MouseButton::Middle]) {
+        over_events.clear();
+        out_events.clear();
+        if hover.hovered_node.is_some() {
+            hover.hovered_node = None;
+            hover.subtree_ids.clear();
+        }
+        return;
+    }
+
     for event in out_events.read() {
         if sphere_query.get(event.target).is_ok() {
             hover.hovered_node = None;

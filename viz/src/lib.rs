@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bevy::prelude::*;
-use bevy_panorbit_camera::PanOrbitCameraPlugin;
+use bevy_panorbit_camera::{PanOrbitCameraPlugin, PanOrbitCameraSystemSet};
 use scene_graph::SceneGraph;
 
 use resources::{
@@ -94,6 +94,10 @@ pub fn run(sg: SceneGraph) {
                 ui::props::draw_properties_panel.before(ui::query::draw_query_panel),
                 ui::query::draw_query_panel,
             ),
+        )
+        .add_systems(
+            PostUpdate,
+            interaction::camera::block_camera_on_egui.before(PanOrbitCameraSystemSet),
         )
         .run();
 }
