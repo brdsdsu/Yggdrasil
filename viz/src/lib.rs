@@ -50,6 +50,7 @@ pub fn run(sg: SceneGraph) {
             layer_visible,
             show_aabbs: false,
             z_separation: z_sep,
+            node_radius: (z_sep * 0.05).max(0.1),
         })
         .insert_resource(HoverState::default())
         .insert_resource(SelectionState::default())

@@ -61,6 +61,9 @@ pub struct VisibilityToggles {
     /// Vertical spacing between layers in visualization space.
     /// Recomputing the layout is triggered whenever this value changes.
     pub z_separation: f32,
+    /// Radius of every node sphere in world units.
+    /// Changing this replaces the shared sphere mesh so all spheres resize immediately.
+    pub node_radius: f32,
 }
 
 impl Default for VisibilityToggles {
@@ -69,6 +72,7 @@ impl Default for VisibilityToggles {
             layer_visible: HashMap::new(),
             show_aabbs: false,
             z_separation: 1.0,
+            node_radius: 0.1,
         }
     }
 }

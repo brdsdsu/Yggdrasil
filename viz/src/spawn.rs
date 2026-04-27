@@ -57,9 +57,7 @@ pub fn spawn_node_spheres(
 ) {
     let sg = &sg_res.0;
     let num_layers = sg.layers_count().max(1) as f32;
-    // Sphere radius scales with z-separation so it remains legible at any scene scale.
-    let radius = (vis.z_separation * 0.05).max(0.1);
-    let sphere_mesh = meshes.add(Sphere::new(radius));
+    let sphere_mesh = meshes.add(Sphere::new(vis.node_radius));
 
     for layer in sg.layers() {
         // Spread layer hues evenly around the HSL color wheel.
