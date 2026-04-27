@@ -1,13 +1,12 @@
 use bevy::prelude::*;
 
 use crate::{
-    components::{LayerTag, NodeSphere, Opacity, VisPos},
-    resources::{LayoutPositions, MaterialHandles, SceneGraphRes, VisibilityToggles},
+    components::{LayerTag, NodeSphere, VisPos},
+    resources::{LayerMaterials, LayoutPositions, SceneGraphRes, SphereMeshHandle, VisibilityToggles},
 };
 
 /// Spawns the 3D camera with orbit/pan/zoom controls centered on the scene.
 pub fn spawn_camera(mut commands: Commands, layout: Res<LayoutPositions>) {
-    // Focus the camera on the centroid of all node positions.
     let focus = if layout.0.is_empty() {
         Vec3::ZERO
     } else {
@@ -43,9 +42,8 @@ pub fn spawn_lights(mut commands: Commands, mut ambient: ResMut<AmbientLight>) {
 
 /// Spawns one sphere mesh entity per scene graph node.
 ///
-/// Each sphere is positioned at the node's computed visual position, colored by
-/// its layer using an HSV palette, and given alpha-blend materials so the hover
-/// fade system can independently control per-node opacity.
+/// All nodes within the same layer share a single `StandardMaterial` so the GPU
+/// bind-group count is O(n_layers) instead of O(n_nodes).
 pub fn spawn_node_spheres(
     mut commands: Commands,
     sg_res: Res<SceneGraphRes>,
@@ -53,39 +51,36 @@ pub fn spawn_node_spheres(
     vis: Res<VisibilityToggles>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut mat_handles: ResMut<MaterialHandles>,
+    mut layer_mats: ResMut<LayerMaterials>,
+    mut sphere_handle: ResMut<SphereMeshHandle>,
 ) {
     let sg = &sg_res.0;
     let num_layers = sg.layers_count().max(1) as f32;
-    // Sphere radius scales with z-separation so it remains legible at any scene scale.
-    let radius = (vis.z_separation * 0.05).max(0.1);
-    let sphere_mesh = meshes.add(Sphere::new(radius));
+    let sphere_mesh = meshes.add(Sphere::new(vis.node_radius));
+    sphere_handle.0 = sphere_mesh.clone();
 
     for layer in sg.layers() {
-        // Spread layer hues evenly around the HSL color wheel.
         let hue = (layer.id as f32 / num_layers) * 360.0;
         let layer_color = Color::hsl(hue, 0.75, 0.55);
         let initially_visible = vis.layer_visible.get(&layer.id).copied().unwrap_or(true);
 
+        // One material shared by every node in this layer.
+        let mat = materials.add(StandardMaterial {
+            base_color: layer_color,
+            ..default()
+        });
+        layer_mats.0.insert(layer.id, mat.clone());
+
         for node in layer.all_nodes() {
             let pos = layout.0.get(&node.id).copied().unwrap_or(Vec3::ZERO);
 
-            // Each node gets its own material instance so opacity can be set independently.
-            let mat = materials.add(StandardMaterial {
-                base_color: layer_color,
-                alpha_mode: AlphaMode::Blend,
-                ..default()
-            });
-            mat_handles.0.insert(node.id, mat.clone());
-
             commands.spawn((
                 Mesh3d(sphere_mesh.clone()),
-                MeshMaterial3d(mat),
+                MeshMaterial3d(mat.clone()),
                 Transform::from_translation(pos),
                 NodeSphere { node_id: node.id },
                 LayerTag { layer_id: layer.id },
                 VisPos(pos),
-                Opacity { target: 1.0, current: 1.0 },
                 if initially_visible {
                     Visibility::Visible
                 } else {

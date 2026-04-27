@@ -18,12 +18,12 @@ pub struct SceneGraphRes(pub Arc<SceneGraph>);
 #[derive(Resource, Default)]
 pub struct LayoutPositions(pub HashMap<NodeId, Vec3>);
 
-/// Caches the `StandardMaterial` handle for each node sphere, keyed by node ID.
+/// One shared `StandardMaterial` per layer, keyed by layer id.
 ///
-/// Each node gets its own material so the hover/query systems can independently
-/// control per-node opacity without affecting other nodes in the same layer.
+/// All nodes in the same layer share this material so there is O(n_layers) GPU
+/// bind-group allocations instead of O(n_nodes).
 #[derive(Resource, Default)]
-pub struct MaterialHandles(pub HashMap<NodeId, Handle<StandardMaterial>>);
+pub struct LayerMaterials(pub HashMap<u32, Handle<StandardMaterial>>);
 
 /// Tracks which node or edge the cursor is currently over, and the set of
 /// node IDs that should remain fully opaque (the hovered node and all its descendants).
@@ -51,6 +51,26 @@ pub struct SelectionState {
     pub subtree_ids: HashSet<NodeId>,
 }
 
+/// Holds `StandardMaterial` handles for the static edge and nesting line meshes.
+/// Stored here so visibility-update systems can look up handles without an extra
+/// ECS query into `Assets<StandardMaterial>`.
+#[derive(Resource, Default)]
+pub struct EdgeMeshMaterials {
+    /// Base (full-graph) material per layer, keyed by layer id.
+    pub base_by_layer: HashMap<u32, Handle<StandardMaterial>>,
+    /// Highlight overlay material per layer, keyed by layer id.
+    pub highlight_by_layer: HashMap<u32, Handle<StandardMaterial>>,
+    /// Base material for the global nesting line mesh.
+    pub nesting_base: Option<Handle<StandardMaterial>>,
+    /// Highlight material for the global nesting highlight mesh.
+    pub nesting_highlight: Option<Handle<StandardMaterial>>,
+}
+
+/// Holds the single shared sphere mesh handle so the radius slider can update
+/// all node spheres at once by replacing the mesh asset in-place.
+#[derive(Resource, Default)]
+pub struct SphereMeshHandle(pub Handle<Mesh>);
+
 /// Controls per-layer visibility and optional overlays.
 #[derive(Resource)]
 pub struct VisibilityToggles {
@@ -61,6 +81,11 @@ pub struct VisibilityToggles {
     /// Vertical spacing between layers in visualization space.
     /// Recomputing the layout is triggered whenever this value changes.
     pub z_separation: f32,
+    /// Radius of every node sphere.
+    /// Changing this replaces the shared sphere mesh asset in-place.
+    pub node_radius: f32,
+    /// When false, the nesting (parent→child) lines are hidden entirely.
+    pub show_nesting: bool,
 }
 
 impl Default for VisibilityToggles {
@@ -69,6 +94,8 @@ impl Default for VisibilityToggles {
             layer_visible: HashMap::new(),
             show_aabbs: false,
             z_separation: 1.0,
+            node_radius: 0.1,
+            show_nesting: true,
         }
     }
 }

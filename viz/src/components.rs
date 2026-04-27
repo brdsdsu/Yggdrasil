@@ -22,19 +22,27 @@ pub struct LayerTag {
 #[derive(Component)]
 pub struct VisPos(pub Vec3);
 
-/// Drives the per-frame alpha lerp for the hover fade effect.
-///
-/// Each frame, `current` is lerped toward `target` and written into the node
-/// sphere's `StandardMaterial` base color alpha.
+
+/// Marks the base line-list mesh entity for one layer's intra-layer edges.
+/// Visible when no hover/selection/query state is active.
 #[derive(Component)]
-pub struct Opacity {
-    /// The alpha value being lerped toward (0.0 = fully transparent, 1.0 = fully opaque).
-    pub target: f32,
-    /// The current alpha value applied to the material this frame.
-    pub current: f32,
+pub struct EdgeBaseMesh {
+    pub layer_id: u32,
 }
 
-/// Marker placed on entities that match the current query results, used by the
-/// highlight system to recolor them and dim everything else.
+/// Marks the highlight overlay line-list mesh for one layer's intra-layer edges.
+/// Visible (and rebuilt) only when hover/selection/query state is active.
 #[derive(Component)]
-pub struct QueryHighlight;
+pub struct EdgeHighlightMesh {
+    pub layer_id: u32,
+}
+
+/// Marks the single global line-list mesh for all parent→child nesting links.
+/// Visible when no state is active.
+#[derive(Component)]
+pub struct NestingBaseMesh;
+
+/// Marks the highlight overlay for nesting lines.
+/// Rebuilt with only active-set links when hover/selection/query state is active.
+#[derive(Component)]
+pub struct NestingHighlightMesh;

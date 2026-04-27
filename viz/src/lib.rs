@@ -16,8 +16,8 @@ use bevy_panorbit_camera::PanOrbitCameraPlugin;
 use scene_graph::SceneGraph;
 
 use resources::{
-    HoverState, LayoutPositions, MaterialHandles, QueryPanelState, SceneGraphRes, SelectionState,
-    VisibilityToggles,
+    EdgeMeshMaterials, HoverState, LayerMaterials, LayoutPositions, QueryPanelState, SceneGraphRes,
+    SelectionState, SphereMeshHandle, VisibilityToggles,
 };
 
 /// Launches the visualizer window for the given scene graph.
@@ -45,11 +45,15 @@ pub fn run(sg: SceneGraph) {
         .add_plugins(MeshPickingPlugin)
         .insert_resource(SceneGraphRes(Arc::new(sg)))
         .insert_resource(LayoutPositions(positions))
-        .insert_resource(MaterialHandles::default())
+        .insert_resource(LayerMaterials::default())
+        .insert_resource(EdgeMeshMaterials::default())
+        .insert_resource(SphereMeshHandle::default())
         .insert_resource(VisibilityToggles {
             layer_visible,
             show_aabbs: false,
             z_separation: z_sep,
+            node_radius: (z_sep * 0.05).max(0.1),
+            show_nesting: true,
         })
         .insert_resource(HoverState::default())
         .insert_resource(SelectionState::default())
@@ -60,25 +64,28 @@ pub fn run(sg: SceneGraph) {
                 spawn::spawn_camera,
                 spawn::spawn_lights,
                 spawn::spawn_node_spheres,
+                render::edges::build_edge_meshes,
+                render::edges::build_nesting_mesh,
             )
                 .chain(),
         )
         .add_systems(
             Update,
             (
-                render::edges::draw_intra_layer_edges,
-                render::edges::draw_nesting_lines,
+                render::edges::update_edge_nesting_visibility,
+                render::edges::rebuild_edge_highlight,
+                render::edges::rebuild_nesting_highlight,
+                render::edges::rebuild_meshes_on_layout_change
+                    .after(ui::panels::draw_layer_panel),
                 render::bounds::draw_aabb_wireframes,
                 // Hover detection.
                 interaction::hover::detect_node_hover,
                 // Click selection (also auto-updates query scope).
                 interaction::selection::handle_node_click,
-                // Unified material update: opacity fade + emissive for selection/results.
-                render::nodes::update_node_appearance,
+                // Visibility: combines layer toggles + hover/selection/query state.
+                render::nodes::update_node_visibility,
                 // Selection ring gizmo.
                 render::nodes::draw_selection_ring,
-                // Layer visibility.
-                render::nodes::apply_layer_visibility,
                 // Query dispatch.
                 query::dispatch::execute_query,
                 // UI panels — must run in this order: left panel first so

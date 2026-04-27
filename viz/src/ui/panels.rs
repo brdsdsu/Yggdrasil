@@ -3,7 +3,7 @@ use bevy_egui::{egui, EguiContexts};
 
 use crate::components::NodeSphere;
 use crate::layout::compute_layout;
-use crate::resources::{LayoutPositions, SceneGraphRes, VisibilityToggles};
+use crate::resources::{LayoutPositions, SceneGraphRes, SphereMeshHandle, VisibilityToggles};
 
 /// Draws the left sidebar panel containing per-layer visibility toggles,
 /// the AABB wireframe toggle, and the z-separation slider.
@@ -17,6 +17,8 @@ pub fn draw_layer_panel(
     sg_res: Res<SceneGraphRes>,
     mut layout: ResMut<LayoutPositions>,
     mut sphere_query: Query<(&NodeSphere, &mut Transform)>,
+    sphere_handle: Res<SphereMeshHandle>,
+    mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let sg = &sg_res.0;
 
@@ -43,6 +45,7 @@ pub fn draw_layer_panel(
 
             ui.separator();
             ui.checkbox(&mut vis.show_aabbs, "Show AABBs");
+            ui.checkbox(&mut vis.show_nesting, "Show Hierarchical Edges");
 
             ui.separator();
             ui.label("Z Separation");
@@ -62,6 +65,22 @@ pub fn draw_layer_panel(
                     }
                 }
                 layout.0 = new_positions;
+            }
+
+            ui.separator();
+            ui.label("Node Radius");
+
+            let old_radius = vis.node_radius;
+            ui.add(
+                egui::Slider::new(&mut vis.node_radius, 0.01f32..=10.0)
+                    .logarithmic(true)
+                    .text("r"),
+            );
+
+            if (vis.node_radius - old_radius).abs() > 1e-6 {
+                if let Some(mesh) = meshes.get_mut(&sphere_handle.0) {
+                    *mesh = Sphere::new(vis.node_radius).mesh().build();
+                }
             }
         });
 }
