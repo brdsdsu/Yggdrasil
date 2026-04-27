@@ -1,3 +1,4 @@
+mod bounding_box;
 mod error;
 mod fov;
 mod layer;
@@ -7,9 +8,10 @@ pub mod parse;
 mod pos;
 mod sg;
 
+pub use bounding_box::BoundingBox;
 pub use error::{Result, SceneGraphError};
 pub use fov::Observer;
-pub use layer::Layer;
+pub use layer::{Layer, NodeMut};
 pub use node::{AnonNode, Coordinate, Edge, Feature, Node};
 pub use node_id::NodeId;
 pub use pos::PosQueryCount;
@@ -45,7 +47,7 @@ mod test {
         // nesting
         assert!(sg.nest(id2).under(id1).is_ok());
         assert!(sg.nest(id3).under(id1).is_ok());
-        assert_eq!(sg.node(id1)?.children, vec![id2, id3]);
+        assert_eq!(sg.node(id1)?.children(), vec![id2, id3]);
         assert_eq!(sg.node(id2)?.pid, Some(id1));
         assert_eq!(sg.node(id3)?.pid, Some(id1));
 
@@ -70,7 +72,7 @@ mod test {
         assert!(sg.node(id2).is_err());
         assert_eq!(sg.node(id3)?.edges.len(), 0);
         // should also be removed from parent's children List
-        assert_eq!(sg.node(id1)?.children, vec![id3]);
+        assert_eq!(sg.node(id1)?.children(), vec![id3]);
 
         sg.del_node(id1)?;
         assert!(sg.node(id1).is_err());

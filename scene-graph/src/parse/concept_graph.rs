@@ -145,7 +145,7 @@ mod test {
         for node in &sg.layer(1)?.nodes {
             assert_eq!(node.features.len(), 2); // 1 label + 1 affordance
             assert_eq!(node.edges.len(), 5); // fully connected graph with 5 nodes
-            assert_eq!(node.children.len(), 10); // each node has 10 pointcloud children
+            assert_eq!(node.children().len(), 10); // each node has 10 pointcloud children
         }
         Ok(())
     }

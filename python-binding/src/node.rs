@@ -109,7 +109,7 @@ impl PyNodeRef {
             .lock()
             .unwrap()
             .node(self.nid)?
-            .children
+            .children()
             .iter()
             .map(Into::into)
             .collect())

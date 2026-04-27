@@ -1,6 +1,8 @@
 use kiddo::float::kdtree::KdTree;
 use serde::{Deserialize, Serialize};
 
+use crate::BoundingBox;
+
 use super::NodeId;
 
 use super::error::{Result, SceneGraphError};
@@ -19,7 +21,7 @@ pub struct Node {
     /// Parent node Id, if node is nested under another node.
     pub pid: Option<NodeId>,
     /// Child node Ids from the lower layer, if node has nested nodes under it.
-    pub children: Vec<NodeId>,
+    children: Vec<NodeId>,
     /// Edges to other nodes in the same layer.
     pub edges: Vec<Edge>,
     /// Features associated with the node.
@@ -30,6 +32,8 @@ pub struct Node {
     /// This is used for efficient spatial queries.
     #[serde(skip)]
     pub(crate) pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
+    /// Optional bounding box for the node, which can be used for spatial queries and optimizations.
+    pub bounds: Option<BoundingBox>,
 }
 
 impl Node {
@@ -39,6 +43,7 @@ impl Node {
         features: Vec<Feature>,
         coordinates: Option<Coordinate>,
         pos_index_enabled: bool,
+        bounds: Option<BoundingBox>,
     ) -> Self {
         let pos_index = if pos_index_enabled {
             Some(KdTree::new())
@@ -53,6 +58,7 @@ impl Node {
             features,
             coordinates,
             pos_index,
+            bounds,
         }
     }
 
@@ -87,6 +93,11 @@ impl Node {
                 }
             }
         }
+    }
+
+    /// Get the node IDs of this node's children.
+    pub fn children(&self) -> &[NodeId] {
+        &self.children
     }
 }
 
@@ -190,6 +201,8 @@ pub struct AnonNode {
     /// This is used for efficient spatial queries.
     #[serde(skip)]
     pub(crate) pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
+    /// Optional bounding box for the node, which can be used for spatial queries and optimizations.
+    pub bounds: Option<BoundingBox>,
 }
 
 impl AnonNode {
@@ -199,6 +212,7 @@ impl AnonNode {
         features: Vec<Feature>,
         coordinates: Option<Coordinate>,
         pos_index_enabled: bool,
+        bounds: Option<BoundingBox>,
     ) -> Self {
         let pos_index = if pos_index_enabled {
             Some(KdTree::new())
@@ -211,6 +225,7 @@ impl AnonNode {
             features,
             coordinates,
             pos_index,
+            bounds,
         }
     }
 
@@ -263,6 +278,7 @@ impl IntoNode for AnonNode {
             features: self.features,
             coordinates: self.coordinates,
             pos_index: self.pos_index,
+            bounds: self.bounds,
         }
     }
 

@@ -455,10 +455,16 @@ mod test {
         ];
         let mut layer = Layer::default();
         for (i, p) in pts.iter().enumerate() {
-            layer.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false));
+            layer.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
         }
         // Node with no coordinates
-        layer.push_node(AnonNode::new(pts.len() as u32, Vec::new(), None, false));
+        layer.push_node(AnonNode::new(
+            pts.len() as u32,
+            Vec::new(),
+            None,
+            false,
+            None,
+        ));
 
         // fully connecting nodes to each other
         for src in 0..layer.nodes.len() {
@@ -498,7 +504,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false));
+            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
         }
 
         let query_pos = Coordinate::new(0.6, 0.6, 0.6);
@@ -524,7 +530,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false));
+            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
         }
 
         let query_pos = Coordinate::new(2.0, 2.0, 2.0);
