@@ -1,5 +1,6 @@
 /target
 /data
+**/CLAUDE.md
 .python-version
 pyproject.toml
 uv.lock
