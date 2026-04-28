@@ -4,45 +4,49 @@ use bevy::math::Vec3;
 use rand::{Rng, RngExt};
 use scene_graph::{Bounds, NodeId, SceneGraph};
 
-/// Computes the default z-separation between layers.
+/// Computes the default layer separation (applied to the Y axis).
 ///
-/// The separation must exceed the full z-range of the scene data so that no node
+/// The separation must exceed the full y-range of the scene data so that no node
 /// in layer N can visually overlap with a node in layer N+1. We use 1.5× the
-/// z-range plus a minimum padding of 1.0, which gives a 50% visual gap between
+/// y-range plus a minimum padding of 1.0, which gives a 50% visual gap between
 /// the top of one layer and the bottom of the next.
 ///
 /// Falls back to `1.0` when the scene contains no coordinate nodes.
 pub fn compute_z_separation(sg: &SceneGraph) -> f32 {
     let (min, max) = global_bounds(sg);
-    let z_range = max.z - min.z;
-    z_range * 1.5 + 1.0
+    let y_range = max.y - min.y;
+    y_range * 1.5 + 1.0
 }
 
 /// Assigns a 3D visual position to every node in the scene graph.
 ///
-/// The z-axis is overloaded to encode both real depth and layer hierarchy:
+/// Layer hierarchy is encoded on the Y axis so that higher-layer nodes appear
+/// above lower-layer nodes when viewed with a standard Y-up camera:
 ///
 /// ```text
-/// vis_z = node_coordinate_z  +  layer.id * z_separation
+/// vis_y = node_coordinate_y  +  layer.id * layer_separation
 /// ```
 ///
-/// Higher layer IDs (more abstract / closer to root) therefore appear visually
-/// above lower layer IDs (raw data layers), regardless of their true z coordinates.
+/// X and Z are taken directly from the node's scene coordinates.
 ///
 /// ## Node placement rules
 ///
-/// 1. **Has coordinate** — use the node's XY directly; shift z by the layer offset.
-/// 2. **No coordinate, has children** — place at the mean XY of already-positioned
+/// 1. **Has coordinate** — use the node's XZ directly; shift Y by the layer offset.
+/// 2. **No coordinate, has children** — place at the mean XZ of already-positioned
 ///    children (which are in lower-numbered layers, processed first).
-/// 3. **No coordinate, no children** — place randomly within the global XY footprint,
+/// 3. **No coordinate, no children** — place randomly within the global XZ footprint,
 ///    retrying up to 10 times to avoid overlapping with nearby nodes.
 ///
 /// Layers are processed in ascending ID order so that children are always positioned
 /// before their parents, making rule 2 reliable.
 pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, Vec3> {
     let (global_min, global_max) = global_bounds(sg);
-    // Minimum XY distance between randomly placed nodes to reduce visual overlap.
-    let min_spacing = ((global_max - global_min).length() * 0.05).max(0.5);
+    // Minimum XZ distance between randomly placed nodes to reduce visual overlap.
+    let min_spacing = {
+        let dx = global_max.x - global_min.x;
+        let dz = global_max.z - global_min.z;
+        (dx.hypot(dz) * 0.05).max(0.5)
+    };
 
     let mut positions: HashMap<NodeId, Vec3> = HashMap::new();
     let mut rng = rand::rng();
@@ -52,12 +56,12 @@ pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, Vec
     layers.sort_by_key(|l| l.id);
 
     for layer in layers {
-        let layer_z = layer.id as f32 * z_separation;
+        let layer_y = layer.id as f32 * z_separation;
 
         for node in layer.all_nodes() {
             let vis_pos = if let Some(coord) = node.coordinates {
-                // Rule 1: coordinate node.
-                Vec3::new(coord.x, coord.y, coord.z + layer_z)
+                // Rule 1: coordinate node — XZ from scene, Y offset by layer.
+                Vec3::new(coord.x, coord.y + layer_y, coord.z)
             } else {
                 let child_positions: Vec<Vec3> = node
                     .children()
@@ -70,8 +74,8 @@ pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, Vec
                     // Rule 2: no coordinate, but children are already positioned.
                     let n = child_positions.len() as f32;
                     let mean_x = child_positions.iter().map(|p| p.x).sum::<f32>() / n;
-                    let mean_y = child_positions.iter().map(|p| p.y).sum::<f32>() / n;
-                    Vec3::new(mean_x, mean_y, layer_z)
+                    let mean_z = child_positions.iter().map(|p| p.z).sum::<f32>() / n;
+                    Vec3::new(mean_x, layer_y, mean_z)
                 } else {
                     // Rule 3: no coordinate, no children — random with overlap avoidance.
                     place_randomly(
@@ -79,7 +83,7 @@ pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, Vec
                         &positions,
                         global_min,
                         global_max,
-                        layer_z,
+                        layer_y,
                         min_spacing,
                     )
                 }
@@ -117,7 +121,7 @@ fn global_bounds(sg: &SceneGraph) -> (Vec3, Vec3) {
     }
 }
 
-/// Picks a random XY position within `[global_min, global_max]` at the given `z`.
+/// Picks a random XZ position within `[global_min, global_max]` at the given `y`.
 ///
 /// Retries up to 10 times to find a spot that is at least `min_spacing` away from
 /// all already-placed nodes. Returns the best candidate found regardless of overlap
@@ -127,29 +131,29 @@ fn place_randomly(
     positions: &HashMap<NodeId, Vec3>,
     global_min: Vec3,
     global_max: Vec3,
-    z: f32,
+    y: f32,
     min_spacing: f32,
 ) -> Vec3 {
-    let mut candidate = random_xy(rng, global_min, global_max, z);
+    let mut candidate = random_xz(rng, global_min, global_max, y);
     for _ in 0..10 {
         let too_close = positions
             .values()
-            .any(|p| (p.x - candidate.x).hypot(p.y - candidate.y) < min_spacing);
+            .any(|p| (p.x - candidate.x).hypot(p.z - candidate.z) < min_spacing);
         if !too_close {
             break;
         }
-        candidate = random_xy(rng, global_min, global_max, z);
+        candidate = random_xz(rng, global_min, global_max, y);
     }
     candidate
 }
 
-/// Samples a uniformly random point within the XY footprint of `[global_min, global_max]`
-/// at the specified `z` value.
-fn random_xy(rng: &mut impl Rng, global_min: Vec3, global_max: Vec3, z: f32) -> Vec3 {
+/// Samples a uniformly random point within the XZ footprint of `[global_min, global_max]`
+/// at the specified `y` value.
+fn random_xz(rng: &mut impl Rng, global_min: Vec3, global_max: Vec3, y: f32) -> Vec3 {
     Vec3::new(
         rng.random_range(global_min.x..=global_max.x),
-        rng.random_range(global_min.y..=global_max.y),
-        z,
+        y,
+        rng.random_range(global_min.z..=global_max.z),
     )
 }
 
@@ -183,36 +187,38 @@ mod tests {
     }
 
     #[test]
-    fn test_coord_node_z_includes_layer_offset() {
+    fn test_coord_node_y_includes_layer_offset() {
         let sg = two_layer_graph();
-        let z_sep = 10.0;
-        let positions = compute_layout(&sg, z_sep);
+        let y_sep = 10.0;
+        let positions = compute_layout(&sg, y_sep);
 
-        // Layer 0 node at (1,2,3) should have vis_z = 3 + 0*10 = 3
+        // Layer 0 node at (1,2,3): vis_y = 2 + 0*10 = 2, vis_x = 1, vis_z = 3
         let layer0_nodes: Vec<_> = sg.layer(0).unwrap().all_nodes().collect();
         let n0 = &layer0_nodes[0];
         let pos = positions[&n0.id];
-        assert!((pos.z - (n0.coordinates.unwrap().z + 0.0 * z_sep)).abs() < 1e-5);
+        assert!((pos.y - (n0.coordinates.unwrap().y + 0.0 * y_sep)).abs() < 1e-5);
+        assert!((pos.x - n0.coordinates.unwrap().x).abs() < 1e-5);
+        assert!((pos.z - n0.coordinates.unwrap().z).abs() < 1e-5);
 
-        // Layer 1 node at (2,3,4) should have vis_z = 4 + 1*10 = 14
+        // Layer 1 node at (2,3,4): vis_y = 3 + 1*10 = 13
         let layer1_nodes: Vec<_> = sg.layer(1).unwrap().all_nodes().collect();
         let n2 = &layer1_nodes[0];
         let pos2 = positions[&n2.id];
-        assert!((pos2.z - (n2.coordinates.unwrap().z + 1.0 * z_sep)).abs() < 1e-5);
+        assert!((pos2.y - (n2.coordinates.unwrap().y + 1.0 * y_sep)).abs() < 1e-5);
     }
 
     #[test]
-    fn test_no_coord_with_children_uses_mean_xy() {
+    fn test_no_coord_with_children_uses_mean_xz() {
         let mut sg = SceneGraph::default();
         let l0 = sg.new_layer().id;
         let l1 = sg.new_layer().id;
         sg.layer_mut(l1).unwrap().add_child(l0).unwrap();
 
-        // Two children at (0,0,0) and (4,4,0)
+        // Two children at (0,0,0) and (4,0,4)
         let c0 = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
         let c0id = sg.layer_mut(l0).unwrap().push_node(c0);
 
-        let c1 = sg.new_coordinates(4.0, 4.0, 0.0, vec![]);
+        let c1 = sg.new_coordinates(4.0, 0.0, 4.0, vec![]);
         let c1id = sg.layer_mut(l0).unwrap().push_node(c1);
 
         // Parent node has no coordinates
@@ -225,11 +231,10 @@ mod tests {
         let positions = compute_layout(&sg, 10.0);
 
         let parent_pos = positions[&pid];
-        // Expected mean XY = (0+4)/2=2, (0+4)/2=2
+        // Expected mean XZ = (0+4)/2=2, (0+4)/2=2; y = layer 1 offset = 1*10 = 10
         assert!((parent_pos.x - 2.0).abs() < 1e-5);
-        assert!((parent_pos.y - 2.0).abs() < 1e-5);
-        // z should be layer_z of layer 1 = 1 * 10 = 10
-        assert!((parent_pos.z - 10.0).abs() < 1e-5);
+        assert!((parent_pos.z - 2.0).abs() < 1e-5);
+        assert!((parent_pos.y - 10.0).abs() < 1e-5);
     }
 
     #[test]
@@ -239,7 +244,7 @@ mod tests {
         // Coordinate nodes to establish a bounding box
         let c = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
         sg.layer_mut(l0).unwrap().push_node(c);
-        let c2 = sg.new_coordinates(10.0, 10.0, 0.0, vec![]);
+        let c2 = sg.new_coordinates(10.0, 0.0, 10.0, vec![]);
         sg.layer_mut(l0).unwrap().push_node(c2);
 
         // Isolated node with no coordinates and no children
@@ -249,10 +254,9 @@ mod tests {
         let positions = compute_layout(&sg, 1.0);
         let pos = positions[&iid];
 
-        // Must be within the global XY footprint
+        // Must be within the global XZ footprint; y = layer 0 offset = 0
         assert!(pos.x >= 0.0 && pos.x <= 10.0);
-        assert!(pos.y >= 0.0 && pos.y <= 10.0);
-        // z = layer 0 offset = 0
-        assert!((pos.z - 0.0).abs() < 1e-5);
+        assert!(pos.z >= 0.0 && pos.z <= 10.0);
+        assert!((pos.y - 0.0).abs() < 1e-5);
     }
 }

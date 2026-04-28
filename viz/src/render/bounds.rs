@@ -33,6 +33,7 @@ fn descendant_layer_ids(sg: &scene_graph::SceneGraph, root_layer_id: u32) -> Vec
 /// not actually reachable from `L`.
 ///
 /// Each slab is colored with that sub-layer's hue so layers remain visually distinct.
+/// The XZ plane is the horizontal footprint; Y is the layer separation axis.
 pub fn draw_aabb_wireframes(
     mut gizmos: Gizmos,
     sg_res: Res<SceneGraphRes>,
@@ -67,15 +68,16 @@ pub fn draw_aabb_wireframes(
             let bb_min = Vec3::new(bb.min().x, bb.min().y, bb.min().z);
             let bb_max = Vec3::new(bb.max().x, bb.max().y, bb.max().z);
 
-            let xy_center = Vec2::new((bb_min.x + bb_max.x) * 0.5, (bb_min.y + bb_max.y) * 0.5);
-            let xy_size = Vec2::new(
+            // Horizontal footprint is XZ; layer separation is on the Y axis.
+            let xz_center = Vec2::new((bb_min.x + bb_max.x) * 0.5, (bb_min.z + bb_max.z) * 0.5);
+            let xz_size = Vec2::new(
                 (bb_max.x - bb_min.x).max(0.1),
-                (bb_max.y - bb_min.y).max(0.1),
+                (bb_max.z - bb_min.z).max(0.1),
             );
 
             // The leaf layer (lowest ID among descendants) holds the actual
-            // coordinate data, so its slab uses the raw z-extent from the
-            // bounding box. All other layers get a flat slab at their visual z.
+            // coordinate data, so its slab uses the raw y-extent from the
+            // bounding box. All other layers get a flat slab at their visual y.
             let leaf_layer_id = descendant_ids.iter().copied().min().unwrap_or(layer.id);
 
             // Draw one slab per descendant layer (skip hidden layers).
@@ -87,15 +89,15 @@ pub fn draw_aabb_wireframes(
                 let hue = (sub_id as f32 / num_layers.max(1) as f32) * 360.0;
                 let color = Color::hsla(hue, 0.9, 0.7, 0.8);
 
-                let (center_z, size_z) = if sub_id == leaf_layer_id {
-                    ((bb_min.z + bb_max.z) * 0.5, (bb_max.z - bb_min.z).max(0.1))
+                let (center_y, size_y) = if sub_id == leaf_layer_id {
+                    ((bb_min.y + bb_max.y) * 0.5, (bb_max.y - bb_min.y).max(0.1))
                 } else {
                     (sub_id as f32 * vis.z_separation, 0.5)
                 };
 
                 gizmos.cuboid(
-                    Transform::from_translation(Vec3::new(xy_center.x, xy_center.y, center_z))
-                        .with_scale(Vec3::new(xy_size.x, xy_size.y, size_z)),
+                    Transform::from_translation(Vec3::new(xz_center.x, center_y, xz_center.y))
+                        .with_scale(Vec3::new(xz_size.x, size_y, xz_size.y)),
                     color,
                 );
             }

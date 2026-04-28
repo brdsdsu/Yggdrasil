@@ -6,12 +6,25 @@ use crate::{
 };
 
 /// Spawns the 3D camera with orbit/pan/zoom controls centered on the scene.
+///
+/// The camera is placed in front of the scene along the +Z axis, far enough to
+/// see the full vertical extent of all layers (which are separated on the Y axis).
 pub fn spawn_camera(mut commands: Commands, layout: Res<LayoutPositions>) {
-    let focus = if layout.0.is_empty() {
-        Vec3::ZERO
+    let (focus, distance) = if layout.0.is_empty() {
+        (Vec3::ZERO, 50.0_f32)
     } else {
         let sum: Vec3 = layout.0.values().copied().sum();
-        sum / layout.0.len() as f32
+        let center = sum / layout.0.len() as f32;
+
+        let (y_min, y_max) = layout.0.values().fold(
+            (f32::INFINITY, f32::NEG_INFINITY),
+            |(mn, mx), p| (mn.min(p.y), mx.max(p.y)),
+        );
+        // Distance chosen so the full layer stack fits in the default 45° vertical FOV.
+        let y_span = (y_max - y_min).max(10.0);
+        let dist = (y_span * 2.0).max(20.0);
+
+        (center, dist)
     };
 
     commands.spawn((
@@ -20,7 +33,7 @@ pub fn spawn_camera(mut commands: Commands, layout: Res<LayoutPositions>) {
             focus,
             ..default()
         },
-        Transform::from_translation(focus + Vec3::new(0.0, 10.0, 30.0))
+        Transform::from_translation(focus + Vec3::new(0.0, 0.0, distance))
             .looking_at(focus, Vec3::Y),
     ));
 }

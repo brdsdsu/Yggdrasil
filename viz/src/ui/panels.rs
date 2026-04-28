@@ -48,7 +48,7 @@ pub fn draw_layer_panel(
             ui.checkbox(&mut vis.show_nesting, "Show Hierarchical Edges");
 
             ui.separator();
-            ui.label("Z Separation");
+            ui.label("Layer Separation");
 
             let old_z_sep = vis.z_separation;
             ui.add(
