@@ -390,9 +390,12 @@ impl Layer {
             .map_err(|_| SceneGraphError::NodeNotFound)?;
         Ok(&mut self.nodes[ptr])
     }
+}
 
+/// Test-only utilities for Layer
+#[cfg(test)]
+impl Layer {
     /// Get NodeId of a given node in the layer.
-    #[cfg(test)]
     pub fn node_id(&self, nlid: u32) -> NodeId {
         NodeId::new(self.id, nlid)
     }
