@@ -191,9 +191,13 @@ mod test {
         let outside_coords = Coordinate::new(6.0, 6.0, 6.0);
 
         // first layer:
-        // 100 coordinate nodes, half inside FOV, half outside, fully connected
+        // 150 coordinate nodes, half inside FOV, half outside, fully connected
         const NUM_COOR_NODES: usize = 150;
-        let mut nodes = Vec::new();
+        let mut coordinate_node_ids = Vec::new();
+        let clid = {
+            let layer = sg.new_layer();
+            layer.id
+        };
         for id in 0..NUM_COOR_NODES {
             let coords = if (id / 15) % 2 == 0 {
                 inside_coords
@@ -201,57 +205,49 @@ mod test {
                 outside_coords
             };
             let node = sg.new_coordinates(coords.x, coords.y, coords.z, Vec::new());
-            nodes.push(node);
+            coordinate_node_ids.push(sg.layer_mut(clid)?.push_node(node));
         }
-        let layer = sg.new_layer();
-        for node in nodes {
-            layer.push_node(node);
-        }
-
-        for src in 0..NUM_COOR_NODES {
-            for dst in 0..NUM_COOR_NODES {
-                let src = layer.node_id(src as u32);
-                let dst = layer.node_id(dst as u32);
-                assert!(layer.add_edge(src, dst, "connect").is_ok());
+        for src in &coordinate_node_ids {
+            for dst in &coordinate_node_ids {
+                assert!(sg.layer_mut(clid)?.add_edge(*src, *dst, "connect").is_ok());
             }
         }
 
         // Second layer:
-        // 10 semantic nodes, each parenting 10 coordinate nodes from the first layers
-        // fully connected. around 5 semantic nodes father no visible coordinate nodes
-        let mut nodes = Vec::new();
+        // 15 semantic nodes, each parenting 10 coordinate nodes from the first layers
+        // fully connected. around 7 semantic nodes father no visible coordinate nodes
+        let mut semantic_node_ids = Vec::new();
         const NUM_SEMANTIC_NODES: usize = NUM_COOR_NODES / 10;
+        let slid = {
+            let layer = sg.new_layer();
+            layer.add_child(0)?;
+            layer.id
+        };
         for id in 0..NUM_SEMANTIC_NODES {
-            let node = sg.new_node(vec![Feature::new("name", &format!("semantic {}", id))]);
-            nodes.push(node);
+            let node = sg.new_node(vec![Feature::new("name", format!("semantic {id}"))]);
+            semantic_node_ids.push(sg.layer_mut(slid)?.push_node(node));
         }
-        let layer = sg.new_layer();
-        layer.add_child(0)?;
-        for node in nodes {
-            layer.push_node(node);
-        }
-        for src in 0..NUM_SEMANTIC_NODES {
-            for dst in 0..NUM_SEMANTIC_NODES {
-                let src = layer.node_id((NUM_COOR_NODES + src) as u32);
-                let dst = layer.node_id((NUM_COOR_NODES + dst) as u32);
-                assert!(layer.add_edge(src, dst, "connect").is_ok());
+
+        for src in semantic_node_ids.iter() {
+            for dst in semantic_node_ids.iter() {
+                assert!(sg.layer_mut(slid)?.add_edge(*src, *dst, "connect").is_ok());
             }
         }
+
         // eatch 10 nodes from the first layer under each semantic node
-        for id in 0..NUM_COOR_NODES {
-            let nestee = sg.layer(0)?.node_id(id as u32);
-            let nester = sg.layer(1)?.node_id((NUM_COOR_NODES + id / 10) as u32);
-            assert!(sg.nest(nestee).under(nester).is_ok());
+        for (i, nestee) in coordinate_node_ids.iter().enumerate() {
+            // let nestee = sg.layer(clid)?.node_id(id as u32);
+            let nester = semantic_node_ids[i / 10];
+            assert!(sg.nest(*nestee).under(nester).is_ok());
         }
 
         // Third layer:
         // 1 node parenting all semantic nodes from the second layer
         let root_node = sg.new_node(vec![Feature::new("name", "root")]);
         let layer = sg.new_layer();
-        layer.add_child(1)?;
+        layer.add_child(slid)?;
         let root_id = layer.push_node(root_node);
-        for id in 0..NUM_SEMANTIC_NODES {
-            let nestee = sg.layer(1)?.node_id((NUM_COOR_NODES + id) as u32);
+        for nestee in semantic_node_ids {
             assert!(sg.nest(nestee).under(root_id).is_ok());
         }
 

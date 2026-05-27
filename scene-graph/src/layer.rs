@@ -27,10 +27,18 @@ pub struct Layer {
     /// Optional spatial index for node positions.
     #[serde(skip)]
     pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
+    /// Number of nodes in the layer
+    node_counter: u32,
 }
 
 /// Node Access and Modification
 impl Layer {
+    fn next_node_id(&mut self) -> NodeId {
+        let nid = NodeId::new(self.id, self.node_counter);
+        self.node_counter += 1;
+        nid
+    }
+
     /// Get a reference to a node by its ID.
     pub fn node(&self, id: NodeId) -> Result<&Node> {
         // Nodes are inserted in order, so binary search is safe here
@@ -58,7 +66,7 @@ impl Layer {
     /// Add a new node to the layer.
     /// Returns the ID of the newly added node.
     pub fn push_node<N: IntoNode>(&mut self, node: N) -> NodeId {
-        let node_id = NodeId::new(node.nid(), self.id);
+        let node_id = self.next_node_id();
         let node = node.into_node(node_id);
         if let Some(pos_index) = &mut self.pos_index
             && let Some(coords) = node.coordinates
@@ -192,6 +200,7 @@ impl Layer {
             nodes,
             pos_index,
             children: self.children.clone(),
+            node_counter: self.node_counter,
         };
 
         // prune edges to out-of-view nodes
@@ -277,6 +286,7 @@ impl Layer {
             nodes: Vec::new(),
             children: Vec::new(),
             pos_index: None,
+            node_counter: 0,
         }
     }
 
@@ -292,6 +302,7 @@ impl Layer {
             nodes: Vec::new(),
             children: Vec::new(),
             pos_index: Some(KdTree::new()),
+            node_counter: 0,
         }
     }
 
@@ -354,6 +365,7 @@ impl Layer {
             nodes,
             pos_index,
             children: self.children.clone(),
+            node_counter: self.node_counter,
         };
         l.prune();
         l
@@ -379,8 +391,9 @@ impl Layer {
     }
 
     /// Get NodeId of a given node in the layer.
-    pub fn node_id(&self, id: u32) -> NodeId {
-        NodeId::new(id, self.id)
+    #[cfg(test)]
+    pub fn node_id(&self, nlid: u32) -> NodeId {
+        NodeId::new(self.id, nlid)
     }
 }
 
@@ -459,17 +472,11 @@ mod test {
             Coordinate::new(6.0, 6.0, 6.0), // outside
         ];
         let mut layer = Layer::default();
-        for (i, p) in pts.iter().enumerate() {
-            layer.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
+        for p in pts.iter() {
+            layer.push_node(AnonNode::new(Vec::new(), Some(*p), false, None));
         }
         // Node with no coordinates
-        layer.push_node(AnonNode::new(
-            pts.len() as u32,
-            Vec::new(),
-            None,
-            false,
-            None,
-        ));
+        layer.push_node(AnonNode::new(Vec::new(), None, false, None));
 
         // fully connecting nodes to each other
         for src in 0..layer.nodes.len() {
@@ -508,8 +515,8 @@ mod test {
             Coordinate::new(3.0, 3.0, 3.0),
             Coordinate::new(4.0, 4.0, 4.0),
         ];
-        for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
+        for p in pts.iter() {
+            l.push_node(AnonNode::new(Vec::new(), Some(*p), false, None));
         }
 
         let query_pos = Coordinate::new(0.6, 0.6, 0.6);
@@ -534,8 +541,8 @@ mod test {
             Coordinate::new(3.0, 3.0, 3.0),
             Coordinate::new(4.0, 4.0, 4.0),
         ];
-        for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
+        for p in pts.iter() {
+            l.push_node(AnonNode::new(Vec::new(), Some(*p), false, None));
         }
 
         let query_pos = Coordinate::new(2.0, 2.0, 2.0);

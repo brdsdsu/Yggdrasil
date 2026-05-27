@@ -27,9 +27,6 @@ pub struct SceneGraph {
     /// representation of the scene.
     pub(crate) layers: Vec<Layer>,
 
-    /// Counter to assign unique IDs to nodes.
-    node_counter: u32,
-
     /// Counter to assign unique IDs to layers.
     layer_counter: u32,
 }
@@ -147,50 +144,34 @@ impl SceneGraph {
 impl SceneGraph {
     /// Create a new Metric Node with specified coordinates and features.
     pub fn new_coordinates(&mut self, x: f32, y: f32, z: f32, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(
-            self.node_counter,
+        AnonNode::new(
             features,
             Some(Coordinate::new(x, y, z)),
             false,
             Some(Bounds::point(Coordinate::new(x, y, z))),
-        );
-        self.node_counter += 1;
-        node
+        )
     }
 
     /// Create a new Semantic Node with specified features.
     pub fn new_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(self.node_counter, features, None, false, None);
-        self.node_counter += 1;
-        node
+        AnonNode::new(features, None, false, None)
     }
 
     /// Create a new Bounded Semantic Node with specified features.
     pub fn new_bounded_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(
-            self.node_counter,
-            features,
-            None,
-            false,
-            Some(Bounds::Unbounded),
-        );
-        self.node_counter += 1;
-        node
+        AnonNode::new(features, None, false, Some(Bounds::Unbounded))
     }
 
     /// Create a new Indexed Semantic Node with specified features.
     /// This node will have position indexing enabled and will track of the coordinates of its
     /// sub-tree for efficient spatial queries.
     pub fn new_indexed_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(
-            self.node_counter,
+        AnonNode::new(
             features,
             None,
             true,
             Some(Default::default()),
-        );
-        self.node_counter += 1;
-        node
+        )
     }
 
     /// Delete a node by its ID from the Scene Graph.
@@ -426,7 +407,6 @@ impl SceneGraph {
 
         // subgraph.layers.reverse();
         subgraph.layer_counter = self.layer_counter;
-        subgraph.node_counter = self.node_counter;
         Ok(subgraph)
     }
 

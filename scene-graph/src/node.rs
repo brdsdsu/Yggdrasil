@@ -186,12 +186,8 @@ impl Edge {
 /// Each node can hold a set of features, which are key-value pairs that provide additional
 /// information about the node. Nodes also support storeing 3D coordinates which can be used for
 /// Field-of-View calculations or spatial queries.
-///
-/// Nodes Id will only be available after it is pushed into a layer in the scene graph.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnonNode {
-    /// Unique identifier for the node.
-    pub(crate) id: u32,
     /// Parent node Id, if node is nested under another node.
     pub pid: Option<NodeId>,
     /// Features associated with the node.
@@ -209,7 +205,6 @@ pub struct AnonNode {
 impl AnonNode {
     /// Create a new Node with the given id, features, and optional coordinates.
     pub fn new(
-        id: u32,
         features: Vec<Feature>,
         coordinates: Option<Coordinate>,
         pos_index_enabled: bool,
@@ -221,7 +216,6 @@ impl AnonNode {
             None
         };
         Self {
-            id,
             pid: None,
             features,
             coordinates,
@@ -266,7 +260,6 @@ impl AnonNode {
 
 pub trait IntoNode {
     fn into_node(self, node_id: NodeId) -> Node;
-    fn nid(&self) -> u32;
 }
 
 impl IntoNode for AnonNode {
@@ -283,16 +276,10 @@ impl IntoNode for AnonNode {
         }
     }
 
-    fn nid(&self) -> u32 {
-        self.id
-    }
 }
 impl IntoNode for Node {
     fn into_node(mut self, _node_id: NodeId) -> Node {
         self.id = _node_id;
         self
-    }
-    fn nid(&self) -> u32 {
-        self.id.node_id()
     }
 }
