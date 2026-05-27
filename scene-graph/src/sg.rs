@@ -84,7 +84,8 @@ impl SceneGraph {
         self.layers
             .iter_mut()
             .zip(m.layers)
-            .try_for_each(|(l1, l2)| l1.merge(l2))
+            .for_each(|(l1, l2)| l1.merge(l2));
+        Ok(())
     }
 }
 
@@ -166,12 +167,7 @@ impl SceneGraph {
     /// This node will have position indexing enabled and will track of the coordinates of its
     /// sub-tree for efficient spatial queries.
     pub fn new_indexed_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        AnonNode::new(
-            features,
-            None,
-            true,
-            Some(Default::default()),
-        )
+        AnonNode::new(features, None, true, Some(Default::default()))
     }
 
     /// Delete a node by its ID from the Scene Graph.

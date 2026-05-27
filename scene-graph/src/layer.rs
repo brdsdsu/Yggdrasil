@@ -247,7 +247,7 @@ impl Layer {
     /// Merge another layer into this one.
     /// Nodes with the same ID will be merged, while new nodes will be added.
     /// Deleting Nodes and edges is not supported in this operation.
-    pub fn merge(&mut self, mergee: Layer) -> std::result::Result<(), SceneGraphError> {
+    pub fn merge(&mut self, mergee: Layer) {
         let node_ids: HashSet<_> = mergee.nodes.iter().map(|n| n.id).collect();
         for node in mergee.nodes {
             let existing_node = self.node_mut(node.id);
@@ -267,10 +267,11 @@ impl Layer {
                     drop(existing_node);
                     self.push_node(node.clone());
                 }
-                Err(e) => return Err(e),
+                Err(e) => unreachable!(
+                    "Unexpected error {e} when calling self.node_mut() when marging layers"
+                ),
             }
         }
-        Ok(())
     }
 }
 
