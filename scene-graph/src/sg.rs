@@ -81,10 +81,9 @@ impl SceneGraph {
                 self.nest(mergee_node.id).under(pid)?;
             }
         }
-        self.layers
-            .iter_mut()
-            .zip(m.layers)
-            .for_each(|(l1, l2)| l1.merge(l2));
+        for l in mergee.layers.into_iter() {
+            self.layer_mut(l.id)?.merge(l)
+        }
         Ok(())
     }
 }
