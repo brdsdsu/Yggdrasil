@@ -40,7 +40,7 @@ impl Engine {
                     false => self.scene_graph.new_layer(),
                 };
                 layer.meta.insert(
-                    String::from(consts::Annotations::VERSION),
+                    String::from(consts::annotations::VERSION),
                     String::from("1"),
                 );
                 Response::LayerId(layer.id)
@@ -70,12 +70,12 @@ impl Engine {
             if let Ok(old_layer) = self.scene_graph.layer(new_layer.id) {
                 let old_version = old_layer
                     .meta
-                    .get(consts::Annotations::VERSION)
+                    .get(consts::annotations::VERSION)
                     .map(|s| s.parse::<u32>().unwrap_or(0))
                     .unwrap_or(0);
                 let new_version = new_layer
                     .meta
-                    .get(consts::Annotations::VERSION)
+                    .get(consts::annotations::VERSION)
                     .map(|s| s.parse::<u32>().unwrap_or(0))
                     .unwrap_or(0);
                 if new_version != old_version || new_version == 0 {
@@ -106,12 +106,12 @@ impl MergeTask {
             if let Ok(layer) = scene_graph.layer_mut(lid) {
                 let version = layer
                     .meta
-                    .get(consts::Annotations::VERSION)
+                    .get(consts::annotations::VERSION)
                     .map(|s| s.parse::<u32>().unwrap_or(0))
                     .unwrap_or(0)
                     + 1;
                 layer.meta.insert(
-                    String::from(consts::Annotations::VERSION),
+                    String::from(consts::annotations::VERSION),
                     version.to_string(),
                 );
             }

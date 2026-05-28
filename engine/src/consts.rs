@@ -1,3 +1,3 @@
-pub mod Annotations {
-    pub const VERSION: &'static str = "yggdrasil.csil.sdsu.edu/version";
+pub mod annotations {
+    pub const VERSION: &str = "yggdrasil.csil.sdsu.edu/version";
 }
