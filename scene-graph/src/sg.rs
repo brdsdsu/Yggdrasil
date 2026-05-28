@@ -83,13 +83,23 @@ impl SceneGraph {
     ///    relationships if and only if both nester and nestee exist in the mergee.
     /// 5. Edge attributes are all updated to match the mergee's.
     pub fn merge(&mut self, mergee: SceneGraph) -> Result<()> {
-        for mergee_node in mergee.layers.iter().flat_map(|l| l.nodes.iter()) {
-            if let Some(pid) = mergee_node.pid {
-                self.nest(mergee_node.id).under(pid)?;
-            }
-        }
+        let nodes = mergee
+            .layers
+            .iter()
+            .flat_map(|l| l.nodes.iter())
+            .map(|n| (n.id, n.pid))
+            .collect::<Vec<_>>();
+
+        // Update each node and edge (intra-layer)
         for l in mergee.layers.into_iter() {
             self.layer_mut(l.id)?.merge(l)
+        }
+
+        // Update nesting relationships (inter-layer)
+        for (nid, pid) in nodes {
+            if let Some(pid) = pid {
+                self.nest(nid).under(pid)?;
+            }
         }
         Ok(())
     }

@@ -265,7 +265,7 @@ impl Layer {
                 }
                 Err(SceneGraphError::NodeNotFound) => {
                     drop(existing_node);
-                    self.push_node(node.clone());
+                    self.push_node(node);
                 }
                 Err(e) => unreachable!(
                     "Unexpected error {e} when calling self.node_mut() when marging layers"
@@ -324,13 +324,6 @@ impl Layer {
             .iter_mut()
             .for_each(|node| node.edges.retain(|edge| edge.dst != id));
         Ok(node)
-    }
-
-    /// Retain only the nodes specified in the retain_nodes list.
-    /// All other nodes and their associated edges will be removed from the layer.
-    pub(crate) fn retain_nodes(&mut self, retain_nodes: &[NodeId]) {
-        self.nodes.retain(|node| retain_nodes.contains(&node.id));
-        self.prune();
     }
 
     /// Prune edges that point to non-existing nodes in the layer.
