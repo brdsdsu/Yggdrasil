@@ -4,8 +4,18 @@ use scene_graph::{
 
 mod consts;
 
+/// Engine is the main struct that maintains the state of the globabl scene graph and handles all
+/// incomming requests and guarantees consistency and correctness while optimizing for performance
+/// by batching and lazyly applying updates.
+///
+/// Internally, The engine uses the assumption that merges on a specific layer can be deffered
+/// until a read operation on that layer is requested. This allows for batching multiple merges
+/// together, running merge operations in the background, and avoiding unnecessary latency for
+/// write operations.
 pub struct Engine {
-    scene_graph: SceneGraph,
+    /// The actual global scene graph.
+    global_graph: SceneGraph,
+    /// A queue of pending merge operations.
     merge_queue: Vec<MergeTask>,
 }
 
@@ -14,7 +24,7 @@ impl Engine {
     pub fn execute(&mut self, request: Request) -> Response {
         match request {
             Request::SubGraph { root, observer } => {
-                let dag = match self.scene_graph.layers_dag(self.scene_graph.layer_of(root)) {
+                let dag = match self.global_graph.layers_dag(self.global_graph.layer_of(root)) {
                     Ok(dag) => dag.into_iter().map(|l| l.id).collect::<Vec<_>>(),
                     // Only case of error should be when the root node doesn't exist, which is a
                     // client error.
@@ -22,8 +32,8 @@ impl Engine {
                 };
                 self.sync_for(&dag);
                 match observer {
-                    Some(obs) => self.scene_graph.visible_subgraph(&obs, root),
-                    None => self.scene_graph.subgraph(root),
+                    Some(obs) => self.global_graph.visible_subgraph(&obs, root),
+                    None => self.global_graph.subgraph(root),
                 }
                 .into()
             }
@@ -37,8 +47,8 @@ impl Engine {
             }
             Request::AddLayer { indexed } => {
                 let layer = match indexed {
-                    true => self.scene_graph.new_indexed_layer(),
-                    false => self.scene_graph.new_layer(),
+                    true => self.global_graph.new_indexed_layer(),
+                    false => self.global_graph.new_layer(),
                 };
                 layer.meta.insert(
                     String::from(consts::annotations::VERSION),
@@ -48,25 +58,25 @@ impl Engine {
             }
             Request::NestLayer { parent, child } => {
                 // syncing is not required here since nesting doesn't change layers' content.
-                match self.scene_graph.layer_mut(parent) {
+                match self.global_graph.layer_mut(parent) {
                     Ok(parent) => parent.add_child(child).into(),
                     Err(e) => Response::Error(e),
                 }
             }
             Request::DeleteNode { id } => {
-                let dag = match self.scene_graph.layers_dag(self.scene_graph.layer_of(id)) {
+                let dag = match self.global_graph.layers_dag(self.global_graph.layer_of(id)) {
                     Ok(dag) => dag.into_iter().map(|l| l.id).collect::<Vec<_>>(),
                     // Only case of error should be when the node doesn't exist, which is a
                     // client error.
                     Err(e) => return Response::Error(e),
                 };
                 self.sync_for(&dag);
-                self.scene_graph.del_node(id).into()
+                self.global_graph.del_node(id).into()
             }
             Request::NodesHaving { keys } => {
                 self.sync_with(|t| !t.subgraph.nodes_having(&keys).is_empty());
                 let nodes = self
-                    .scene_graph
+                    .global_graph
                     .nodes_having(&keys)
                     .into_iter()
                     .cloned()
@@ -76,7 +86,7 @@ impl Engine {
             Request::NodesMatching { features } => {
                 self.sync_with(|t| !t.subgraph.nodes_matching(&features).is_empty());
                 let nodes = self
-                    .scene_graph
+                    .global_graph
                     .nodes_matching(&features)
                     .into_iter()
                     .cloned()
@@ -99,7 +109,7 @@ impl Engine {
     {
         let to_merge = self.merge_queue.extract_if(.., |t| p(t));
         for task in to_merge {
-            match task.execute(&mut self.scene_graph) {
+            match task.execute(&mut self.global_graph) {
                 Ok(_) => {}
                 Err(e) => unreachable!("didn't expect merge failure: {e}"),
             }
@@ -111,7 +121,7 @@ impl Engine {
     /// any.
     fn conflicts(&self, subgraph: &SceneGraph) -> Option<u32> {
         for new_layer in subgraph.layers() {
-            if let Ok(old_layer) = self.scene_graph.layer(new_layer.id) {
+            if let Ok(old_layer) = self.global_graph.layer(new_layer.id) {
                 let old_version = old_layer
                     .meta
                     .get(consts::annotations::VERSION)
@@ -131,17 +141,25 @@ impl Engine {
     }
 }
 
+/// MergeTask represents a pending merge operation. It contains the subgraph to be merged and
+/// provides fast membership checks for layers to determine if the merge is required before
+/// executing another operation.
 struct MergeTask {
     subgraph: SceneGraph,
 }
 
 impl MergeTask {
+    /// Checks if the given layer id exists in the subgraph.
     fn check_layer_exists(&self, lid: u32) -> bool {
         self.subgraph.layers().any(|layer| layer.id == lid)
     }
+    /// Checks if any of the given layer ids exist in the subgraph.
     fn check_layers_exist(&self, lids: &[u32]) -> bool {
         lids.iter().any(|lid| self.check_layer_exists(*lid))
     }
+    /// Execute the merge and merge the subgraph into the given scene graph.
+    /// This will also increment the version annotation for all merged layers to reflect the
+    /// update.
     fn execute(self, scene_graph: &mut SceneGraph) -> SceneGraphResult<()> {
         let target_layers = self.subgraph.layers().map(|l| l.id).collect::<Vec<_>>();
         scene_graph.merge(self.subgraph)?;
@@ -164,39 +182,49 @@ impl MergeTask {
     }
 }
 
+/// Requests that can be sent to the `Engine`.
 pub enum Request {
+    /// Requesting a subgraph is represented by the `SubGraph` variant. The `root` parameter
+    /// specifies the id of the root node and the optional `observer` parameter allows for
+    /// field-of-view queries to take place.
     SubGraph {
         root: NodeId,
         observer: Option<Observer>,
     },
-    Merge {
-        subgraph: SceneGraph,
-    },
-    AddLayer {
-        indexed: bool,
-    },
-    NestLayer {
-        parent: u32,
-        child: u32,
-    },
-    DeleteNode {
-        id: NodeId,
-    },
-    NodesHaving {
-        keys: Vec<String>,
-    },
-    NodesMatching {
-        features: Vec<Feature>,
-    },
+    /// Indicates a request to merge the given subgraph into the global scene graph.
+    Merge { subgraph: SceneGraph },
+    /// Request to add a new layer, The `indexed` parameter indicates whether the new layer should
+    /// be indexed of not.
+    AddLayer { indexed: bool },
+
+    /// Request to nest a layer inside another.
+    NestLayer { parent: u32, child: u32 },
+    /// Request to delete a node with the given id.
+    DeleteNode { id: NodeId },
+    /// Request to run the `SceneGraph::nodes_having` query with the given keys.
+    NodesHaving { keys: Vec<String> },
+    /// Request to run the `SceneGraph::nodes_matching` query with the given features.
+    NodesMatching { features: Vec<Feature> },
 }
 
+/// Response to a Query or an Update request. The `Error` variant is used for both client and
+/// server errors, while the `Empty` variant represents a sucessful operation with no result to
+/// return. The `Reject` variant is a special case of error where the operation is rejected by the
+/// server, mostly due to conflicts and outdated versions.
 pub enum Response {
+    /// All responses that return a form of `SceneGraph`
     SceneGraph(SceneGraph),
+    /// Client and server side errors.
     Error(SceneGraphError),
+    /// Rejection of an Operation, Mostly, Merge updates due to version conflicts.
+    /// The `u32` parameter represents the id of the conflicting layer.
     Reject(u32),
+    /// Id of a requested Layer.
     LayerId(u32),
-    Empty,
+    /// List of nodes matching a query.
     Nodes(Vec<Node>),
+    /// Generic success response with no data to return.
+    Empty,
 }
 
 impl From<SceneGraphResult<SceneGraph>> for Response {
