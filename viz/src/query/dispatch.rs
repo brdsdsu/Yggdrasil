@@ -91,7 +91,6 @@ fn run_query(
                 _ => sg
                     .nodes_matching(&[&feat])
                     .into_iter()
-                    .flatten()
                     .map(|n| n.id)
                     .collect(),
             };
@@ -118,7 +117,6 @@ fn run_query(
                 _ => sg
                     .nodes_having(&[key])
                     .into_iter()
-                    .flatten()
                     .map(|n| n.id)
                     .collect(),
             };

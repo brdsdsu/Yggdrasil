@@ -1,4 +1,6 @@
-use scene_graph::{NodeId, Result as SceneGraphResult, SceneGraph, SceneGraphError};
+use scene_graph::{
+    Feature, Node, NodeId, Observer, Result as SceneGraphResult, SceneGraph, SceneGraphError,
+};
 
 mod consts;
 
@@ -11,8 +13,7 @@ impl Engine {
     /// Executes a given request and returns the response.
     pub fn execute(&mut self, request: Request) -> Response {
         match request {
-            // Syncs all pending merges before executing the subgraph query to ensure consistency.
-            Request::SubGraph { root } => {
+            Request::SubGraph { root, observer } => {
                 let dag = match self.scene_graph.layers_dag(self.scene_graph.layer_of(root)) {
                     Ok(dag) => dag.into_iter().map(|l| l.id).collect::<Vec<_>>(),
                     // Only case of error should be when the root node doesn't exist, which is a
@@ -20,11 +21,12 @@ impl Engine {
                     Err(e) => return Response::Error(e),
                 };
                 self.sync_for(&dag);
-                self.scene_graph.subgraph(root).into()
+                match observer {
+                    Some(obs) => self.scene_graph.visible_subgraph(&obs, root),
+                    None => self.scene_graph.subgraph(root),
+                }
+                .into()
             }
-            // Checks if there is any version mismatch between the layers in the merge query and
-            // that of the global scene graph. If there is, reject the merge; otherwise, add it to
-            // the merge queue.
             Request::Merge { subgraph } => {
                 // Reject if there are any conflicts (granuarity: layer)
                 if let Some(conflicting_layer_id) = self.conflicts(&subgraph) {
@@ -33,7 +35,6 @@ impl Engine {
                 self.merge_queue.push(MergeTask { subgraph });
                 Response::Empty
             }
-            // Create a new layer with appropriate version annotation and return its id.
             Request::AddLayer { indexed } => {
                 let layer = match indexed {
                     true => self.scene_graph.new_indexed_layer(),
@@ -45,15 +46,58 @@ impl Engine {
                 );
                 Response::LayerId(layer.id)
             }
+            Request::NestLayer { parent, child } => {
+                // syncing is not required here since nesting doesn't change layers' content.
+                match self.scene_graph.layer_mut(parent) {
+                    Ok(parent) => parent.add_child(child).into(),
+                    Err(e) => Response::Error(e),
+                }
+            }
+            Request::DeleteNode { id } => {
+                let dag = match self.scene_graph.layers_dag(self.scene_graph.layer_of(id)) {
+                    Ok(dag) => dag.into_iter().map(|l| l.id).collect::<Vec<_>>(),
+                    // Only case of error should be when the node doesn't exist, which is a
+                    // client error.
+                    Err(e) => return Response::Error(e),
+                };
+                self.sync_for(&dag);
+                self.scene_graph.del_node(id).into()
+            }
+            Request::NodesHaving { keys } => {
+                self.sync_with(|t| !t.subgraph.nodes_having(&keys).is_empty());
+                let nodes = self
+                    .scene_graph
+                    .nodes_having(&keys)
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                Response::Nodes(nodes)
+            }
+            Request::NodesMatching { features } => {
+                self.sync_with(|t| !t.subgraph.nodes_matching(&features).is_empty());
+                let nodes = self
+                    .scene_graph
+                    .nodes_matching(&features)
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                Response::Nodes(nodes)
+            }
         }
     }
 
     /// Applies all pending merges that involve any of the given layer ids. This should always be
     /// called before any subgraph query that involves those layers.
     fn sync_for(&mut self, layer_ids: &[u32]) {
-        let to_merge = self
-            .merge_queue
-            .extract_if(.., |t| t.check_layers_exist(layer_ids));
+        self.sync_with(|t| t.check_layers_exist(layer_ids));
+    }
+
+    /// Applies all pending merges that satisfy the given predicate.
+    fn sync_with<F>(&mut self, p: F)
+    where
+        F: Fn(&MergeTask) -> bool,
+    {
+        let to_merge = self.merge_queue.extract_if(.., |t| p(t));
         for task in to_merge {
             match task.execute(&mut self.scene_graph) {
                 Ok(_) => {}
@@ -121,9 +165,29 @@ impl MergeTask {
 }
 
 pub enum Request {
-    SubGraph { root: NodeId },
-    Merge { subgraph: SceneGraph },
-    AddLayer { indexed: bool },
+    SubGraph {
+        root: NodeId,
+        observer: Option<Observer>,
+    },
+    Merge {
+        subgraph: SceneGraph,
+    },
+    AddLayer {
+        indexed: bool,
+    },
+    NestLayer {
+        parent: u32,
+        child: u32,
+    },
+    DeleteNode {
+        id: NodeId,
+    },
+    NodesHaving {
+        keys: Vec<String>,
+    },
+    NodesMatching {
+        features: Vec<Feature>,
+    },
 }
 
 pub enum Response {
@@ -132,12 +196,30 @@ pub enum Response {
     Reject(u32),
     LayerId(u32),
     Empty,
+    Nodes(Vec<Node>),
 }
 
 impl From<SceneGraphResult<SceneGraph>> for Response {
     fn from(result: SceneGraphResult<SceneGraph>) -> Self {
         match result {
             Ok(subgraph) => Response::SceneGraph(subgraph),
+            Err(e) => Response::Error(e),
+        }
+    }
+}
+impl From<SceneGraphResult<Vec<Node>>> for Response {
+    fn from(result: SceneGraphResult<Vec<Node>>) -> Self {
+        match result {
+            Ok(nodes) => Response::Nodes(nodes),
+            Err(e) => Response::Error(e),
+        }
+    }
+}
+
+impl From<SceneGraphResult<()>> for Response {
+    fn from(result: SceneGraphResult<()>) -> Self {
+        match result {
+            Ok(()) => Response::Empty,
             Err(e) => Response::Error(e),
         }
     }

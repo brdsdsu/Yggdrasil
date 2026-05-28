@@ -1,6 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
-    ops::{Deref, DerefMut},
+    borrow::Borrow, collections::{HashMap, HashSet}, ops::{Deref, DerefMut}
 };
 
 use kiddo::float::kdtree::KdTree;
@@ -10,7 +9,7 @@ use crate::IntoNode;
 
 use super::error::{Result, SceneGraphError};
 use super::pos::{PosQueryCount, PositionQuery};
-use super::{Edge, Node, NodeId, Observer};
+use super::{Edge, Feature, Node, NodeId, Observer};
 
 /// A Layer in the Scene Graph containing multiple Nodes and their Edges, as weel as the
 /// relationships with other layers in the Scene Graph.
@@ -134,18 +133,18 @@ impl Layer {
     }
 
     /// Get List of all nodes matching a specific node features.
-    pub fn nodes_having(&self, keys: &[&str]) -> Vec<&Node> {
+    pub fn nodes_having<T: AsRef<str>>(&self, keys: &[T]) -> Vec<&Node> {
         self.nodes
             .iter()
-            .filter(|node| keys.iter().all(|key| node.has_feature(key)))
+            .filter(|node| keys.iter().all(|key| node.has_feature(key.as_ref())))
             .collect()
     }
 
     /// Get List of all nodes matching a specific node features.
-    pub fn nodes_matching(&self, features: &[&super::node::Feature]) -> Vec<&Node> {
+    pub fn nodes_matching<T: Borrow<Feature>>(&self, features: &[T]) -> Vec<&Node> {
         self.nodes
             .iter()
-            .filter(|node| features.iter().all(|f| node.match_feature(f)))
+            .filter(|node| features.iter().all(|f| node.match_feature(f.borrow())))
             .collect()
     }
 

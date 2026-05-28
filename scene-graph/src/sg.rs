@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{borrow::Borrow, collections::{HashMap, HashSet, VecDeque}};
 
 use crate::{
     AnonNode, Bounds, NodeId, NodeMut,
@@ -319,15 +319,18 @@ impl SceneGraph {
 /// Query
 impl SceneGraph {
     /// Get List of all nodes having a specific set of features.
-    pub fn nodes_having(&self, keys: &[&str]) -> Vec<Vec<&Node>> {
-        self.layers.iter().map(|l| l.nodes_having(keys)).collect()
+    pub fn nodes_having<T: AsRef<str>>(&self, keys: &[T]) -> Vec<&Node> {
+        self.layers
+            .iter()
+            .flat_map(|l| l.nodes_having(keys))
+            .collect()
     }
 
     /// Get List of all nodes matching a specific set of features.
-    pub fn nodes_matching(&self, features: &[&Feature]) -> Vec<Vec<&Node>> {
+    pub fn nodes_matching<T: Borrow<Feature>>(&self, features: &[T]) -> Vec<&Node> {
         self.layers
             .iter()
-            .map(|l| l.nodes_matching(features))
+            .flat_map(|l| l.nodes_matching(features))
             .collect()
     }
 
@@ -996,7 +999,7 @@ mod test {
         );
 
         // 3. delete n0 and repeat the same query, which should not return n0's coordinates anymore
-        let n0_id = sg.nodes_matching(&[&Feature::new("name", "n0")])[0][0].id;
+        let n0_id = sg.nodes_matching(&[Feature::new("name", "n0")])[0].id;
         sg.del_node(n0_id)?;
         let nearest_after_deletion =
             sg.nearest_in_subtree(&query_coord, m0_id, PosQueryCount::Count(1))?;
