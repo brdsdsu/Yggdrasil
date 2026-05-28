@@ -2227,12 +2227,7 @@ dependencies = [
 name = "engine"
 version = "0.1.0"
 dependencies = [
- "glam 0.30.10",
- "kiddo",
  "scene-graph",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
 ]
 
 [[package]]

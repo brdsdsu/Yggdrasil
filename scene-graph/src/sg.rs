@@ -68,6 +68,26 @@ impl SceneGraph {
     pub fn layers(&self) -> impl ExactSizeIterator<Item = &Layer> {
         self.layers.iter()
     }
+
+    /// Get a list of layers in the DAG structure starting from the specified root layer ID.
+    pub fn layers_dag(&self, root: u32) -> Result<Vec<&Layer>> {
+        let mut layers = Vec::new();
+        let mut new_layers = Vec::new();
+        let mut visited = HashSet::new();
+        new_layers.push(self.layer(root)?);
+        visited.insert(root);
+        while let Some(layer) = new_layers.pop() {
+            for &child_id in layer.children.iter() {
+                if visited.contains(&child_id) {
+                    continue;
+                }
+                new_layers.push(self.layer(child_id)?);
+                visited.insert(child_id);
+            }
+            layers.push(layer);
+        }
+        Ok(layers)
+    }
 }
 
 /// SceneGraph Update

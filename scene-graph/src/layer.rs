@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
 };
 
@@ -20,6 +20,8 @@ use super::{Edge, Node, NodeId, Observer};
 pub struct Layer {
     /// Unique identifier for the layer.
     pub id: u32,
+    /// optional metadata for the layer.
+    pub meta: HashMap<String, String>,
     /// List of nodes in this layer.
     pub(crate) nodes: Vec<Node>,
     /// List of child layer IDs.
@@ -197,6 +199,7 @@ impl Layer {
 
         let mut l = Self {
             id: self.id,
+            meta: self.meta.clone(),
             nodes,
             pos_index,
             children: self.children.clone(),
@@ -284,6 +287,7 @@ impl Layer {
     pub(super) fn new(id: u32) -> Self {
         Self {
             id,
+            meta: HashMap::new(),
             nodes: Vec::new(),
             children: Vec::new(),
             pos_index: None,
@@ -300,6 +304,7 @@ impl Layer {
     pub(super) fn with_pos_index(id: u32) -> Self {
         Self {
             id,
+            meta: HashMap::new(),
             nodes: Vec::new(),
             children: Vec::new(),
             pos_index: Some(KdTree::new()),
@@ -356,6 +361,7 @@ impl Layer {
         };
         let mut l = Self {
             id: self.id,
+            meta: self.meta.clone(),
             nodes,
             pos_index,
             children: self.children.clone(),
