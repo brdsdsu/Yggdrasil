@@ -73,10 +73,17 @@ impl SceneGraph {
 /// SceneGraph Update
 impl SceneGraph {
     /// Merge another SceneGraph into this one.
-    /// This Process will not delete any nodes or edges, but will apply any change in nodes
-    /// features and/or edges between two nodes that exist in both SceneGraphs.
-    pub fn merge(&mut self, m: SceneGraph) -> Result<()> {
-        for mergee_node in m.layers.iter().flat_map(|l| l.nodes.iter()) {
+    /// Merge criteria:
+    /// 1. No new layers will be added. Only existing layers from mergee is considered for merging.
+    /// 2. Node deletion is not captured by this merge. The number of node in a layer after the
+    ///    merge will never decrease.
+    /// 3. Edge deletion is only captured when the source and destination nodes both exist in the
+    ///    mergee.
+    /// 4. All Node attributes are updated to match the mergee's, including the nesting
+    ///    relationships if and only if both nester and nestee exist in the mergee.
+    /// 5. Edge attributes are all updated to match the mergee's.
+    pub fn merge(&mut self, mergee: SceneGraph) -> Result<()> {
+        for mergee_node in mergee.layers.iter().flat_map(|l| l.nodes.iter()) {
             if let Some(pid) = mergee_node.pid {
                 self.nest(mergee_node.id).under(pid)?;
             }
