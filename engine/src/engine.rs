@@ -330,7 +330,7 @@ mod test {
     }
 
     #[test]
-    fn reject_on_layer_with_old_version() -> SceneGraphResult<()> {
+    fn reject_two_merges_on_same_layer() -> SceneGraphResult<()> {
         let mut scene_graph = SceneGraph::default();
         let node = scene_graph.new_node(vec![]);
         let layer = scene_graph.new_layer();
