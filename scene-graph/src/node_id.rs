@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+
+/// A NodeId is a 64-bit integer that encodes both the layer id and the node id within that layer.
+/// NodeId format:
+/// |      lid        |       nlid      |
+/// | - - - - - - - - | - - - - - - - - |
+///
+/// lid: layer id (32 bits)
+/// nlid: node id within the layer (32 bits)
 #[repr(transparent)]
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
@@ -7,8 +15,8 @@ use serde::{Deserialize, Serialize};
 pub struct NodeId(u64);
 
 impl NodeId {
-    pub fn new(nid: u32, lid: u32) -> Self {
-        let id = ((lid as u64) << 32) | (nid as u64);
+    pub fn new(lid: u32, nlid:u32) -> Self {
+        let id = ((lid as u64) << 32) | (nlid as u64);
         Self(id)
     }
 

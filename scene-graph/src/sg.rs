@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{borrow::Borrow, collections::{HashMap, HashSet, VecDeque}};
 
 use crate::{
     AnonNode, Bounds, NodeId, NodeMut,
@@ -26,9 +26,6 @@ pub struct SceneGraph {
     /// Layers of the scene graph, where each layer is either a Semantic or a Physical
     /// representation of the scene.
     pub(crate) layers: Vec<Layer>,
-
-    /// Counter to assign unique IDs to nodes.
-    node_counter: u32,
 
     /// Counter to assign unique IDs to layers.
     layer_counter: u32,
@@ -66,23 +63,70 @@ impl SceneGraph {
     pub fn layers_count(&self) -> usize {
         self.layers.len()
     }
+
+    /// Returns an iterator over all layers in the scene graph.
+    pub fn layers(&self) -> impl ExactSizeIterator<Item = &Layer> {
+        self.layers.iter()
+    }
+
+    /// Returns an iterator over all layers in the scene graph.
+    pub fn layers_mut(&mut self) -> impl ExactSizeIterator<Item = &mut Layer> {
+        self.layers.iter_mut()
+    }
+
+    /// Get a list of layers in the DAG structure starting from the specified root layer ID.
+    pub fn layers_dag(&self, root: u32) -> Result<Vec<&Layer>> {
+        let mut layers = Vec::new();
+        let mut new_layers = Vec::new();
+        let mut visited = HashSet::new();
+        new_layers.push(self.layer(root)?);
+        visited.insert(root);
+        while let Some(layer) = new_layers.pop() {
+            for &child_id in layer.children.iter() {
+                if visited.contains(&child_id) {
+                    continue;
+                }
+                new_layers.push(self.layer(child_id)?);
+                visited.insert(child_id);
+            }
+            layers.push(layer);
+        }
+        Ok(layers)
+    }
 }
 
 /// SceneGraph Update
 impl SceneGraph {
     /// Merge another SceneGraph into this one.
-    /// This Process will not delete any nodes or edges, but will apply any change in nodes
-    /// features and/or edges between two nodes that exist in both SceneGraphs.
-    pub fn merge(&mut self, m: SceneGraph) -> Result<()> {
-        for mergee_node in m.layers.iter().flat_map(|l| l.nodes.iter()) {
-            if let Some(pid) = mergee_node.pid {
-                self.nest(mergee_node.id).under(pid)?;
+    /// Merge criteria:
+    /// 1. No new layers will be added. Only existing layers from mergee is considered for merging.
+    /// 2. Node deletion is not captured by this merge. The number of node in a layer after the
+    ///    merge will never decrease.
+    /// 3. Edge deletion is only captured when the source and destination nodes both exist in the
+    ///    mergee.
+    /// 4. All Node attributes are updated to match the mergee's, including the nesting
+    ///    relationships if and only if both nester and nestee exist in the mergee.
+    /// 5. Edge attributes are all updated to match the mergee's.
+    pub fn merge(&mut self, mergee: SceneGraph) -> Result<()> {
+        let nodes = mergee
+            .layers
+            .iter()
+            .flat_map(|l| l.nodes.iter())
+            .map(|n| (n.id, n.pid))
+            .collect::<Vec<_>>();
+
+        // Update each node and edge (intra-layer)
+        for l in mergee.layers.into_iter() {
+            self.layer_mut(l.id)?.merge(l)
+        }
+
+        // Update nesting relationships (inter-layer)
+        for (nid, pid) in nodes {
+            if let Some(pid) = pid {
+                self.nest(nid).under(pid)?;
             }
         }
-        self.layers
-            .iter_mut()
-            .zip(m.layers)
-            .try_for_each(|(l1, l2)| l1.merge(l2))
+        Ok(())
     }
 }
 
@@ -142,37 +186,29 @@ impl SceneGraph {
 impl SceneGraph {
     /// Create a new Metric Node with specified coordinates and features.
     pub fn new_coordinates(&mut self, x: f32, y: f32, z: f32, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(
-            self.node_counter,
+        AnonNode::new(
             features,
             Some(Coordinate::new(x, y, z)),
             false,
             Some(Bounds::point(Coordinate::new(x, y, z))),
-        );
-        self.node_counter += 1;
-        node
+        )
     }
 
     /// Create a new Semantic Node with specified features.
     pub fn new_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(self.node_counter, features, None, false, None);
-        self.node_counter += 1;
-        node
+        AnonNode::new(features, None, false, None)
+    }
+
+    /// Create a new Bounded Semantic Node with specified features.
+    pub fn new_bounded_node(&mut self, features: Vec<Feature>) -> AnonNode {
+        AnonNode::new(features, None, false, Some(Bounds::Unbounded))
     }
 
     /// Create a new Indexed Semantic Node with specified features.
     /// This node will have position indexing enabled and will track of the coordinates of its
     /// sub-tree for efficient spatial queries.
     pub fn new_indexed_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(
-            self.node_counter,
-            features,
-            None,
-            true,
-            Some(Default::default()),
-        );
-        self.node_counter += 1;
-        node
+        AnonNode::new(features, None, true, Some(Default::default()))
     }
 
     /// Delete a node by its ID from the Scene Graph.
@@ -288,15 +324,18 @@ impl SceneGraph {
 /// Query
 impl SceneGraph {
     /// Get List of all nodes having a specific set of features.
-    pub fn nodes_having(&self, keys: &[&str]) -> Vec<Vec<&Node>> {
-        self.layers.iter().map(|l| l.nodes_having(keys)).collect()
+    pub fn nodes_having<T: AsRef<str>>(&self, keys: &[T]) -> Vec<&Node> {
+        self.layers
+            .iter()
+            .flat_map(|l| l.nodes_having(keys))
+            .collect()
     }
 
     /// Get List of all nodes matching a specific set of features.
-    pub fn nodes_matching(&self, features: &[&Feature]) -> Vec<Vec<&Node>> {
+    pub fn nodes_matching<T: Borrow<Feature>>(&self, features: &[T]) -> Vec<&Node> {
         self.layers
             .iter()
-            .map(|l| l.nodes_matching(features))
+            .flat_map(|l| l.nodes_matching(features))
             .collect()
     }
 
@@ -344,6 +383,9 @@ impl SceneGraph {
     /// Create a subgraph rooted at the specified node ID.
     /// The subgraph includes the specified node and all its descendants.
     /// If the node is not found, an error is returned.
+    ///
+    /// All layers in the layers DAG of the root node's layer will be included in the subgraph, but
+    /// only the nodes that are descendants of the root will be included in the subgraph.
     pub fn subgraph(&self, root_node_id: NodeId) -> Result<SceneGraph> {
         let mut subgraph = SceneGraph::default();
         let root_layer_id = self.layer_of(root_node_id);
@@ -406,9 +448,7 @@ impl SceneGraph {
             ptr += 1;
         }
 
-        // subgraph.layers.reverse();
         subgraph.layer_counter = self.layer_counter;
-        subgraph.node_counter = self.node_counter;
         Ok(subgraph)
     }
 
@@ -966,7 +1006,7 @@ mod test {
         );
 
         // 3. delete n0 and repeat the same query, which should not return n0's coordinates anymore
-        let n0_id = sg.nodes_matching(&[&Feature::new("name", "n0")])[0][0].id;
+        let n0_id = sg.nodes_matching(&[Feature::new("name", "n0")])[0].id;
         sg.del_node(n0_id)?;
         let nearest_after_deletion =
             sg.nearest_in_subtree(&query_coord, m0_id, PosQueryCount::Count(1))?;

@@ -249,18 +249,12 @@ fn run_nearest_neighbors_queris(ygg: &scene_graph::SceneGraph) -> yggdrasil::Res
 fn run_basic_label_retrieval_queries(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result<()> {
     // Retrieve all nodes with the feature "type" equal to "lamp".
 
-    // Running this query on the scene graph would return a vector of vector of nodes, each vector
-    // of nodes representing the nodes matched in a specific layer. Layers with no matches would be
-    // represented as empty vectors. In this case, we expect to find one node in the static object
-    // layer, therefore the result would be a vector containing one vector with one node, and the
-    // rest of the vectors would be empty.
-    let lamp_nodes = ygg.nodes_matching(&[&Feature::new("type", "lamp")]);
-    assert_eq!(lamp_nodes.iter().flatten().collect::<Vec<_>>().len(), 1);
-    assert_eq!(lamp_nodes[1].len(), 1);
-    assert_eq!(
-        lamp_nodes.iter().flatten().collect::<Vec<_>>()[0].features,
-        vec![Feature::new("type", "lamp")]
-    );
+    // Running this query on the scene graph would return a vector of nodes that matched with the
+    // exact key-value pair of the feature.
+    // In this case, we expect to find one node in the static object layer.
+    let lamp_nodes = ygg.nodes_matching(&[Feature::new("type", "lamp")]);
+    assert_eq!(lamp_nodes.len(), 1);
+    assert_eq!(lamp_nodes[0].features, vec![Feature::new("type", "lamp")]);
 
     // The same query can be run on the layer level, which would only return the matches in that
     // specific node. This query would run faster since there are less nodes to go through, and it
@@ -276,14 +270,19 @@ fn run_basic_label_retrieval_queries(ygg: &scene_graph::SceneGraph) -> yggdrasil
     // a feature with the key "type", regardless of the value. In this case, we expect to find 10
     // nodes in total, 7 in the static object layer and 3 in the dynamic object layer.
     let nodes_with_type = ygg.nodes_having(&["type"]);
-    assert_eq!(
-        nodes_with_type.iter().flatten().collect::<Vec<_>>().len(),
-        10
-    );
-    assert_eq!(nodes_with_type[0].len(), 0);
-    assert_eq!(nodes_with_type[1].len(), 7);
-    assert_eq!(nodes_with_type[2].len(), 3);
-    assert_eq!(nodes_with_type[3].len(), 0);
+    assert_eq!(nodes_with_type.len(), 10);
+    // Checking the layer distribution of the results.
+    let mut layer_count = std::collections::HashMap::new();
+    for node in nodes_with_type {
+        layer_count
+            .entry(ygg.layer_of(node.id))
+            .and_modify(|x| *x += 1)
+            .or_insert(0);
+    }
+    assert_eq!(layer_count.get(&0), None);
+    assert_eq!(layer_count.get(&1), Some(&7));
+    assert_eq!(layer_count.get(&2), Some(&3));
+    assert_eq!(layer_count.get(&3), None);
 
     let static_nodes_with_type = ygg.layer(1)?.nodes_having(&["type"]);
     assert_eq!(static_nodes_with_type.len(), 7);

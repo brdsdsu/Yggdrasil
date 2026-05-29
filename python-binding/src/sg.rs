@@ -171,24 +171,19 @@ impl PySceneGraphRef {
     }
 
     /// Get List of all nodes having a specific set of features.
-    pub fn nodes_having(&self, keys: Vec<String>) -> Vec<Vec<PyNodeRef>> {
+    pub fn nodes_having(&self, keys: Vec<String>) -> Vec<PyNodeRef> {
         let keys = keys.iter().map(String::as_str).collect::<Vec<&str>>();
         self.inner
             .lock()
             .unwrap()
             .nodes_having(&keys)
             .into_iter()
-            .map(|layer_nodes| {
-                layer_nodes
-                    .into_iter()
-                    .map(|n| PyNodeRef::new(Arc::clone(&self.inner), n.id))
-                    .collect()
-            })
+            .map(|n| PyNodeRef::new(Arc::clone(&self.inner), n.id))
             .collect()
     }
 
     /// Get List of all nodes matching a specific set of features.
-    pub fn nodes_matching(&self, features: Vec<PyFeature>) -> Vec<Vec<PyNodeRef>> {
+    pub fn nodes_matching(&self, features: Vec<PyFeature>) -> Vec<PyNodeRef> {
         let features = features
             .iter()
             .map(|f| f.into())
@@ -199,12 +194,7 @@ impl PySceneGraphRef {
             .unwrap()
             .nodes_matching(&features)
             .into_iter()
-            .map(|layer_nodes| {
-                layer_nodes
-                    .into_iter()
-                    .map(|n| PyNodeRef::new(Arc::clone(&self.inner), n.id))
-                    .collect()
-            })
+            .map(|n| PyNodeRef::new(Arc::clone(&self.inner), n.id))
             .collect()
     }
 

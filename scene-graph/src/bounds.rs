@@ -54,32 +54,18 @@ impl BoundingBox {
         )
     }
     /// Create a BoundingBox that encompasses all the given coordinates.
-    fn of(coordinates: Vec<Coordinate>) -> Self {
-        let minx = coordinates
-            .iter()
-            .map(|c| c.x)
-            .fold(f32::INFINITY, f32::min);
-        let maxx = coordinates
-            .iter()
-            .map(|c| c.x)
-            .fold(f32::NEG_INFINITY, f32::max);
-        let miny = coordinates
-            .iter()
-            .map(|c| c.y)
-            .fold(f32::INFINITY, f32::min);
-        let maxy = coordinates
-            .iter()
-            .map(|c| c.y)
-            .fold(f32::NEG_INFINITY, f32::max);
-        let minz = coordinates
-            .iter()
-            .map(|c| c.z)
-            .fold(f32::INFINITY, f32::min);
-        let maxz = coordinates
-            .iter()
-            .map(|c| c.z)
-            .fold(f32::NEG_INFINITY, f32::max);
-        Self::new(minx, maxx, miny, maxy, minz, maxz)
+    fn of(coordinates: Vec<Coordinate>) -> Option<Self> {
+        if coordinates.is_empty() {
+            return None;
+        }
+        let first = coordinates[0];
+        let minx = coordinates[1..].iter().map(|c| c.x).fold(first.x, f32::min);
+        let maxx = coordinates[1..].iter().map(|c| c.x).fold(first.x, f32::max);
+        let miny = coordinates[1..].iter().map(|c| c.y).fold(first.y, f32::min);
+        let maxy = coordinates[1..].iter().map(|c| c.y).fold(first.y, f32::max);
+        let minz = coordinates[1..].iter().map(|c| c.z).fold(first.z, f32::min);
+        let maxz = coordinates[1..].iter().map(|c| c.z).fold(first.z, f32::max);
+        Some(Self::new(minx, maxx, miny, maxy, minz, maxz))
     }
 
     /// Merge another BoundingBox into this one, expanding the bounds to encompass both if
@@ -91,6 +77,16 @@ impl BoundingBox {
         self.y.1 = self.y.1.max(other.y.1);
         self.z.0 = self.z.0.min(other.z.0);
         self.z.1 = self.z.1.max(other.z.1);
+    }
+
+    /// Returns the minimum corner of the bounding box.
+    pub fn min(&self) -> Coordinate {
+        Coordinate::new(self.x.0, self.y.0, self.z.0)
+    }
+
+    /// Returns the maximum corner of the bounding box.
+    pub fn max(&self) -> Coordinate {
+        Coordinate::new(self.x.1, self.y.1, self.z.1)
     }
 
     /// Check if this BoundingBox entierly encompasses another. The check fails if the other
@@ -131,7 +127,10 @@ impl Bounds {
     }
     /// Create a BoundingBox that encompasses all the given coordinates.
     pub fn of(coordinates: Vec<Coordinate>) -> Self {
-        Self::Bounded(BoundingBox::of(coordinates))
+        match BoundingBox::of(coordinates) {
+            Some(bb) => Self::Bounded(bb),
+            None => Self::Unbounded,
+        }
     }
 
     /// Merge another Bounds into this one, expanding the bounds to encompass both if
