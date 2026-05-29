@@ -371,4 +371,39 @@ mod test {
 
         Ok(())
     }
+
+    #[test]
+    fn reject_on_layer_with_old_version() -> SceneGraphResult<()> {
+        let mut scene_graph = SceneGraph::default();
+        let node = scene_graph.new_node(vec![]);
+        let layer = scene_graph.new_layer();
+        let root = layer.push_node(node);
+
+        let mut engine = Engine::new(scene_graph);
+
+        // Take two subgraphs from the same root.
+        let mut sg = match engine.execute(Request::SubGraph {
+            root,
+            observer: None,
+        }) {
+            Response::SceneGraph(sg) => sg,
+            _ => unreachable!("expected a scene graph response"),
+        };
+
+        // Decrement version by one
+        sg.layer_mut(0)?
+            .meta
+            .entry(String::from(consts::annotations::VERSION))
+            .and_modify(|v| {
+                *v = v
+                    .parse::<u32>()
+                    .map(|n| (n - 1).to_string())
+                    .unwrap_or(String::from("0"))
+            });
+
+        let response = engine.execute(Request::Merge { subgraph: sg });
+        assert!(matches!(response, Response::Reject(_)));
+
+        Ok(())
+    }
 }
