@@ -245,7 +245,6 @@ pub enum Request {
     /// Request to add a new layer, The `indexed` parameter indicates whether the new layer should
     /// be indexed of not.
     AddLayer { indexed: bool },
-
     /// Request to nest a layer inside another.
     NestLayer { parent: u32, child: u32 },
     /// Request to delete a node with the given id.
