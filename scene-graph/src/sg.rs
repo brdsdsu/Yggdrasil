@@ -69,6 +69,11 @@ impl SceneGraph {
         self.layers.iter()
     }
 
+    /// Returns an iterator over all layers in the scene graph.
+    pub fn layers_mut(&mut self) -> impl ExactSizeIterator<Item = &mut Layer> {
+        self.layers.iter_mut()
+    }
+
     /// Get a list of layers in the DAG structure starting from the specified root layer ID.
     pub fn layers_dag(&self, root: u32) -> Result<Vec<&Layer>> {
         let mut layers = Vec::new();
@@ -378,6 +383,9 @@ impl SceneGraph {
     /// Create a subgraph rooted at the specified node ID.
     /// The subgraph includes the specified node and all its descendants.
     /// If the node is not found, an error is returned.
+    ///
+    /// All layers in the layers DAG of the root node's layer will be included in the subgraph, but
+    /// only the nodes that are descendants of the root will be included in the subgraph.
     pub fn subgraph(&self, root_node_id: NodeId) -> Result<SceneGraph> {
         let mut subgraph = SceneGraph::default();
         let root_layer_id = self.layer_of(root_node_id);
@@ -440,7 +448,6 @@ impl SceneGraph {
             ptr += 1;
         }
 
-        // subgraph.layers.reverse();
         subgraph.layer_counter = self.layer_counter;
         Ok(subgraph)
     }
