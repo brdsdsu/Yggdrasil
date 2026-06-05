@@ -1,6 +1,7 @@
 use super::consts;
 use scene_graph::{
-    Feature, Node, NodeId, Observer, Result as SceneGraphResult, SceneGraph, SceneGraphError,
+    Coordinate, Feature, Node, NodeId, Observer, PosQueryCount, Result as SceneGraphResult,
+    SceneGraph, SceneGraphError,
 };
 
 /// Engine is the main struct that maintains the state of the globabl scene graph and handles all
@@ -112,6 +113,43 @@ impl Engine {
                     .cloned()
                     .collect::<Vec<_>>();
                 Response::Nodes(nodes)
+            }
+            Request::NearestNode {
+                from,
+                count,
+                in_subtree_of,
+            } => {
+                match in_subtree_of {
+                    Some(root) => {
+                        let dag = match self
+                            .global_graph
+                            .layers_dag(self.global_graph.layer_of(root))
+                        {
+                            Ok(dag) => dag.into_iter().map(|l| l.id).collect::<Vec<_>>(),
+                            // Only case of error should be when the root doesn't exist, which is a
+                            // client error.
+                            Err(e) => return Response::Error(e),
+                        };
+                        self.sync_for(&dag);
+                        self.global_graph
+                            .nearest_in_subtree(&from, root, count)
+                            .into()
+                    }
+                    None => {
+                        // syncing all pending merges since any of them might contain a coordinate.
+                        self.sync_with(|_| true);
+                        Ok(self.global_graph.nearest_nodes(&from, count)).into()
+                    }
+                }
+            }
+            Request::NodesWithin {
+                from,
+                radius,
+                count,
+            } => {
+                // syncing all pending merges since any of them might contain a coordinate.
+                self.sync_with(|_| true);
+                Ok(self.global_graph.nodes_within(&from, radius, count)).into()
             }
         }
     }
@@ -253,6 +291,21 @@ pub enum Request {
     NodesHaving { keys: Vec<String> },
     /// Request to run the `SceneGraph::nodes_matching` query with the given features.
     NodesMatching { features: Vec<Feature> },
+
+    /// Request to run the `nearest_node` family of queries with the given parameters.
+    /// If `in_subtree_of` is provided, the `SceneGraph::nearest_in_subtree` will be executed,
+    /// otherwise, `SceneGraph::nearest_node`.
+    NearestNode {
+        from: Coordinate,
+        count: PosQueryCount,
+        in_subtree_of: Option<NodeId>,
+    },
+    /// Request to run the `SceneGraph::nodes_within` query with the given parameters.
+    NodesWithin {
+        from: Coordinate,
+        radius: f32,
+        count: PosQueryCount,
+    },
 }
 
 /// Response to a Query or an Update request. The `Error` variant is used for both client and
@@ -272,6 +325,8 @@ pub enum Response {
     LayerId(u32),
     /// List of nodes matching a query.
     Nodes(Vec<Node>),
+    /// List of nodes and their distances matching a position-based query.
+    Distances(Vec<(Node, f32)>),
     /// Generic success response with no data to return.
     Empty,
 }
@@ -297,6 +352,21 @@ impl From<SceneGraphResult<()>> for Response {
     fn from(result: SceneGraphResult<()>) -> Self {
         match result {
             Ok(()) => Response::Empty,
+            Err(e) => Response::Error(e),
+        }
+    }
+}
+
+impl From<SceneGraphResult<Vec<(&Node, f32)>>> for Response {
+    fn from(value: SceneGraphResult<Vec<(&Node, f32)>>) -> Self {
+        match value {
+            Ok(nodes) => {
+                let nodes = nodes
+                    .into_iter()
+                    .map(|(n, d)| (n.clone(), d))
+                    .collect::<Vec<_>>();
+                Response::Distances(nodes)
+            }
             Err(e) => Response::Error(e),
         }
     }
