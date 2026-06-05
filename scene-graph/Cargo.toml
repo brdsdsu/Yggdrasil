@@ -8,7 +8,6 @@ name = "demo"
 path = "examples/demo.rs"
 
 [dependencies]
-dsg = { path = "../dsg" }
 glam = { version = "0.30.9", features = ["serde"] }
 kiddo = "5.2.3"
 num-traits = "0.2.19"

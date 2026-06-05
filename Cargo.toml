@@ -1,3 +1,3 @@
 [workspace]
-members = ["dsg-sys", "dsg", "scene-graph", "python-binding", "viz", "engine"]
+members = ["scene-graph", "python-binding", "viz", "engine"]
 resolver = "2"
