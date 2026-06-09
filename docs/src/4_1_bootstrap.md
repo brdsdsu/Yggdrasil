@@ -129,7 +129,7 @@ fn create_demo_graph() -> yggdrasil::Result<yggdrasil::SceneGraph> {
     Ok(ygg)
 }
 ```
-lets go through each line one by one to better understand how different bits of `Yggdrasil` mindset come together to create this scene graph.
+Let's go through each line one by one to better understand how `Yggdrasil` concepts combine to create this scene graph.
 
 ## New Scene Graph
 ```rust 
@@ -148,11 +148,11 @@ This line creates an empty scene graph for us to manipulate
 In this snippet, we are allocating four different layers for the scene graph. Layers are an important segmentation logic of the scene graph which help with performance and better modeling logic of the environment.
 In `yggdrasil`, you can think of each layer as an isolated graph of nodes and edges. there are so many queries that you can run on layer level which would result in a better performance simply because `yggdrasil` doesn't have to go through all the nodes in the graph and can limit itself to a specific layer. layer isolation is also enforced at the scene graph layers meaning, as we will see in the future, crossing different layers is not allowed for certain logics.
 
-In this example, we are allocating four layers, namly:
-1. point cloud layer which would store the actual position of the points in our scene.
-2. static object layer will store semantic data for each static object in the scene.
-3. dynamic object layer will store semantic data for each moving object in the scene.
-4. root layer holds the root node which would contain the entire scene underneath itself.
+In this example, we allocate four layers:
+1. point cloud layer: stores the actual position of the points in our scene.
+2. static object layer: stores semantic data for each static object in the scene.
+3. dynamic object layer: stores semantic data for each moving object in the scene.
+4. root layer: holds the root node, which contains the entire scene underneath itself.
 
 ## Setting Up The Hierarchy
 ```rust 
@@ -177,11 +177,11 @@ In this example, we are allocating four layers, namly:
     ygg.layer_mut(static_objects_layer_id)?
         .add_child(point_cloud_layer_id)?;
 ```
-In `yggdrasil`, layers have hierarchy and will form a DAG in the scene graph. This hierarchy is used to enforce some limitation between nodes in the scene graph. For example, the parent-child relationship between to node can only be set if and only if their layers also have the same relationship.
+In `yggdrasil`, layers have hierarchy and form a DAG in the scene graph. Hierarchy is used to enforce constraints on nodes and edges in the scene graph. For example, the parent-child relationship between two nodes is allowed if and only if their layers have the same (parent-child) relationship.
 
-Using the `SceneGraph::layer` and `SceneGraph::layer_mut` functions, one can retrieve a layer using its id. Using the `Layer` object then we can perform the `Layer::add_child` function to declare one layer is the child of the other one. Note that layers form a DAG, meaning, one layer can be a child to multiple upper layers. For example, in our demo `point_cloud_layer` in child to both `static_objects_layer` and `dynamic_objects_layer`.
+Using the `SceneGraph::layer` and `SceneGraph::layer_mut` functions, we can retrieve a layer using its `id`. We use `Layer::add_child` function to declare one `Layer` object the child of another. Note that layers form a DAG, meaning one layer can have multiple direct parent layers. For example, in our demo `point_cloud_layer` is a child of both `static_objects_layer` and `dynamic_objects_layer`.
 
-Layer ids follow a topological ordering, meaning, a layer with id `i` can only be a child of layer `j` if and only if `i` < `j`
+Layer ids follow a topological ordering, meaning, a layer with id `i` can be a child of layer `j` if and only if `i` < `j`
 
 ## Root Layer
 ```rust 
@@ -215,7 +215,7 @@ We create a new root node and push it to root layer. The `SceneGraph::new_node` 
     }
 
 ```
-we create 100 new nodes each representing a random point in the scene. The `SceneGraph::new_coordinates` function creates a new node and assigns a 3d position to it. This Node is the same as the node that is created via `SceneGraph::new_node` is its just a syntax sugar for adding position to a node. one can use `AnonNode::Coordinates` and `Node::Cordinates` to directly access the position of a node and change it later.
+We create 100 new nodes, each representing a random spatial point in the scene. The `SceneGraph::new_coordinates` function creates a new node and assigns it 3d coordinates. This Node is the same as the node that is created via `SceneGraph::new_node` with its position initialized. We can use `AnonNode::Coordinates` and `Node::Cordinates` to directly access the position of a node and change it later.
 
 ## Static Object Layer
 ```rust 
@@ -242,7 +242,7 @@ we create 100 new nodes each representing a random point in the scene. The `Scen
         ygg.nest(object_node_id).under(root_node_id)?;
     }
 ```
-The above code will create 7 new node in the `static object` layer, each representing a new static object. since these nodes represent actual objects in the scene, it is a good idea to nest all their points under their semantic node. The following part of the code does exactly that:
+The above snippet creates 7 new nodes in the `static object` layer, each representing a new static object. Since these nodes represent actual objects in the scene, we nest all their points under their semantic node:
 
 ```rust 
     // Nest all the point cloud nodes under this object's semantic node.
@@ -251,9 +251,9 @@ The above code will create 7 new node in the `static object` layer, each represe
     }
 ```
 
-Using the `ygg.nest(nestee_id).under(nester_id)` pattern, we can nest the `nestee` node under the `nester` node. Node that as mentioned earlier, `nester` can only nest `nestee` if and only if `nestee`'s layer is a child of `nester`'s layer.
+Using the `ygg.nest(nestee_id).under(nester_id)` pattern, we can nest the nestee node `under` the nester node. Note that `nester` can nest `nestee` if and only if `nestee`'s layer is a child of `nester`'s layer.
 
-Each node in the scene graph can have atmost one nester or parent. if a `nestee` node is already a child of another node, the old parent-child relationship is dropped and the new one is established instead
+Each node in the scene graph can have at most one nester or parent. If `under` is called on a node that already has a parent, the old parent-child relationship is overwritten.
 
 In this code snippet, we also make sure to mark the object node as a child of the root node
 ```rust 
@@ -286,7 +286,7 @@ In this code snippet, we also make sure to mark the object node as a child of th
         ygg.nest(dynamic_node_id).under(root_node_id)?;
     }
 ```
-Same as the static layer, we create 3 dynamic object for three alive being in the scene.
+Similarly to the static layer, we create 3 dynamic objects to represent living entities, e.g., humans, in the scene.
 
 ```rust 
     // Create semantic relationships between dynamic nodes.
@@ -305,6 +305,6 @@ Same as the static layer, we create 3 dynamic object for three alive being in th
     )?;
 
 ```
-`yggdrasil` also support having semantic edges between two nodes of the same layer. Here, we created two semantic edges representing the interactions between the "Human", the "Dog", and the "Cat". These edges can have any arbitrary label. These labels can be later used to filter nodes and edges by.
+`yggdrasil` supports semantic edges between two nodes of the same layer. Here, we create two semantic edges representing interactions between the "Human", the "Dog", and the "Cat". These edges can have any arbitrary label. The labels can be used to filter nodes and edges.
 
 Using the `Layer::add_edge` one can add an edge between two nodes by passing their ids. Note that this function will fail if the nodes are not from this layer.
