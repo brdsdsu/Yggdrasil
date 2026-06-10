@@ -66,6 +66,11 @@ impl SceneGraph {
     pub fn layers_count(&self) -> usize {
         self.layers.len()
     }
+
+    /// Returns an iterator over all layers in the scene graph.
+    pub fn layers(&self) -> impl ExactSizeIterator<Item = &Layer> {
+        self.layers.iter()
+    }
 }
 
 /// SceneGraph Update
@@ -156,6 +161,19 @@ impl SceneGraph {
     /// Create a new Semantic Node with specified features.
     pub fn new_node(&mut self, features: Vec<Feature>) -> AnonNode {
         let node = AnonNode::new(self.node_counter, features, None, false, None);
+        self.node_counter += 1;
+        node
+    }
+
+    /// Create a new Bounded Semantic Node with specified features.
+    pub fn new_bounded_node(&mut self, features: Vec<Feature>) -> AnonNode {
+        let node = AnonNode::new(
+            self.node_counter,
+            features,
+            None,
+            false,
+            Some(Bounds::Unbounded),
+        );
         self.node_counter += 1;
         node
     }
