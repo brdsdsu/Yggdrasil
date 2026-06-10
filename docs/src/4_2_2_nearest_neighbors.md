@@ -1,26 +1,26 @@
 # Nearest Neighbors Queries
 
-A **Nearest Neighbor** query is when given a coordinate, you want to find the closest point (or `m` closest points) from a set of coordinates to the given query point. `yggdrasil` supports a variety of nearest neighbor queries on the scene graph. There are three different ways one can run a nearest neighbor query on the scene graph, on scene graph level, on layer level, and on node level:
+A **Nearest Neighbor** query finds the closest point (or `m` closest points) from a set of coordinates to the given query point. `yggdrasil` supports a variety of nearest neighbor queries on the scene graph. There are three different ways to run a nearest neighbor query on the scene graph:
 
-1. On the layer level, the node with closest coordinate within that layer is returned.
-2. On the scene graph level, the closest node is chosen among all the nodes in all the layers.
-3. On the node level, the closest node within the subtree of the given node is returened. The subtree of a node `r` is defined as a scene graph in which all the nodes are decendant of `r`. you can think of the subtree of `r` as a sub-scene-graph from the original scene graph where the root node is `r`.
+1. layer level: the node with closest coordinate within that layer is returned.
+2. scene graph level: the closest node is chosen among all the nodes in all the layers.
+3. node level: the closest node within the subtree of the given node is returned. The subtree of a node `r` is defined as a scene graph in which all the nodes are decendants of `r`. You can think of the subtree of `r` as a sub-scene-graph from the original scene graph where the root node is `r`.
 
-With that explained, lets look at how we can run different nearest neighbor queries in `yggdrasil`
+Now we can run different nearest neighbor queries in `yggdrasil`
 
 
 ## Nearest Node
-First lets start by retrieving the 5 nearest nodes ot coordinates (5, 5, 5) in the entire scene graph.
+First lets start by retrieving the 5 nearest nodes to coordinates (5, 5, 5) in the entire scene graph.
 ```rust 
     use yggdrasil::PosQueryCount;
 
     let neighbors = ygg.nearest_nodes(&[5.0, 5.0, 5.0].into(), PosQueryCount::Count(5));
     assert_eq!(neighbors.len(), 5);
 ```
-Since in our graph creation phase, we randomly assigned static objects points 
-from the (0, 0, 0) to (10, 10, 10) region, and assigned dynamic objects points 
-from the (10, 10, 10) to (20, 20, 20) region, we should expect to find that all 
-the returned points are from the static objects. we can assert that by checking
+Recall that in our graph creation phase, we randomly assigned static objects points 
+from the (0, 0, 0) to (10, 10, 10) region, and dynamic objects points 
+from the (10, 10, 10) to (20, 20, 20) region. We expect to find that all 
+the returned points are from the static objects. We assert that by checking
 the layer id of their respective parent in the scene graph.
 ```rust 
     // Check that all the neighbors are from the static object layer.
@@ -32,8 +32,8 @@ the layer id of their respective parent in the scene graph.
     );
 ```
 
-Next, we can repeat the same query on the layer level. Knowing that only the point cloud layer 
-has coordinates assigned to its node, we can run the exact same query on the point cloud layer
+Next, we repeat the same query on the layer level. Knowing that only the point cloud layer 
+has coordinates assigned to its nodes, we can run the exact same query on the point cloud layer
 and expect the exact same outputs.
 ```rust 
     let neighbors_in_pc_layer = ygg
@@ -59,7 +59,7 @@ and expect the exact same outputs.
     );
 ```
 
-Lastly, we can run the same query on a specific node. In this example, we choose the Human node 
+Lastly, we run the same query on a specific node. In this example, we choose the Human node 
 and try to find the 5 closest nodes in its subtree to the query point (5, 5, 5). Note that since 
 Human is a dynamic object, the result should be different from the previous queries.
 ```rust 
@@ -112,8 +112,8 @@ the returning vector would not be of size `m`
 
 ## Nodes within 
 Another type of positional query supported by `yggdrasil` is the `nodes_within` query 
-which returns nodes that are within a certain radious of a given point. much like the `nearest_node` query,
-this query can also be run on all the tree levels and the semantic and differences are exactly the same.
+which returns nodes that are within a certain radius of a given point. Much like the `nearest_node` query,
+this query can run on all tree levels.
 
 ```rust 
     // Retrieving all nodes within a radius of 5 from the (5, 5, 5) coordinates. The results should

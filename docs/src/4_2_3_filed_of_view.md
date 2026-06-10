@@ -8,12 +8,12 @@ to have a prior perception of what is to be expected as it moves in the scene.
 that are within the field of view of the given camera.
 
 ## Visible Subgraph
-Inorder to query the scene graph for the objects that are within the field of view, we first have to create an observer.
-Observers in `yggdrasil` can be thought of as a cone frustum. cone frustums have three main parameters: 
+In order to query the scene graph for objects within the field of view, we first have to create an observer.
+Observers in `yggdrasil` can be thought of as a cone frustum. Cone frustums have three main parameters: 
 1. Location
 2. Rotation
 3. Far and near reach
-> For more detail documentation on how to setup an observer, you can read the API doc for the `yggdrasil::Observer` struct.
+> For more detailed documentation on how to setup an observer, you can read the API doc for the `yggdrasil::Observer` struct.
 
 In the following snippet, we create a cone frustum observer that is located at (0, 0, 0) and can view all the positive space.
 We limit this observers view by near and far of (0.001,6.0) to make sure it can only observe the static objects for now.
@@ -39,8 +39,8 @@ use yggdrasil::{Coordinate, Observer};
     let observer = Observer::from_ypr(pos, yaw, pitch, roll, half_angle, near, far);
 ```
 
-Inorder to successfully run the `visible_subgraph` query, we also need to provide a reference node. the reference node acts 
-as an constraining factor, limiting the resulting subgraph to the nodes that are within the subtree of the reference node.
+In order to successfully run the `visible_subgraph` query, we also need to provide a reference node. The reference node acts 
+as a constraining factor, limiting the resulting subgraph to the nodes that are within the subtree of the reference node.
 In this example, since we have no constraint, we use the root node as the reference.
 ```rust
     // Retrieve the root node of the scene graph.

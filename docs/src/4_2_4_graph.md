@@ -1,9 +1,9 @@
 # Graph Queries
-`yggdrasil` has support for common graph queries as well as the queries we saw thus far.
+`yggdrasil` has support for common graph queries.
 
 
 ## Node by id
-Starting with the basics, besides the labing matching, a node in `yggdrasil` can also be retrieved via its id.
+Starting with the basics, besides label matching, a node in `yggdrasil` can be retrieved via its `id`.
 ```rust 
     // Here we first retrieve the root node by matching for its features, and then use its id to
     // retrieve the same node using its id.
@@ -18,14 +18,14 @@ For immutable access:
     assert_eq!(root_node.features, vec![Feature::new("name", "root")]);
 ```
 
-And for muttable access:
+And for mutable access:
 ```rust 
    let mut root_node = ygg.node_mut(root_node_id)?;
    root_node.features.push(Feature::new("is_root", "true"));
 ```
 
 ## Layer by id
-As shown many times throughout this demo, a layer can also be retrieved by its id
+As shown many times throughout this demo, a layer can be retrieved by its id
 ```rust 
     let root_layer = ygg.layer(3)?;
     assert_eq!(root_layer.id, ygg.layer_of(root_node_id));
@@ -42,7 +42,7 @@ Using the retrieved layer, one can iterate over all nodes in the layer
 
 
 ## Sub Graph
-`yggdrasil` allows you to get a sub graph of the scene, given a reference root node. This is specially useful when dealing with agents with limited computational resources that might not have a need for the entire scene and just a sub set of the scene would be enough for them.
+`yggdrasil` allows you to get a sub graph of the scene, given a reference root node. This is especially useful when dealing with agents with limited computational resources that might not have a need for the entire scene and just a sub set of the scene would be enough for them.
 
 ```rust 
     // Subgraph retrieval: retrieve the subtree under the "car" node. This query would return a new
@@ -64,12 +64,12 @@ Using the retrieved layer, one can iterate over all nodes in the layer
 ```
 
 ## Merge
-Updates in `yggdrasil` can be in the form of sub graph merge requests, that is, merging a newer version of a sub graph of the original scene graph into the scene graph. This is usefull in scenarios where a global scene graph is maintained somewhere and agents can send their local updates to it.
+Updates in `yggdrasil` can be in the form of sub graph merge requests, that is, merging a newer version of a sub graph of the original scene graph into the scene graph. This is useful in scenarios where a global scene graph is maintained centrally, and agents can send their local updates to it.
 
 `yggdrasil` will do the following during the merge:
 1. Nodes with the same ID will be merged, meaning the node in the original scene graph gets updated.
 2. New nodes in the subgraph will be added to the original scene graph.
-3. Node deletion is not supported in this operation.
+ - Node deletion is not supported in this operation.
 4. Edges from the original scene graph from `src` to `dst` where both `src` and `dst` are present in the subgraph but the edge itself is not, are removed from the scene graph.
 5. New edges in the subgraph will be added to the original scene graph.
 ```rust 
