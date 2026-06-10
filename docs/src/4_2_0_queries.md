@@ -1,8 +1,8 @@
 # Run Queries On The Scene Graph
 
-The whole point of having a scene graph is to run some complex queries on it! We will start going through most of the queries that `yggdrasil` provides and get a glimps of what each query does.
+A scene graph is only as useful as its queries! We will explore some of the queries that `yggdrasil` supports and get a glimpse of what each query does.
 
-Lets start by using the function from the previous section to generate our demo scene graph
+Let's start by using the function we created in the Bootstrapping section to generate our demo scene graph:
 ```rust 
 use scene_graph as yggdrasil;
 use yggdrasil::Feature;

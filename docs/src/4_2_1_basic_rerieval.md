@@ -20,9 +20,8 @@ rest of the vectors would be empty.
 
 ```
 
-The same query can be run on the layer level, which would only return the matches in that
-specific node. This query would run faster since there are less nodes to go through, and it
-would return a single vector containing the matched nodes.
+The same query can be run on the layer level, which returns a vector of nodes, where the nodes are all matches in that
+specific layer.
 ```rust 
     let lamp_nodes = ygg
         .layer(1)?
@@ -61,7 +60,7 @@ nodes that have a feature with the key "type", 7 in the `static object` layer an
 ```
 
 ## Retrieve edges matching a specific description
- Retrieve all relationships matching the given pattern in the description. This query would
+ Retrieve all edges matching the given pattern in the description. This query would
  return all matching edges in the scene graph, along with the source and destination nodes 
  of those edges. In this case, we expect to only find a single
  edge matching the "holding" pattern in the dynamic object layer, 
@@ -94,11 +93,11 @@ nodes that have a feature with the key "type", 7 in the `static object` layer an
 
 ## Retrieve edges from/to a node
 Retrieve all edges from, or to a certain node. For example, we can retrieve all edges that
-are from/or to the "Human" node. 
+are from/to the "Human" node. 
 
-Note that this query can also be run on both levels. The only difference is that unlike the
-previous queries, when run on the scene graph level, this query would return all edges in a
-single vector, since it is impossible for a node to be on multiple layers, and therefore
+Note that this query can also be run on both levels. The only difference is that, unlike the
+previous queries, when run on the scene graph level this query would return all edges in a
+single vector, since edges are not associated with layers, and therefore
 there is no need to separate the results by layer.
 ```rust 
     // edges from human
