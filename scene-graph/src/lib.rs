@@ -1,4 +1,4 @@
-mod bounding_box;
+mod bounds;
 mod error;
 mod fov;
 mod layer;
@@ -8,7 +8,7 @@ pub mod parse;
 mod pos;
 mod sg;
 
-pub use bounding_box::BoundingBox;
+pub use bounds::{BoundingBox, Bounds};
 pub use error::{Result, SceneGraphError};
 pub use fov::Observer;
 pub use layer::{Layer, NodeMut};
@@ -257,7 +257,7 @@ mod test {
 
         // Query visible subgraph under root
         let cone = cone();
-        let observed_sg = sg.visible_subgraph(cone, root_id)?;
+        let observed_sg = sg.visible_subgraph(&cone, root_id)?;
 
         // number of observed nodes in the first layer should be half of total
         let layer = observed_sg.layer(0)?;
@@ -369,6 +369,59 @@ mod test {
         assert_eq!(
             nearest_in_subtree[1].0.coordinates.unwrap(),
             Coordinate::new(0.0, 0.0, 0.0)
+        );
+    }
+    #[test]
+    fn bounds() {
+        // Scene Graph Construction
+        let mut ygg = SceneGraph::default();
+        let btm_lid = ygg.new_layer().id;
+        let mid_lid = ygg.new_layer().id;
+        let top_lid = ygg.new_layer().id;
+        ygg.layer_mut(top_lid).unwrap().add_child(mid_lid).unwrap();
+        ygg.layer_mut(mid_lid).unwrap().add_child(btm_lid).unwrap();
+
+        let btm_node = ygg.new_coordinates(1_f32, 2_f32, 3_f32, Vec::new());
+        let mid_node = ygg.new_node(Vec::new());
+        let top_node = ygg.new_coordinates(4_f32, 5_f32, 6_f32, Vec::new());
+
+        let btm_nid = ygg.layer_mut(btm_lid).unwrap().push_node(btm_node);
+        let mid_nid = ygg.layer_mut(mid_lid).unwrap().push_node(mid_node);
+        let top_nid = ygg.layer_mut(top_lid).unwrap().push_node(top_node);
+
+        assert_eq!(
+            ygg.node(btm_nid).unwrap().bounds,
+            Some(Bounds::bounding_box(1.0, 1.0, 2.0, 2.0, 3.0, 3.0))
+        );
+        assert_eq!(ygg.node(mid_nid).unwrap().bounds, None);
+        assert_eq!(
+            ygg.node(top_nid).unwrap().bounds,
+            Some(Bounds::bounding_box(4.0, 4.0, 5.0, 5.0, 6.0, 6.0))
+        );
+
+        // Nesting would update the bounds of the parent node.
+        ygg.nest(btm_nid).under(mid_nid).unwrap();
+        // mid_node's bounds should still be None since bounds is disabled.
+        assert_eq!(ygg.node(mid_nid).unwrap().bounds, None);
+        // top_node's bounds should not change
+        assert_eq!(
+            ygg.node(top_nid).unwrap().bounds,
+            Some(Bounds::bounding_box(4.0, 4.0, 5.0, 5.0, 6.0, 6.0))
+        );
+
+        // Nesting mid_node under top_node would further update the bounds
+        // of top_node to encompass both top and mid node.
+        ygg.nest(mid_nid).under(top_nid).unwrap();
+        assert_eq!(
+            ygg.node(top_nid).unwrap().bounds,
+            Some(Bounds::bounding_box(1.0, 4.0, 2.0, 5.0, 3.0, 6.0))
+        );
+
+        // Detaching btm_node from mid_node would update top_nodes's bounds again.
+        ygg.detach(mid_nid).from(top_nid).unwrap();
+        assert_eq!(
+            ygg.node(top_nid).unwrap().bounds,
+            Some(Bounds::bounding_box(4.0, 4.0, 5.0, 5.0, 6.0, 6.0))
         );
     }
 }

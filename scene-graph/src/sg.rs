@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
-    AnonNode, BoundingBox, NodeId, NodeMut,
+    AnonNode, Bounds, NodeId, NodeMut,
     error::{Result, SceneGraphError},
     fov::Observer,
     layer::Layer,
@@ -147,7 +147,7 @@ impl SceneGraph {
             features,
             Some(Coordinate::new(x, y, z)),
             false,
-            Some(BoundingBox::point(Coordinate::new(x, y, z))),
+            Some(Bounds::point(Coordinate::new(x, y, z))),
         );
         self.node_counter += 1;
         node
@@ -303,7 +303,7 @@ impl SceneGraph {
     /// Get a subgraph containing nodes within the field of view of an observer and are descendants of the specified root node.
     /// The check is done using the nodes' coordinates and nodes without coordinates are pruned.
     /// nodes from upper layers that have no descendants within the field of view are also pruned.
-    pub fn visible_subgraph(&self, observer: Observer, root_node_id: NodeId) -> Result<Self> {
+    pub fn visible_subgraph(&self, observer: &Observer, root_node_id: NodeId) -> Result<Self> {
         let mut subgraph = self.subgraph(root_node_id)?;
         if subgraph.layers.is_empty() {
             return Ok(SceneGraph::default());
@@ -341,6 +341,77 @@ impl SceneGraph {
         Ok(subgraph)
     }
 
+    /// Create a subgraph rooted at the specified node ID.
+    /// The subgraph includes the specified node and all its descendants.
+    /// If the node is not found, an error is returned.
+    pub fn subgraph(&self, root_node_id: NodeId) -> Result<SceneGraph> {
+        let mut subgraph = SceneGraph::default();
+        let root_layer_id = self.layer_of(root_node_id);
+        let mut layers = HashSet::new();
+
+        // BFS to get all layers accissable from root_layer_id downwards
+        let mut layers_queue = VecDeque::new();
+        layers_queue.push_back(root_layer_id);
+        while let Some(layer_id) = layers_queue.pop_front() {
+            let layer = self.layer(layer_id)?;
+            layers.insert(layer_id);
+            for &clid in layer.children.iter() {
+                layers_queue.push_back(clid);
+            }
+        }
+        let mut layers = layers.into_iter().collect::<Vec<u32>>();
+        layers.sort();
+        let mut layers = layers
+            .iter()
+            .map(|&lid| (lid, HashSet::new()))
+            .collect::<Vec<_>>();
+
+        // layers are in topological order from root downwards. so by the time we reach to a layer,
+        // all its parents have been processed.
+        let last_index = layers.len() - 1;
+        layers[last_index].1.insert(root_node_id);
+        let mut new_layers = Vec::new();
+        while let Some((lid, nodes)) = layers.pop() {
+            if nodes.is_empty() {
+                continue;
+            }
+            let layer = self.layer(lid)?;
+            let nodes: Vec<_> = nodes.into_iter().collect();
+            let l = layer.subset(&nodes);
+            for nid in nodes {
+                for cid in l.node(nid)?.children() {
+                    let clid = self.layer_of(*cid);
+                    let ptr = layers
+                        .binary_search_by_key(&clid, |(lid, _)| *lid)
+                        .map_err(|_| SceneGraphError::LayerNotFound)?;
+                    layers[ptr].1.insert(*cid);
+                }
+            }
+            new_layers.push(l);
+        }
+        let mut ptr = 0u32;
+
+        while let Some(new_layer) = new_layers.pop()
+            && ptr < self.layers_count() as u32
+        {
+            while ptr < new_layer.id {
+                subgraph.layers.push(Layer::new(ptr));
+                ptr += 1;
+            }
+            subgraph.layers.push(new_layer);
+            ptr += 1;
+        }
+        while ptr < self.layers_count() as u32 {
+            subgraph.layers.push(Layer::new(ptr));
+            ptr += 1;
+        }
+
+        // subgraph.layers.reverse();
+        subgraph.layer_counter = self.layer_counter;
+        subgraph.node_counter = self.node_counter;
+        Ok(subgraph)
+    }
+
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
@@ -369,9 +440,15 @@ impl SceneGraph {
     /// assert_eq!(nearest_nodes[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
     /// ```
     pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<(&Node, f32)> {
-        self.layers
+        let mut distances = self
+            .layers
             .iter()
             .flat_map(|l| l.nearest_nodes(coord, count))
+            .collect::<Vec<_>>();
+        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        distances
+            .into_iter()
+            .take(count.as_capped_usize())
             .collect()
     }
 
@@ -407,9 +484,15 @@ impl SceneGraph {
         radius: f32,
         count: PosQueryCount,
     ) -> Vec<(&Node, f32)> {
-        self.layers
+        let mut distances = self
+            .layers
             .iter()
             .flat_map(|l| l.nodes_within(coord, radius, count))
+            .collect::<Vec<_>>();
+        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        distances
+            .into_iter()
+            .take(count.as_capped_usize())
             .collect()
     }
 
@@ -523,96 +606,24 @@ impl SceneGraph {
             .ok_or(SceneGraphError::NodeNotFound)
     }
 
-    /// Create a subgraph rooted at the specified node ID.
-    /// The subgraph includes the specified node and all its descendants.
-    /// If the node is not found, an error is returned.
-    fn subgraph(&self, root_node_id: NodeId) -> Result<SceneGraph> {
-        let mut subgraph = SceneGraph::default();
-        let root_layer_id = self.layer_of(root_node_id);
-        let mut layers = HashSet::new();
-
-        // BFS to get all layers accissable from root_layer_id downwards
-        let mut layers_queue = VecDeque::new();
-        layers_queue.push_back(root_layer_id);
-        while let Some(layer_id) = layers_queue.pop_front() {
-            let layer = self.layer(layer_id)?;
-            layers.insert(layer_id);
-            for &clid in layer.children.iter() {
-                layers_queue.push_back(clid);
-            }
-        }
-        let mut layers = layers.into_iter().collect::<Vec<u32>>();
-        layers.sort();
-        let mut layers = layers
-            .iter()
-            .map(|&lid| (lid, HashSet::new()))
-            .collect::<Vec<_>>();
-
-        // layers are in topological order from root downwards. so by the time we reach to a layer,
-        // all its parents have been processed.
-        let last_index = layers.len() - 1;
-        layers[last_index].1.insert(root_node_id);
-        while let Some((lid, nodes)) = layers.pop() {
-            if nodes.is_empty() {
-                continue;
-            }
-            let layer = self.layer(lid)?;
-            let nodes: Vec<_> = nodes.into_iter().collect();
-            let l = layer.subset(&nodes);
-            for nid in nodes {
-                for cid in l.node(nid)?.children() {
-                    let clid = self.layer_of(*cid);
-                    let ptr = layers
-                        .binary_search_by_key(&clid, |(lid, _)| *lid)
-                        .map_err(|_| SceneGraphError::LayerNotFound)?;
-                    layers[ptr].1.insert(*cid);
-                }
-            }
-            subgraph.layers.push(l);
-        }
-        subgraph.layers.reverse();
-        subgraph.layer_counter = self.layer_counter;
-        subgraph.node_counter = self.node_counter;
-        Ok(subgraph)
-    }
-
-    fn bounds_of(&self, nid: NodeId) -> Result<Option<BoundingBox>> {
+    fn bounds_of(&self, nid: NodeId) -> Result<Bounds> {
         let node = self.node(nid)?;
         if let Some(bounds) = node.bounds {
-            Ok(Some(bounds))
+            Ok(bounds)
         } else {
-            self.build_bounding_box(nid)
+            self.build_bounds(nid)
         }
     }
 
-    fn build_bounding_box(&self, nid: NodeId) -> Result<Option<BoundingBox>> {
+    fn build_bounds(&self, nid: NodeId) -> Result<Bounds> {
         let node = self.node(nid)?;
-        let bounds_iter = node
+        let coordinate_bounds = node.coordinates.map(Bounds::point).unwrap_or_default();
+        let bounds = node
             .children()
             .iter()
             .map(|&cid| self.bounds_of(cid))
-            .filter_map(Result::ok);
-        let x = bounds_iter.chain(vec![node.coordinates.map(BoundingBox::point)]);
-
-        let bounds = x.fold(None, |acc: Option<BoundingBox>, b| match acc {
-            Some(mut acc) => {
-                if let Some(b) = b {
-                    acc.merge(&b);
-                }
-                Some(acc)
-            }
-            None => b,
-        });
-
-        if let Some(coords) = node.coordinates {
-            match bounds {
-                Some(mut b) => {
-                    b.merge(&BoundingBox::point(coords));
-                    return Ok(Some(b));
-                }
-                None => return Ok(Some(BoundingBox::point(coords))),
-            }
-        }
+            .filter_map(Result::ok)
+            .fold(coordinate_bounds, |mut acc, b| *acc.merge(&b));
 
         Ok(bounds)
     }
@@ -647,43 +658,36 @@ impl SceneGraph {
     ///
     /// Invariantes:
     /// - This function should only be called when the child node is removed from the parent's
-    ///   subtree since it might try to rebuild the bounding box using the subtree.
-    fn bubble_up_bounds_removal(
-        &mut self,
-        pid: NodeId,
-        deleted: Option<BoundingBox>,
-    ) -> Result<()> {
+    ///   subtree since it might try to rebuild the bounds using the subtree.
+    fn bubble_up_bounds_removal(&mut self, pid: NodeId, deleted: Bounds) -> Result<()> {
         match deleted {
-            Some(deleted) => {
+            Bounds::Unbounded => Ok(()),
+            Bounds::Bounded(_) => {
                 if let Some(bounds) = self.node(pid)?.bounds {
-                    // recalculate the bounding box of the parent if it shares border with the deleted bounds.
                     if bounds.shares_border_with(&deleted) {
-                        let bounds = self.build_bounding_box(pid)?;
+                        let new_bounds = self.build_bounds(pid)?;
                         unsafe {
                             // SAFETY: Operations done on the parent:
-                            // 1. Updating the bounding box of the parent if it exists
+                            // 1. Updating the bounds of the parent if it exists
                             //
                             // So no layer-level logic is violated
                             let parent = self.node_mut_unsynced(pid)?;
-                            parent.bounds = bounds;
-                        }
-                        // propagate the new bounds to the ancestors if available
-                        match self.node(pid)?.pid {
-                            Some(ppid) => self.bubble_up_bounds_removal(ppid, bounds),
-                            None => Ok(()),
+                            parent.bounds = Some(new_bounds);
                         }
                     } else {
-                        // no change made to the bounds, propagation haults
-                        Ok(())
-                    }
-                } else {
-                    match self.node(pid)?.pid {
-                        Some(ppid) => self.bubble_up_bounds_removal(ppid, Some(deleted)),
-                        None => Ok(()),
+                        // If the deleted bounds do not share a border with the parent's bounds,
+                        // then the parent's bounds are not affected and we can cease the
+                        // propagation.
+                        return Ok(());
                     }
                 }
+
+                // propagate the new bounds to the ancestors if available
+                match self.node(pid)?.pid {
+                    Some(ppid) => self.bubble_up_bounds_removal(ppid, deleted),
+                    None => Ok(()),
+                }
             }
-            None => Ok(()),
         }
     }
 
@@ -711,29 +715,31 @@ impl SceneGraph {
     }
 
     /// Propagate the new bounds of the child to the parent node and all the way up to the root.
-    fn bubble_up_bounds_addition(
-        &mut self,
-        parent: NodeId,
-        new_bounds: Option<BoundingBox>,
-    ) -> Result<()> {
-        if new_bounds.is_none() {
-            return Ok(());
-        }
-        // SAFETY: Operations done to the nester node:
-        // 1. Update bounding box with the new child
-        //
-        // So no layer-level logic is violated
-        let node = unsafe { self.node_mut_unsynced(parent)? };
+    fn bubble_up_bounds_addition(&mut self, parent: NodeId, new_bounds: Bounds) -> Result<()> {
+        match new_bounds {
+            Bounds::Unbounded => Ok(()),
+            Bounds::Bounded(_) => {
+                // SAFETY: Operations done to the nester node:
+                // 1. Update bounds with the new child
+                //
+                // So no layer-level logic is violated
+                let node = unsafe { self.node_mut_unsynced(parent)? };
 
-        if let Some(node_bounds) = node.bounds.as_mut()
-            && let Some(new_bounds) = new_bounds
-        {
-            node_bounds.merge(&new_bounds);
-        }
+                if let Some(node_bounds) = node.bounds.as_mut() {
+                    // If the new bounds are already encompassed by the node's bounds, we can stop
+                    // the propagation since the ancestors' bounds will also encompass the new
+                    // bounds.
+                    if node_bounds.encompasses(&new_bounds) {
+                        return Ok(());
+                    }
+                    node_bounds.merge(&new_bounds);
+                }
 
-        match node.pid {
-            Some(pid) => self.bubble_up_bounds_addition(pid, new_bounds),
-            None => Ok(()),
+                match node.pid {
+                    Some(pid) => self.bubble_up_bounds_addition(pid, new_bounds),
+                    None => Ok(()),
+                }
+            }
         }
     }
 }
@@ -907,12 +913,14 @@ mod test {
 
         // subgraph for m1 should only contain m1
         let subgraph_m1 = sg.subgraph(m1)?;
-        assert_eq!(subgraph_m1.layers.len(), 1);
+        // subgraph will retain all layers, though only layer 1 will have nodes in it.
+        assert_eq!(subgraph_m1.layers.len(), 3);
         assert_eq!(subgraph_m1.layer(1)?.nodes.len(), 1);
         assert_eq!(subgraph_m1.node(m1)?.features[0].value(), "m1");
         assert_eq!(subgraph_m1.layer(1)?.id, sg.layer_of(m1));
-        // there should be no layer with id 0 in the subgraph
-        assert!(subgraph_m1.layer(0).is_err());
+        // there should be no nodes in other layers
+        assert_eq!(subgraph_m1.layer(0)?.nodes.len(), 0);
+        assert_eq!(subgraph_m1.layer(2)?.nodes.len(), 0);
         Ok(())
     }
 
@@ -942,7 +950,7 @@ mod test {
         let m0 = sg.new_indexed_node(vec![Feature::new("name", "m0")]);
         let m0_id = sg.layer_mut(1)?.push_node(m0);
         for i in 0..10 {
-            let mut n = sg.new_indexed_node(vec![Feature::new("name", &format!("n{}", i))]);
+            let mut n = sg.new_indexed_node(vec![Feature::new("name", format!("n{i}"))]);
             n.coordinates = Some(Coordinate::new(i as f32, i as f32, i as f32));
             let n_id = sg.layer_mut(0)?.push_node(n);
             sg.nest(n_id).under(m0_id)?;

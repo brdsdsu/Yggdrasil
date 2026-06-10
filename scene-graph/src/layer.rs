@@ -160,7 +160,7 @@ impl Layer {
 
     /// Get a new Layer containing only nodes within the observer's field of view.
     /// The check is done using the nodes' coordinates and nodes without coordinates are ignored.
-    pub fn observable_nodes(&self, observer: Observer) -> Self {
+    pub fn observable_nodes(&self, observer: &Observer) -> Self {
         let nodes = self
             .nodes
             .iter()
@@ -476,7 +476,7 @@ mod test {
         }
 
         let cone = cone();
-        let observed_layer = layer.observable_nodes(cone);
+        let observed_layer = layer.observable_nodes(&cone);
         assert_eq!(observed_layer.nodes.len(), 3);
         for node in observed_layer.nodes {
             // all nodes should have coordinates to be observable
