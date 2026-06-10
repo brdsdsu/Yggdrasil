@@ -146,7 +146,7 @@ This line creates an empty scene graph for us to manipulate
 ```
 
 In this snippet, we are allocating four different layers for the scene graph. Layers are an important segmentation logic of the scene graph which help with performance and better modeling logic of the environment.
-In `yggdrasil`, you can think of each layer as an isolated graph of nodes and edges. Layer isolation is enforced at the scene graph layers, meaning crossing different layers is not allowed for certain operations.
+In `yggdrasil`, you can think of each layer as an isolated graph of nodes and edges. Layer isolation is enforced at the scene graph layers, meaning crossing different layers is not allowed for certain operations. For example, an edge cannot be added between two nodes that belong to different layers.
 
 In this example, we allocate four layers:
 1. point cloud layer: stores the actual position of the points in our scene.
