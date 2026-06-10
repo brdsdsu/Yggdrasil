@@ -191,7 +191,10 @@ Layer ids follow a topological ordering, meaning, a layer with id `i` can be a c
     let root_node_id = ygg.layer_mut(root_layer_id)?.push_node(root_node);
 
 ```
-We create a new root node and push it to root layer. The `SceneGraph::new_node` function will take a list of `SceneGraph::Feature`s which is essentially a key-value pair and creates a new node that is ready to push. Note that the output of `SceneGraph::new_node` is a `AnonNode` demonstrating the node's incompleteness. This node **IS NOT** a part of the scene graph yet and as a result, has no id associated to it. a `NodeId` is only associated to a node when it is pushed to a layer since part of its id is determined by the layer it resides in. the output of `Layer::push_node` is the `NodeId` of the newly added node.
+
+We create a new root node and push it to the root layer. The `SceneGraph::new_node` function takes a list of `SceneGraph::Feature`s which is essentially a key-value pair and creates a new node that is ready to be inserted into the scene graph. Note that the return type of `SceneGraph::new_node` is `AnonNode`, which reflects the fact that the node is not yet part of the scene graph. Because it has not been inserted into any layer, it does not have an associated `NodeId`.
+
+A NodeId is assigned only when the node is pushed into a layer, since part of the identifier is derived from the layer in which the node resides. For this reason, Layer::push_node returns the NodeId of the newly inserted node.
 
 ## Point Cloud Layer
 ```rust 
