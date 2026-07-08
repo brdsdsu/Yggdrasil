@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 #[repr(transparent)]
@@ -5,6 +7,12 @@ use serde::{Deserialize, Serialize};
     Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
 )]
 pub struct NodeId(u64);
+
+impl Display for NodeId{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NodeId({}::{})", self.layer_id(), self.node_id())
+    }
+}
 
 impl NodeId {
     pub fn new(nid: u32, lid: u32) -> Self {

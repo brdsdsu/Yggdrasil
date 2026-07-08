@@ -281,32 +281,45 @@ impl From<&scene_graph::Feature> for PyFeature {
 }
 
 /// Unique identifier for a node in the scene graph.
-#[derive(Debug, Copy, Clone, Hash)]
-#[pyclass(name = "NodeId", str)]
-pub struct PyNodeId(u64);
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[pyclass(name = "NodeId", str, eq, hash, frozen)]
+pub struct PyNodeId(NodeId);
+
+#[pymethods]
+impl PyNodeId {
+    pub fn __repr__(&self) -> String {
+        self.to_string()
+    }
+
+    pub fn layer_id(&self) -> u32 {
+        self.0.layer_id()
+    }
+
+    pub fn node_id(&self) -> u32 {
+        self.0.node_id()
+    }
+}
 
 impl From<scene_graph::NodeId> for PyNodeId {
     fn from(value: scene_graph::NodeId) -> Self {
-        PyNodeId(value.as_u64())
+        PyNodeId(value)
     }
 }
 
 impl From<&scene_graph::NodeId> for PyNodeId {
     fn from(value: &scene_graph::NodeId) -> Self {
-        PyNodeId(value.as_u64())
+        PyNodeId(*value)
     }
 }
 
 impl From<PyNodeId> for scene_graph::NodeId {
     fn from(value: PyNodeId) -> Self {
-        let nid = value.0 as u32;
-        let lid = (value.0 >> 32) as u32;
-        scene_graph::NodeId::new(nid, lid)
+        value.0
     }
 }
 
 impl Display for PyNodeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Layer: {}, Node: {}", self.0 >> 32, self.0 % (1 << 32))
+        write!(f, "<L,n>({}::{})", self.layer_id(), self.node_id())
     }
 }
