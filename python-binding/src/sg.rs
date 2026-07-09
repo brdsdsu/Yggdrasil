@@ -161,12 +161,12 @@ impl PySceneGraphRef {
     /// assert_eq!(sg.node(id1).unwrap().pid, Some(id2));
     /// ```
     pub fn nest(&mut self, nestee: PyNodeId, nester: PyNodeId) -> Result<()> {
-        let _ = self
-            .inner
+        self.inner
             .lock()
             .unwrap()
             .nest(nestee.into())
-            .under(nester.into());
+            .under(nester.into())
+            .map(|_| ())?;
         Ok(())
     }
 
