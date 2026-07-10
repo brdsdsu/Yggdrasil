@@ -15,9 +15,10 @@ use scene_graph::{AnonNode, NodeId, SceneGraph};
 /// information about the node. Nodes also support storeing 3D coordinates which can be used for
 /// Field-of-View calculations or spatial queries.
 #[pyclass(name = "Node")]
+#[derive(Debug, Clone)]
 pub struct PyNodeRef {
     sg: Arc<Mutex<SceneGraph>>,
-    nid: NodeId,
+    pub(crate) nid: NodeId,
 }
 
 #[pyclass(name = "__Node")]

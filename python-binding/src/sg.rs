@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     layer::{PyLayerRef, PyObserver, PyPosQueryCount},
+    lazylist::{PyLazyNodeDistPairList, PyLazyNodeList},
     node::{PyAnonNode, PyEdge, PyFeature, PyNodeId, PyNodeRef},
 };
 
@@ -250,15 +251,18 @@ impl PySceneGraphRef {
         &self,
         coord: (f32, f32, f32),
         count: PyPosQueryCount,
-    ) -> Vec<(PyNodeRef, f32)> {
+    ) -> PyLazyNodeDistPairList {
         let (x, y, z) = coord;
-        self.inner
+        let nodes = self
+            .inner
             .lock()
             .unwrap()
             .nearest_nodes(&Coordinate::new(x, y, z), count.into())
             .into_iter()
-            .map(|(n, d)| (PyNodeRef::new(Arc::clone(&self.inner), n.id), d))
-            .collect::<Vec<_>>()
+            .map(|(n, d)| (n.id, d))
+            .collect::<Vec<_>>();
+
+        PyLazyNodeDistPairList::new(Arc::clone(&self.inner), nodes)
     }
 
     /// Retrieve at most `count` nodes within a specified radius to the given position.
@@ -292,15 +296,18 @@ impl PySceneGraphRef {
         coord: (f32, f32, f32),
         radius: f32,
         count: PyPosQueryCount,
-    ) -> Vec<(PyNodeRef, f32)> {
+    ) -> PyLazyNodeDistPairList {
         let (x, y, z) = coord;
-        self.inner
+        let nodes = self
+            .inner
             .lock()
             .unwrap()
             .nodes_within(&Coordinate::new(x, y, z), radius, count.into())
             .into_iter()
-            .map(|(n, d)| (PyNodeRef::new(Arc::clone(&self.inner), n.id), d))
-            .collect::<Vec<_>>()
+            .map(|(n, d)| (n.id, d))
+            .collect::<Vec<_>>();
+
+        PyLazyNodeDistPairList::new(Arc::clone(&self.inner), nodes)
     }
 
     /// Retrieve at most `count` nearest nodes to the given position within the sub-tree rooted at the specified node ID.
@@ -347,17 +354,20 @@ impl PySceneGraphRef {
         coord: (f32, f32, f32),
         root: PyNodeId,
         count: PyPosQueryCount,
-    ) -> Result<Vec<(PyNodeRef, f32)>> {
+    ) -> Result<PyLazyNodeDistPairList> {
         let coords = coord.into();
         self.inner
             .lock()
             .unwrap()
             .nearest_in_subtree(&coords, root.into(), count.into())
             .map(|nodes| {
-                nodes
-                    .into_iter()
-                    .map(|(n, d)| (PyNodeRef::new(Arc::clone(&self.inner), n.id), d))
-                    .collect::<Vec<_>>()
+                PyLazyNodeDistPairList::new(
+                    Arc::clone(&self.inner),
+                    nodes
+                        .into_iter()
+                        .map(|(n, d)| (n.id, d))
+                        .collect::<Vec<_>>(),
+                )
             })
             .map_err(Into::into)
     }
@@ -368,7 +378,7 @@ impl PySceneGraphRef {
         points: Vec<(f32, f32, f32)>,
         root: PyNodeId,
         count: PyPosQueryCount,
-    ) -> Result<Vec<Vec<(PyNodeRef, f32)>>> {
+    ) -> Result<Vec<PyLazyNodeDistPairList>> {
         points
             .iter()
             .map(|c| self.nearest_in_subtree(*c, root, count))
@@ -380,7 +390,7 @@ impl PySceneGraphRef {
         &self,
         points: Vec<(f32, f32, f32)>,
         count: PyPosQueryCount,
-    ) -> Vec<Vec<(PyNodeRef, f32)>> {
+    ) -> Vec<PyLazyNodeDistPairList> {
         points
             .iter()
             .map(|c| self.nearest_nodes(*c, count))
@@ -393,7 +403,7 @@ impl PySceneGraphRef {
         points: Vec<(f32, f32, f32)>,
         radius: f32,
         count: PyPosQueryCount,
-    ) -> Vec<Vec<(PyNodeRef, f32)>> {
+    ) -> Vec<PyLazyNodeDistPairList> {
         points
             .iter()
             .map(|c| self.nodes_within(*c, radius, count))
