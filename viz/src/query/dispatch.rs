@@ -190,7 +190,7 @@ fn run_query(
             match qps.scope {
                 QueryScope::Graph => {
                     for (node, _dist) in sg.nearest_nodes(&pos, count) {
-                        nodes.insert(node.id);
+                        nodes.insert(node);
                     }
                 }
                 QueryScope::Layer => todo!(),
@@ -202,7 +202,7 @@ fn run_query(
                         .nearest_in_subtree(&pos, root, count)
                         .map_err(|e| e.to_string())?
                     {
-                        nodes.insert(node.id);
+                        nodes.insert(node);
                     }
                 }
             }
@@ -226,7 +226,7 @@ fn run_query(
                 PosQueryCount::Count(n)
             };
             for (node, _dist) in sg.nodes_within(&pos, radius, count) {
-                nodes.insert(node.id);
+                nodes.insert(node);
             }
         }
 

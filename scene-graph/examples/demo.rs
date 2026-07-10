@@ -161,7 +161,8 @@ fn run_nearest_neighbors_queris(ygg: &scene_graph::SceneGraph) -> yggdrasil::Res
     assert!(
         neighbors
             .iter()
-            .filter_map(|(n, _)| n.pid)
+            .filter_map(|(n, _)| ygg.node(*n).ok())
+            .filter_map(|n| n.pid)
             .all(|pid| ygg.layer_of(pid) == 1)
     );
 
@@ -176,15 +177,16 @@ fn run_nearest_neighbors_queris(ygg: &scene_graph::SceneGraph) -> yggdrasil::Res
     assert!(
         neighbors_in_pc_layer
             .iter()
-            .filter_map(|(n, _)| n.pid)
+            .filter_map(|(n, _)| ygg.node(*n).ok())
+            .filter_map(|n| n.pid)
             .all(|pid| ygg.layer_of(pid) == 1)
     );
     // Check that the results of this query are the same as the previous one.
     assert!(
         neighbors_in_pc_layer
             .iter()
-            .map(|(n, _)| n.id)
-            .eq(neighbors.iter().map(|(n, _)| n.id))
+            .map(|(n, _)| n)
+            .eq(neighbors.iter().map(|(n, _)| n))
     );
 
     // Retrieve the 5 nearest nodes to the (5, 5, 5) coordinates from the subtree of the "Human" node.
@@ -206,15 +208,16 @@ fn run_nearest_neighbors_queris(ygg: &scene_graph::SceneGraph) -> yggdrasil::Res
     assert!(
         neighbors_in_human_subtree
             .iter()
-            .filter_map(|(n, _)| n.pid)
+            .filter_map(|(n, _)| ygg.node(*n).ok())
+            .filter_map(|n| n.pid)
             .all(|pid| pid == human_node_id)
     );
     // Check that the results of this query are different from the previous ones.
     assert!(
         !neighbors_in_human_subtree
             .iter()
-            .map(|(n, _)| n.id)
-            .eq(neighbors.iter().map(|(n, _)| n.id))
+            .map(|(n, _)| n)
+            .eq(neighbors.iter().map(|(n, _)| n))
     );
 
     // Asking for 20 neighbors when the Human subtree only has 10 nodes with coordinates should
@@ -241,7 +244,7 @@ fn run_nearest_neighbors_queris(ygg: &scene_graph::SceneGraph) -> yggdrasil::Res
     // the first node retured by the first nodes_within query.
     let nodes_within = ygg.nodes_within(&[5.0, 5.0, 5.0].into(), 5.0, PosQueryCount::Count(1));
     assert_eq!(nodes_within.len(), 1);
-    assert_eq!(nodes_within[0].0.id, nodes_within_5[0].0.id);
+    assert_eq!(nodes_within[0].0, nodes_within_5[0].0);
 
     Ok(())
 }
