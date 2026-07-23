@@ -3,3 +3,5 @@
 .python-version
 /pyproject.toml
 uv.lock
+map1.json
+ygg.json
