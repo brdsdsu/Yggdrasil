@@ -222,7 +222,7 @@ mod test {
     }
 
     /// The kd-tree backend, used by indexed layers and indexed nodes. Treated as the
-    /// reference implementation: it is the only backend that is currently correct.
+    /// reference implementation that the other two backends must match.
     fn as_kdtree(xs: &[f32]) -> KdTree<f32, NodeId, 3, 128, u32> {
         let mut tree = KdTree::new();
         for (i, x) in xs.iter().enumerate() {
