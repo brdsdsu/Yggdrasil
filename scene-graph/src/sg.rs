@@ -1002,4 +1002,121 @@ mod test {
 
         Ok(())
     }
+
+    #[test]
+    fn nearest_in_subtree_unindexed_matches_indexed() -> Result<()> {
+        // layers structure:          nodes structure:
+        // Layer 1 (semantic)         indexed_root      plain_root
+        // └── Layer 0 (points)       ├── (3,0,0)       ├── (3,0,0)
+        //                            └── (4,0,0)       └── (4,0,0)
+        let mut sg = SceneGraph::default();
+        sg.new_layer();
+        sg.new_layer();
+        sg.layer_mut(1)?.add_child(0)?;
+
+        let indexed_root = sg.new_indexed_node(vec![Feature::new("name", "indexed")]);
+        let indexed_root = sg.layer_mut(1)?.push_node(indexed_root);
+        let plain_root = sg.new_node(vec![Feature::new("name", "plain")]);
+        let plain_root = sg.layer_mut(1)?.push_node(plain_root);
+
+        // A node may have only one parent, so each root gets its own copy of the points.
+        for root in [indexed_root, plain_root] {
+            for x in [3.0, 4.0] {
+                let p = sg.new_coordinates(x, 0.0, 0.0, vec![]);
+                let p = sg.layer_mut(0)?.push_node(p);
+                sg.nest(p).under(root)?;
+            }
+        }
+
+        let query = Coordinate::ZERO;
+        for count in [PosQueryCount::Count(2), PosQueryCount::All] {
+            let from_indexed = sg
+                .nearest_in_subtree(&query, indexed_root, count)?
+                .iter()
+                .map(|(_, d)| *d)
+                .collect::<Vec<_>>();
+            let from_plain = sg
+                .nearest_in_subtree(&query, plain_root, count)?
+                .iter()
+                .map(|(_, d)| *d)
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                from_indexed,
+                vec![3.0, 4.0],
+                "indexed root returned wrong distances for {count:?}"
+            );
+            assert_eq!(
+                from_plain, from_indexed,
+                "nearest_in_subtree({count:?}) disagrees between an indexed and a \
+                 non-indexed root: {from_plain:?} vs {from_indexed:?}"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn del_node() -> Result<()> {
+        // Block-allocated layer ids, two rooms side by side. Note that the child of an
+        // `objects` layer is *not* at `objects_layer_id - 1`:
+        //
+        // Layer 4 (rooms)
+        // ├── Layer 2 (objects, room a) ── Layer 0 (points, room a)
+        // └── Layer 3 (objects, room b) ── Layer 1 (points, room b)
+        let mut sg = SceneGraph::default();
+        for _ in 0..5 {
+            sg.new_layer();
+        }
+        let (points_a, points_b, objects_a, objects_b, rooms) = (0, 1, 2, 3, 4);
+        sg.layer_mut(objects_a)?.add_child(points_a)?;
+        sg.layer_mut(objects_b)?.add_child(points_b)?;
+        sg.layer_mut(rooms)?.add_child(objects_a)?;
+        sg.layer_mut(rooms)?.add_child(objects_b)?;
+
+        // Build one room per branch, so deleting room a must leave room b untouched.
+        let mut built = Vec::new();
+        for (name, objects, points) in [("a", objects_a, points_a), ("b", objects_b, points_b)] {
+            let room = sg.new_node(vec![Feature::new("name", format!("room_{name}"))]);
+            let room = sg.layer_mut(rooms)?.push_node(room);
+            let object = sg.new_node(vec![Feature::new("name", format!("object_{name}"))]);
+            let object = sg.layer_mut(objects)?.push_node(object);
+            let point = sg.new_coordinates(1.0, 2.0, 3.0, vec![]);
+            let point = sg.layer_mut(points)?.push_node(point);
+            sg.nest(point).under(object)?;
+            sg.nest(object).under(room)?;
+            built.push((room, object, point));
+        }
+        let (room_a, object_a, point_a) = built[0];
+        let (room_b, object_b, point_b) = built[1];
+
+        if let Err(e) = sg.del_node(room_a) {
+            panic!(
+                "del_node(room_a) failed with {e:?}: the cascade recurses into \
+                 `layer_id - 1` rather than each child's own layer, so it looked for \
+                 room a's object (on layer {objects_a}) in layer {}",
+                rooms - 1
+            );
+        }
+
+        // Room a's whole subtree is gone, across all three of its layers.
+        assert!(sg.node(room_a).is_err(), "room a should have been deleted");
+        assert!(
+            sg.node(object_a).is_err(),
+            "object a should have been cascade-deleted"
+        );
+        assert!(
+            sg.node(point_a).is_err(),
+            "point a should have been cascade-deleted"
+        );
+
+        // Room b is on the sibling branch and must be entirely untouched.
+        assert!(sg.node(room_b).is_ok(), "room b should have survived");
+        assert!(sg.node(object_b).is_ok(), "object b should have survived");
+        assert!(sg.node(point_b).is_ok(), "point b should have survived");
+        assert_eq!(sg.layer(points_b)?.nodes.len(), 1);
+        assert_eq!(sg.layer(objects_b)?.nodes.len(), 1);
+
+        Ok(())
+    }
 }
