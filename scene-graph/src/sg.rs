@@ -210,7 +210,7 @@ impl SceneGraph {
             let layer = sg.layer_mut(lid)?;
             let node = layer.del_node(nid)?;
             for child_id in node.children() {
-                del_node_recursive(sg, lid - 1, *child_id)?;
+                del_node_recursive(sg, child_id.layer_id(), *child_id)?;
             }
             Ok(())
         }
