@@ -222,7 +222,7 @@ mod test {
         let mut nodes = Vec::new();
         const NUM_SEMANTIC_NODES: usize = NUM_COOR_NODES / 10;
         for id in 0..NUM_SEMANTIC_NODES {
-            let node = sg.new_node(vec![Feature::new("name", &format!("semantic {}", id))]);
+            let node = sg.new_node(vec![Feature::new("name", format!("semantic {id}"))]);
             nodes.push(node);
         }
         let layer = sg.new_layer();
@@ -309,7 +309,7 @@ mod test {
     }
 
     #[test]
-    fn pos_query() {
+    fn pos_query() -> Result<()> {
         use super::*;
 
         let mut sg = SceneGraph::default();
@@ -342,11 +342,11 @@ mod test {
             .unwrap();
         assert_eq!(nearest_in_subtree.len(), 2);
         assert_eq!(
-            nearest_in_subtree[0].0.coordinates.unwrap(),
+            sg.node(nearest_in_subtree[0].0)?.coordinates.unwrap(),
             Coordinate::new(1.0, 1.0, 1.0)
         );
         assert_eq!(
-            nearest_in_subtree[1].0.coordinates.unwrap(),
+            sg.node(nearest_in_subtree[1].0)?.coordinates.unwrap(),
             Coordinate::new(0.0, 0.0, 0.0)
         );
 
@@ -363,13 +363,14 @@ mod test {
             .unwrap();
         assert_eq!(nearest_in_subtree.len(), 2);
         assert_eq!(
-            nearest_in_subtree[0].0.coordinates.unwrap(),
+            sg.node(nearest_in_subtree[0].0)?.coordinates.unwrap(),
             Coordinate::new(1.0, 1.0, 1.0)
         );
         assert_eq!(
-            nearest_in_subtree[1].0.coordinates.unwrap(),
+            sg.node(nearest_in_subtree[1].0)?.coordinates.unwrap(),
             Coordinate::new(0.0, 0.0, 0.0)
         );
+        Ok(())
     }
     #[test]
     fn bounds() {

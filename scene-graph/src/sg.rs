@@ -339,7 +339,7 @@ impl SceneGraph {
                 .nodes
                 .iter()
                 .map(|n| n.id)
-                .chain(observed.into_iter())
+                .chain(observed)
                 .collect();
             let l = layer.subset(&observed);
             for node in &l.nodes {
@@ -452,12 +452,15 @@ impl SceneGraph {
     /// sg.layer_mut(0).unwrap().push_node(n3);
     ///
     /// let coord = Coordinate::new(0.6, 0.6, 0.6);
-    /// let nearest_nodes = sg.nearest_nodes(&coord, PosQueryCount::Count(2));
+    /// let nearest_nodes = sg.nearest_nodes(&coord, PosQueryCount::Count(2))
+    ///     .into_iter()
+    ///     .map(|(n, d)| (sg.node(n).unwrap(), d))
+    ///     .collect::<Vec<_>>();
     /// assert_eq!(nearest_nodes.len(), 2);
     /// assert_eq!(nearest_nodes[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
     /// assert_eq!(nearest_nodes[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
     /// ```
-    pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<(&Node, f32)> {
+    pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)> {
         let mut distances = self
             .layers
             .iter()
@@ -491,7 +494,10 @@ impl SceneGraph {
     /// sg.layer_mut(0).unwrap().push_node(n3);
     ///
     /// let coord = Coordinate::new(0.3, 0.3, 0.3);
-    /// let nodes_within_radius = sg.nodes_within(&coord, 2.0, PosQueryCount::All);
+    /// let nodes_within_radius = sg.nodes_within(&coord, 2.0, PosQueryCount::All)
+    ///     .into_iter()
+    ///     .map(|(n, d)| (sg.node(n).unwrap(), d))
+    ///     .collect::<Vec<_>>();
     /// assert_eq!(nodes_within_radius.len(), 2);
     /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates.unwrap() == Coordinate::new(0.0, 0.0, 0.0)));
     /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates.unwrap() == Coordinate::new(1.0, 1.0, 1.0)));
@@ -501,7 +507,7 @@ impl SceneGraph {
         coord: &Coordinate,
         radius: f32,
         count: PosQueryCount,
-    ) -> Vec<(&Node, f32)> {
+    ) -> Vec<(NodeId, f32)> {
         let mut distances = self
             .layers
             .iter()
@@ -546,7 +552,10 @@ impl SceneGraph {
     /// sg.nest(n3_id).under(pid)?;
     ///
     /// let coord = Coordinate::new(0.6, 0.6, 0.6);
-    /// let nearest_in_subtree = sg.nearest_in_subtree(&coord, pid, PosQueryCount::Count(2))?;
+    /// let nearest_in_subtree = sg.nearest_in_subtree(&coord, pid, PosQueryCount::Count(2))?
+    ///     .into_iter()
+    ///     .map(|(n, d)| (sg.node(n).unwrap(), d))
+    ///     .collect::<Vec<_>>();
     /// assert_eq!(nearest_in_subtree.len(), 2);
     /// assert_eq!(nearest_in_subtree[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
     /// assert_eq!(nearest_in_subtree[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
@@ -559,14 +568,11 @@ impl SceneGraph {
         coord: &Coordinate,
         root: NodeId,
         count: PosQueryCount,
-    ) -> Result<Vec<(&Node, f32)>> {
-        match &self.node(root)?.pos_index {
+    ) -> Result<Vec<(NodeId, f32)>> {
+        Ok(match &self.node(root)?.pos_index {
             Some(pos_index) => pos_index.nearest_nodes(coord, count),
             None => self.pos_subtree(root).nearest_nodes(coord, count),
-        }
-        .into_iter()
-        .map(|(id, distance)| Ok((self.node(id)?, distance)))
-        .collect()
+        })
     }
 
     /// Get List of all edges matching a specific description.
@@ -979,7 +985,7 @@ mod test {
         let nearest = sg.nearest_in_subtree(&query_coord, m0_id, PosQueryCount::Count(1))?;
         assert_eq!(nearest.len(), 1);
         assert_eq!(
-            nearest[0].0.coordinates.unwrap(),
+            sg.node(nearest[0].0)?.coordinates.unwrap(),
             Coordinate::new(0.0, 0.0, 0.0)
         );
 
@@ -990,7 +996,7 @@ mod test {
             sg.nearest_in_subtree(&query_coord, m0_id, PosQueryCount::Count(1))?;
         assert_eq!(nearest_after_deletion.len(), 1);
         assert_ne!(
-            nearest_after_deletion[0].0.coordinates.unwrap(),
+            sg.node(nearest_after_deletion[0].0)?.coordinates.unwrap(),
             Coordinate::new(0.0, 0.0, 0.0)
         );
 

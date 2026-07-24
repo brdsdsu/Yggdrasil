@@ -1,4 +1,5 @@
 use crate::error::Result;
+use crate::lazylist::PyLazyNodeDistPairList;
 use crate::node::{PyAnonNode, PyEdge, PyNodeId, PyNodeRef};
 use glam::Vec3;
 
@@ -78,15 +79,15 @@ impl PyLayerRef {
         &self,
         coord: (f32, f32, f32),
         count: PyPosQueryCount,
-    ) -> Vec<(PyNodeRef, f32)> {
+    ) -> PyLazyNodeDistPairList {
         let (x, y, z) = coord;
-        self.sg
-            .lock()
-            .unwrap()
-            .nearest_nodes(&Coordinate::new(x, y, z), count.into())
-            .into_iter()
-            .map(|(n, d)| (PyNodeRef::new(Arc::clone(&self.sg), n.id), d))
-            .collect::<Vec<_>>()
+        PyLazyNodeDistPairList::new(
+            Arc::clone(&self.sg),
+            self.sg
+                .lock()
+                .unwrap()
+                .nearest_nodes(&Coordinate::new(x, y, z), count.into()),
+        )
     }
 
     /// Retrieve at most `count` nodes within a specified radius to the given position.
@@ -96,15 +97,15 @@ impl PyLayerRef {
         coord: (f32, f32, f32),
         radius: f32,
         count: PyPosQueryCount,
-    ) -> Vec<(PyNodeRef, f32)> {
+    ) -> PyLazyNodeDistPairList {
         let (x, y, z) = coord;
-        self.sg
-            .lock()
-            .unwrap()
-            .nodes_within(&Coordinate::new(x, y, z), radius, count.into())
-            .into_iter()
-            .map(|(n, d)| (PyNodeRef::new(Arc::clone(&self.sg), n.id), d))
-            .collect::<Vec<_>>()
+        PyLazyNodeDistPairList::new(
+            Arc::clone(&self.sg),
+            self.sg
+                .lock()
+                .unwrap()
+                .nodes_within(&Coordinate::new(x, y, z), radius, count.into()),
+        )
     }
 
     /// Get List of all nodes in the layer.

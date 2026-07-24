@@ -206,14 +206,11 @@ impl Layer {
         &self,
         pos: &super::Coordinate,
         count: PosQueryCount,
-    ) -> Vec<(&Node, f32)> {
+    ) -> Vec<(NodeId, f32)> {
         match &self.pos_index {
             Some(pos_index) => pos_index.nearest_nodes(pos, count),
             None => self.nodes.nearest_nodes(pos, count),
         }
-        .into_iter()
-        .filter_map(|(id, dist)| self.node(id).map(|node| (node, dist)).ok())
-        .collect()
     }
 
     /// Retrieve at most `count` nodes within a specified radius to the given position.
@@ -223,14 +220,11 @@ impl Layer {
         pos: &super::Coordinate,
         radius: f32,
         count: PosQueryCount,
-    ) -> Vec<(&Node, f32)> {
+    ) -> Vec<(NodeId, f32)> {
         match &self.pos_index {
             Some(pos_index) => pos_index.nodes_within(pos, radius, count),
             None => self.nodes.nodes_within(pos, radius, count),
         }
-        .into_iter()
-        .filter_map(|(id, dist)| self.node(id).map(|node| (node, dist)).ok())
-        .collect()
     }
 }
 
@@ -497,7 +491,7 @@ mod test {
     }
 
     #[test]
-    fn nearest_query() {
+    fn nearest_query() -> Result<()> {
         let mut l = Layer::with_pos_index(0);
         assert!(l.pos_index.is_some());
 
@@ -517,9 +511,11 @@ mod test {
         let nearest_nodes = l.nearest_nodes(&query_pos, PosQueryCount::Count(3));
         assert_eq!(nearest_nodes.len(), 3);
         // first 3 nearest nodes should be [1.0,1.0,1.0], [0.0,0.0,0.0], [2.0,2.0,2.0]
-        assert_eq!(nearest_nodes[0].0.coordinates.unwrap(), pts[1]);
-        assert_eq!(nearest_nodes[1].0.coordinates.unwrap(), pts[0]);
-        assert_eq!(nearest_nodes[2].0.coordinates.unwrap(), pts[2]);
+        assert_eq!(l.node(nearest_nodes[0].0)?.coordinates.unwrap(), pts[1]);
+        assert_eq!(l.node(nearest_nodes[1].0)?.coordinates.unwrap(), pts[0]);
+        assert_eq!(l.node(nearest_nodes[2].0)?.coordinates.unwrap(), pts[2]);
+
+        Ok(())
     }
 
     #[test]
