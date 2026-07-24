@@ -113,7 +113,6 @@ impl PositionQuery for Vec<Node> {
                 distances
                     .into_iter()
                     .map(|(node, dist)| (node.id, dist))
-                    .map(|(id, d)| (id, d.sqrt()))
                     .take(c)
                     .collect()
             }
@@ -154,7 +153,7 @@ impl PositionQuery for Vec<(Coordinate, NodeId)> {
             PosQueryCount::All => {
                 let mut distances: Vec<(NodeId, f32)> = self
                     .iter()
-                    .map(|(c, id)| (*id, c.distance_squared(*pos)))
+                    .map(|(c, id)| (*id, c.distance_squared(*pos).sqrt()))
                     .collect();
                 distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
                 distances
@@ -182,9 +181,8 @@ impl PositionQuery for Vec<(Coordinate, NodeId)> {
         let count = count.as_capped_usize();
         let mut distances = self
             .iter()
-            .map(|(c, id)| (*id, c.distance_squared(*pos)))
-            .map(|(id, d)| (id, d.sqrt()))
-            .filter(|(_, d)| *d <= radius * radius)
+            .map(|(c, id)| (*id, c.distance(*pos)))
+            .filter(|(_, d)| *d <= radius)
             .collect::<Vec<_>>();
         distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         distances.into_iter().take(count).collect::<Vec<_>>()
@@ -261,12 +259,12 @@ mod test {
         let got = nodes.nearest_nodes(&Coordinate::ZERO, PosQueryCount::Count(3));
 
         let distances = got.iter().map(|(_, d)| *d).collect::<Vec<_>>();
-        assert_eq!(distances, vec![4.0, 9.0, 16.0]);
+        assert_eq!(distances, vec![3.0, 4.0, 5.0]);
 
         let got = nodes.nearest_nodes(&Coordinate::ZERO, PosQueryCount::All);
 
         let distances = got.iter().map(|(_, d)| *d).collect::<Vec<_>>();
-        assert_eq!(distances, vec![4.0, 9.0, 16.0]);
+        assert_eq!(distances, vec![3.0, 4.0, 5.0]);
     }
 
     #[test]
