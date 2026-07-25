@@ -33,38 +33,3 @@ impl NodeId {
     }
 }
 
-impl num_traits::Zero for NodeId {
-    fn zero() -> Self {
-        NodeId(0)
-    }
-
-    fn is_zero(&self) -> bool {
-        self.0 == 0
-    }
-}
-
-impl num_traits::One for NodeId {
-    fn one() -> Self {
-        NodeId(1)
-    }
-}
-
-impl std::ops::Add<NodeId> for NodeId {
-    type Output = NodeId;
-
-    fn add(self, other: NodeId) -> NodeId {
-        NodeId(self.0 + other.0)
-    }
-}
-impl std::ops::Mul<NodeId> for NodeId {
-    type Output = NodeId;
-
-    fn mul(self, other: NodeId) -> NodeId {
-        NodeId(self.0 * other.0)
-    }
-}
-impl std::ops::SubAssign<NodeId> for NodeId {
-    fn sub_assign(&mut self, other: NodeId) {
-        self.0 -= other.0;
-    }
-}

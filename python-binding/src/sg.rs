@@ -152,8 +152,8 @@ impl PySceneGraphRef {
     /// // Create a layer and add nodes to it
     /// sg.new_layer();
     /// sg.new_layer();
-    /// sg.layer_mut(0).unwrap().push_node(node1);
-    /// sg.layer_mut(1).unwrap().push_node(node2);
+    /// sg.layer_mut(0).unwrap().push_node(node1).unwrap();
+    /// sg.layer_mut(1).unwrap().push_node(node2).unwrap();
     ///
     /// // Nest node1 under node2
     /// sg.nest(id1).under(id2).unwrap();
@@ -237,9 +237,9 @@ impl PySceneGraphRef {
     ///
     /// // Create a layer and add nodes to it
     /// sg.new_indexed_layer();
-    /// sg.layer_mut(0).unwrap().push_node(n1);
-    /// sg.layer_mut(0).unwrap().push_node(n2);
-    /// sg.layer_mut(0).unwrap().push_node(n3);
+    /// sg.layer_mut(0).unwrap().push_node(n1).unwrap();
+    /// sg.layer_mut(0).unwrap().push_node(n2).unwrap();
+    /// sg.layer_mut(0).unwrap().push_node(n3).unwrap();
     ///
     /// let coord = Coordinate::new(0.6, 0.6, 0.6);
     /// let nearest_nodes = sg.nearest_nodes(&coord, PosQueryCount::Count(2));
@@ -278,9 +278,9 @@ impl PySceneGraphRef {
     ///
     /// // Create a layer and add nodes to it
     /// sg.new_indexed_layer();
-    /// sg.layer_mut(0).unwrap().push_node(n1);
-    /// sg.layer_mut(0).unwrap().push_node(n2);
-    /// sg.layer_mut(0).unwrap().push_node(n3);
+    /// sg.layer_mut(0).unwrap().push_node(n1).unwrap();
+    /// sg.layer_mut(0).unwrap().push_node(n2).unwrap();
+    /// sg.layer_mut(0).unwrap().push_node(n3).unwrap();
     ///
     /// let coord = Coordinate::new(0.3, 0.3, 0.3);
     /// let nodes_within_radius = sg.nodes_within(&coord, 2.0, PosQueryCount::All);
@@ -324,15 +324,15 @@ impl PySceneGraphRef {
     ///
     /// // Create a layer and add nodes to it
     /// sg.new_indexed_layer();
-    /// sg.layer_mut(0).unwrap().push_node(n1);
-    /// sg.layer_mut(0).unwrap().push_node(n2);
-    /// sg.layer_mut(0).unwrap().push_node(n3);
+    /// sg.layer_mut(0).unwrap().push_node(n1).unwrap();
+    /// sg.layer_mut(0).unwrap().push_node(n2).unwrap();
+    /// sg.layer_mut(0).unwrap().push_node(n3).unwrap();
     ///
     /// // create new semantic layer and nest all nodes under a new parent node
     /// sg.new_layer();
     /// let parent_node = sg.new_indexed_node(vec![]);
     /// let pid = parent_node.id;
-    /// sg.top_layer_mut().unwrap().push_node(parent_node);
+    /// sg.top_layer_mut().unwrap().push_node(parent_node).unwrap();
     /// sg.nest(n1_id).under(pid).unwrap();
     /// sg.nest(n2_id).under(pid).unwrap();
     /// sg.nest(n3_id).under(pid).unwrap();

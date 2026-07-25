@@ -1,10 +1,33 @@
 use std::num::NonZero;
 
-use kiddo::{SquaredEuclidean, float::kdtree::KdTree, traits::DistanceMetric};
+use kiddo::{Eytzinger, KdTree, SquaredEuclidean, VecOfArrays, dist::DistanceMetricScalar};
 
 use crate::NodeId;
 
 use super::{Coordinate, Node};
+
+/// Bucket size of the position index: the maximum number of points a single leaf of the
+/// kd-tree holds before it is split.
+///
+/// This is a deliberate memory-versus-latency choice made by this crate, not a tuning knob
+/// the tree is free to change on its own: leaves are fixed-size arrays, so every leaf costs
+/// this many slots regardless of how many are occupied. Position indexing is opt-in
+/// precisely so that a caller can decide to pay for it.
+pub(crate) const POS_INDEX_BUCKET_SIZE: usize = 128;
+
+/// The kd-tree configuration backing every position index in this crate.
+///
+/// `Eytzinger` is the breadth-first stem layout, and `VecOfArrays` is the mutable leaf
+/// strategy, which is what makes incremental `add`/`remove` available — the position
+/// indexes are maintained point by point as the graph changes, never rebuilt in bulk.
+pub(crate) type PosIndex = KdTree<
+    f32,
+    NodeId,
+    Eytzinger,
+    VecOfArrays<f32, NodeId, 3, POS_INDEX_BUCKET_SIZE>,
+    3,
+    POS_INDEX_BUCKET_SIZE,
+>;
 
 /// Specifies the number of nodes to return in position-based queries.
 #[derive(Debug, Clone, Copy)]
@@ -17,10 +40,10 @@ pub enum PosQueryCount {
 
 impl PosQueryCount {
     /// Convert to usize, capping at the provided maximum value.
-    pub(crate) fn as_capped_usize(&self) -> usize {
+    pub(crate) fn capped_with(&self, cap: usize) -> usize {
         match self {
-            PosQueryCount::All => usize::MAX,
-            PosQueryCount::Count(k) => *k,
+            PosQueryCount::All => cap,
+            PosQueryCount::Count(k) => std::cmp::min(*k, cap),
         }
     }
 }
@@ -39,15 +62,23 @@ pub(crate) trait PositionQuery {
     ) -> Vec<(NodeId, f32)>;
 }
 
-impl PositionQuery for KdTree<f32, NodeId, 3, 128, u32> {
+impl PositionQuery for PosIndex {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)> {
         match count {
             PosQueryCount::All => {
+                let query: [f32; 3] = (*pos).into();
                 let mut distances: Vec<_> = self
                     .iter()
-                    .map(|(id, coords)| (id, SquaredEuclidean::dist(&coords, &(*pos).into())))
+                    .map(|(id, coords)| {
+                        (
+                            id,
+                            <SquaredEuclidean<f32> as DistanceMetricScalar<f32>>::dist(
+                                &coords, &query,
+                            ),
+                        )
+                    })
                     .map(|(id, d)| (id, d.sqrt()))
                     .collect();
 
@@ -55,9 +86,13 @@ impl PositionQuery for KdTree<f32, NodeId, 3, 128, u32> {
                 distances
             }
             PosQueryCount::Count(_) => {
-                let count = count.as_capped_usize();
-                let results = self.nearest_n::<SquaredEuclidean>(&(*pos).into(), count);
-                results
+                let count = match NonZero::new(count.capped_with(self.size())) {
+                    Some(c) => c,
+                    None => return Vec::new(),
+                };
+                self.query(&(*pos).into())
+                    .nearest_n::<SquaredEuclidean<f32>>(count)
+                    .execute()
                     .into_iter()
                     .map(|n| (n.item, n.distance.sqrt()))
                     .collect()
@@ -73,13 +108,24 @@ impl PositionQuery for KdTree<f32, NodeId, 3, 128, u32> {
         radius: f32,
         count: PosQueryCount,
     ) -> Vec<(NodeId, f32)> {
-        let count = count.as_capped_usize();
-        let results = self.nearest_n_within::<SquaredEuclidean>(
-            &(*pos).into(),
-            radius * radius,
-            unsafe { NonZero::new_unchecked(std::cmp::max(1, count)) },
-            false,
-        );
+        // Distance is SquaredEuclidean<f32>, so we need to square the radius for the query.
+        let radius_squared = radius * radius;
+        let results = match count {
+            PosQueryCount::All => self
+                .query(&(*pos).into())
+                .within::<SquaredEuclidean<f32>>(radius_squared)
+                .execute(),
+            PosQueryCount::Count(_) => {
+                let count = match NonZero::new(count.capped_with(self.size())) {
+                    Some(count) => count,
+                    None => return Vec::new(),
+                };
+                self.query(&(*pos).into())
+                    .nearest_n::<SquaredEuclidean<f32>>(count)
+                    .within(radius_squared)
+                    .execute()
+            }
+        };
         results
             .into_iter()
             .map(|n| (n.item, n.distance.sqrt()))
@@ -127,7 +173,7 @@ impl PositionQuery for Vec<Node> {
         radius: f32,
         count: PosQueryCount,
     ) -> Vec<(NodeId, f32)> {
-        let count = count.as_capped_usize();
+        let count = count.capped_with(self.len());
         let mut distances = self
             .iter()
             .filter(|n| n.coordinates.is_some())
@@ -178,7 +224,7 @@ impl PositionQuery for Vec<(Coordinate, NodeId)> {
         radius: f32,
         count: PosQueryCount,
     ) -> Vec<(NodeId, f32)> {
-        let count = count.as_capped_usize();
+        let count = count.capped_with(self.len());
         let mut distances = self
             .iter()
             .map(|(c, id)| (*id, c.distance(*pos)))
@@ -220,11 +266,11 @@ mod test {
             .collect()
     }
 
-    /// Convert 1D points into KdTree<f32, NodeId, 3, 128, u32> with generated ids
-    fn as_kdtree(xs: &[f32]) -> KdTree<f32, NodeId, 3, 128, u32> {
-        let mut tree = KdTree::new();
+    /// Convert 1D points into a [`PosIndex`] with generated ids
+    fn as_kdtree(xs: &[f32]) -> PosIndex {
+        let mut tree = PosIndex::default();
         for (i, x) in xs.iter().enumerate() {
-            tree.add(&[*x, 0.0, 0.0], nid(i));
+            tree.add(&[*x, 0.0, 0.0], nid(i)).unwrap();
         }
         tree
     }

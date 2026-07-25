@@ -9,8 +9,7 @@ path = "examples/demo.rs"
 
 [dependencies]
 glam = { version = "0.30.9", features = ["serde"] }
-kiddo = "5.2.3"
-num-traits = "0.2.19"
+kiddo = "6.0.0-alpha.3"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
 
