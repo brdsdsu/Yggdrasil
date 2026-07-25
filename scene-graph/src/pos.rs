@@ -204,7 +204,7 @@ mod test {
         Coordinate::new(x, 0.0, 0.0)
     }
 
-    /// The `Vec<Node>` backend, used by a `Layer` created without a position index.
+    /// Converts 1D points into Vec<Node> with generated ids
     fn as_nodes(xs: &[f32]) -> Vec<Node> {
         xs.iter()
             .enumerate()
@@ -212,8 +212,7 @@ mod test {
             .collect()
     }
 
-    /// The `Vec<(Coordinate, NodeId)>` backend, used by `nearest_in_subtree` when the
-    /// root node has no position index (via `SceneGraph::pos_subtree`).
+    /// Converts 1D points into Vec<(Coordinate, NodeId)> with generated ids
     fn as_coords(xs: &[f32]) -> Vec<(Coordinate, NodeId)> {
         xs.iter()
             .enumerate()
@@ -221,8 +220,7 @@ mod test {
             .collect()
     }
 
-    /// The kd-tree backend, used by indexed layers and indexed nodes. Treated as the
-    /// reference implementation that the other two backends must match.
+    /// Convert 1D points into KdTree<f32, NodeId, 3, 128, u32> with generated ids
     fn as_kdtree(xs: &[f32]) -> KdTree<f32, NodeId, 3, 128, u32> {
         let mut tree = KdTree::new();
         for (i, x) in xs.iter().enumerate() {
