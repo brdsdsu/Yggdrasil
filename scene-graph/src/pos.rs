@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use kiddo::{Eytzinger, KdTree, SquaredEuclidean, VecOfArrays, dist::DistanceMetricScalar};
+use spatial_index::{Eytzinger, KdTree, SquaredEuclidean, VecOfArrays, dist::DistanceMetricScalar};
 
 use crate::NodeId;
 
@@ -232,6 +232,130 @@ impl PositionQuery for Vec<(Coordinate, NodeId)> {
             .collect::<Vec<_>>();
         distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         distances.into_iter().take(count).collect::<Vec<_>>()
+    }
+}
+
+/// Characterization tests for the coplanar-split defect.
+///
+/// The kd-tree picks the axis it splits a full leaf on by cycling with tree depth. When a
+/// leaf fills up with points that all share one value on the cycled axis, there is no pivot
+/// to split at and the insert is refused. Coplanarity is not an exotic input for this crate:
+/// reconstructed indoor geometry snapped to a voxel lattice puts thousands of points on a
+/// single floor, wall, or ceiling plane, far past a 128-point bucket.
+///
+/// These tests assert the behaviour as it stands today, so they are a record of the defect
+/// rather than a statement of intent. **They are expected to fail once the split axis is
+/// chosen adaptively**, which is the point: that is when they get rewritten into the
+/// acceptance tests that assert the inserts succeed and the queries agree with brute force.
+#[cfg(test)]
+mod coplanar_defect {
+    use super::*;
+    use crate::layer::Layer;
+    use crate::node::AnonNode;
+
+    /// Feed `points` into a fresh index one at a time, reporting how many landed before the
+    /// tree refused one, and the axis it gave up on.
+    fn insert_until_refused(points: &[[f32; 3]]) -> (usize, Option<usize>) {
+        let mut tree = PosIndex::default();
+        for (i, p) in points.iter().enumerate() {
+            if let Err(spatial_index::kd_tree::ConstructionError::UnsplittableBucket { split_dim }) =
+                tree.add(p, NodeId::new(i as u32, 0))
+            {
+                return (i, Some(split_dim));
+            }
+        }
+        (points.len(), None)
+    }
+
+    /// Points spread over x and y but sharing one z: the shape of a single ceiling plane.
+    /// Splits on x and y succeed, so the tree absorbs well over a bucket's worth before the
+    /// cycle reaches z and finds nothing to split on.
+    #[test]
+    fn coplanar_plane_is_refused_on_the_shared_axis() {
+        let plane: Vec<[f32; 3]> = (0..500)
+            .map(|i| [(i % 25) as f32 * 0.05, (i / 25) as f32 * 0.05, 3.85])
+            .collect();
+
+        let (accepted, split_dim) = insert_until_refused(&plane);
+
+        assert_eq!(split_dim, Some(2), "must give up on z, the shared axis");
+        assert_eq!(accepted, 348, "insert #348 of 500 is refused");
+    }
+
+    /// Fully degenerate input: no axis has any spread, so the refusal lands exactly at
+    /// bucket capacity — the first insert that would require a split.
+    #[test]
+    fn identical_points_are_refused_at_bucket_capacity() {
+        let (accepted, split_dim) = insert_until_refused(&[[1.0, 2.0, 3.0]; 300]);
+
+        assert_eq!(split_dim, Some(0));
+        assert_eq!(
+            accepted, POS_INDEX_BUCKET_SIZE,
+            "the bucket fills, then the very next insert has nowhere to go"
+        );
+    }
+
+    /// The realistic shape: a room on a 0.05 m lattice, floor plus two walls. Each surface
+    /// is one plane holding thousands of points, and the tree stops 208 points into 12,800.
+    #[test]
+    fn quantized_lattice_room_is_refused() {
+        let mut room: Vec<[f32; 3]> = Vec::new();
+        for i in 0..80 {
+            for j in 0..80 {
+                room.push([i as f32 * 0.05, 0.0, j as f32 * 0.05]);
+            }
+        }
+        for i in 0..80 {
+            for k in 0..40 {
+                room.push([i as f32 * 0.05, k as f32 * 0.05, 0.0]);
+                room.push([0.0, k as f32 * 0.05, i as f32 * 0.05]);
+            }
+        }
+
+        let (accepted, split_dim) = insert_until_refused(&room);
+
+        assert_eq!(split_dim, Some(1), "the floor plane's constant axis");
+        assert_eq!(accepted, 208, "208 of {} points accepted", room.len());
+    }
+
+    /// The same defect as the caller sees it: an indexed layer cannot hold a coplanar patch,
+    /// and reports it as a failed insert rather than silently dropping the node.
+    #[test]
+    fn indexed_layer_refuses_coplanar_geometry() {
+        let mut layer = Layer::with_pos_index(0);
+
+        let outcome = (0..500).try_for_each(|i| {
+            let pos = Coordinate::new((i % 25) as f32 * 0.05, (i / 25) as f32 * 0.05, 3.85);
+            layer
+                .push_node(AnonNode::new(i as u32, Vec::new(), Some(pos), false, None))
+                .map(|_| ())
+        });
+
+        assert!(matches!(
+            outcome,
+            Err(crate::error::SceneGraphError::PosIndexInsertion(_))
+        ));
+        // The refused node is not left half-inserted: the layer holds exactly what the
+        // index accepted.
+        assert_eq!(layer.all_nodes().len(), 348);
+    }
+
+    /// The unindexed backends handle the same geometry without complaint, which is what
+    /// makes this specifically a defect in the feature meant to make large graphs fast.
+    #[test]
+    fn unindexed_backends_accept_the_same_geometry() {
+        let mut layer = Layer::new(0);
+
+        for i in 0..500 {
+            let pos = Coordinate::new((i % 25) as f32 * 0.05, (i / 25) as f32 * 0.05, 3.85);
+            layer
+                .push_node(AnonNode::new(i as u32, Vec::new(), Some(pos), false, None))
+                .expect("an unindexed layer has no bucket to split");
+        }
+
+        assert_eq!(layer.all_nodes().len(), 500);
+        let found = layer.nearest_nodes(&Coordinate::new(0.0, 0.0, 3.85), PosQueryCount::Count(4));
+        assert_eq!(found.len(), 4);
     }
 }
 
