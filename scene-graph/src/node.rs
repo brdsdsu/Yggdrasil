@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use serde::{Deserialize, Serialize};
 
 use crate::Bounds;
@@ -16,8 +14,7 @@ use super::pos::PosIndex;
 /// Each node can hold a set of features, which are key-value pairs that provide additional
 /// information about the node. Nodes also support storeing 3D coordinates which can be used for
 /// Field-of-View calculations or spatial queries.
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     /// Unique identifier for the node which also holds the layer information.
     pub id: NodeId,
@@ -38,34 +35,6 @@ pub struct Node {
     /// Optional bounds for the node and all the nodes nested in it's subtree.
     /// This can be used for spatial queries and optimizations.
     pub bounds: Option<Bounds>,
-}
-
-impl Clone for Node {
-    fn clone(&self) -> Self {
-        Self {
-            id: self.id,
-            pid: self.pid,
-            children: self.children.clone(),
-            edges: self.edges.clone(),
-            features: self.features.clone(),
-            coordinates: self.coordinates,
-            pos_index: None, // Do not clone the pos_index
-            bounds: self.bounds,
-        }
-    }
-}
-impl Debug for Node {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Node")
-            .field("id", &self.id)
-            .field("pid", &self.pid)
-            .field("children", &self.children)
-            .field("edges", &self.edges)
-            .field("features", &self.features)
-            .field("coordinates", &self.coordinates)
-            .field("bounds", &self.bounds)
-            .finish()
-    }
 }
 
 impl Node {
@@ -219,8 +188,7 @@ impl Edge {
 /// Field-of-View calculations or spatial queries.
 ///
 /// Nodes Id will only be available after it is pushed into a layer in the scene graph.
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnonNode {
     /// Unique identifier for the node.
     pub(crate) id: u32,
@@ -236,30 +204,6 @@ pub struct AnonNode {
     pub(crate) pos_index: Option<PosIndex>,
     /// Optional bounding box for the node, which can be used for spatial queries and optimizations.
     pub bounds: Option<Bounds>,
-}
-
-impl Clone for AnonNode {
-    fn clone(&self) -> Self {
-        Self {
-            id: self.id,
-            pid: self.pid,
-            features: self.features.clone(),
-            coordinates: self.coordinates,
-            pos_index: None, // Do not clone the pos_index
-            bounds: self.bounds,
-        }
-    }
-}
-impl Debug for AnonNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Node")
-            .field("id", &self.id)
-            .field("pid", &self.pid)
-            .field("features", &self.features)
-            .field("coordinates", &self.coordinates)
-            .field("bounds", &self.bounds)
-            .finish()
-    }
 }
 
 impl AnonNode {

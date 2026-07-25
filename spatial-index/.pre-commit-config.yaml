@@ -1,0 +1,98 @@
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+  - commit-msg
+
+repos:
+  - repo: builtin
+    hooks:
+      # File checking hooks
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-case-conflict
+      - id: check-json
+        exclude: '^renovate\.json$'
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-xml
+      - id: check-yaml
+      - id: check-executables-have-shebangs
+      - id: check-symlinks
+
+      # Security hooks
+      - id: detect-private-key
+
+      # File fixing hooks
+      - id: end-of-file-fixer
+      - id: fix-byte-order-marker
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: trailing-whitespace
+        args: ["--markdown-linebreak-ext=md"]
+
+  - repo: https://github.com/ComPWA/taplo-pre-commit
+    rev: v0.9.3
+    hooks:
+      - id: taplo-format
+        args: ["--check"]
+        files: '^[^/]+\.toml$'
+        stages: [pre-commit, pre-push]
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        files: '^\.github/workflows/.*\.ya?ml$'
+        stages: [pre-commit, pre-push]
+
+  - repo: local
+    hooks:
+      - id: commitlint
+        name: commitlint
+        entry: commitlint --config .commitlintrc.yaml --edit
+        language: node
+        additional_dependencies:
+          - "@commitlint/cli"
+          - "@commitlint/config-conventional"
+        stages: [commit-msg]
+      - id: prettier-check-text
+        name: prettier --check (yaml, markdown)
+        entry: prettier
+        args: ["--check"]
+        language: node
+        additional_dependencies:
+          - prettier
+        files: '(^\.github/workflows/.*\.ya?ml$|^[^/]+\.ya?ml$|\.md$)'
+        stages: [pre-commit, pre-push]
+
+      - id: cargo-fmt-check
+        name: cargo fmt --all -- --check
+        entry: cargo fmt --all -- --check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, pre-push]
+
+      - id: cargo-sort-check
+        name: cargo sort -cwg
+        entry: cargo sort -cwg
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, pre-push]
+
+      - id: cargo-machete
+        name: cargo machete
+        entry: cargo machete
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, pre-push]
+
+      - id: cargo-clippy
+        name: cargo clippy --features=serde,test_utils --no-deps
+        entry: cargo clippy --features=serde,test_utils --no-deps
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, pre-push]

@@ -1,0 +1,236 @@
+name: benchmark-suggestion
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  suggest-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Analyze PR for benchmark suggestion
+        uses: actions/github-script@v9
+        env:
+          BENCHMARK_COMMENT_MARKER: "<!-- kiddo-benchmark-suggestion -->"
+        with:
+          script: |
+            const marker = process.env.BENCHMARK_COMMENT_MARKER;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.pull_request.number;
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number,
+            });
+
+            if (pr.draft && context.payload.action !== "ready_for_review") {
+              core.info("Skipping draft pull request until it is ready for review.");
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number,
+              per_page: 100,
+            });
+
+            const changedFiles = files.map((file) => file.filename);
+
+            const benchmarkOptions = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: "AVAILABLE_CI_BENCHMARK_OPTIONS.md",
+              ref: pr.head.sha,
+            });
+
+            if (!("content" in benchmarkOptions.data)) {
+              core.setFailed("AVAILABLE_CI_BENCHMARK_OPTIONS.md could not be read as a file.");
+              return;
+            }
+
+            const benchmarkOptionsText = Buffer.from(
+              benchmarkOptions.data.content,
+              "base64"
+            ).toString("utf8");
+
+            const yamlMatch = benchmarkOptionsText.match(/```yaml\n([\s\S]*?)\n```/);
+            if (!yamlMatch) {
+              core.setFailed(
+                "AVAILABLE_CI_BENCHMARK_OPTIONS.md does not contain a parseable YAML code block."
+              );
+              return;
+            }
+
+            const parseRules = (yamlText) => {
+              const rules = [];
+              let currentRule = null;
+              let inMatchAny = false;
+
+              for (const rawLine of yamlText.split("\n")) {
+                const line = rawLine.replace(/\s+$/, "");
+
+                if (line === "" || line === "rules:") {
+                  continue;
+                }
+
+                const commandMatch = line.match(/^  - command:\s*(.+)$/);
+                if (commandMatch) {
+                  currentRule = {
+                    command:
+                      commandMatch[1] === "null" ? null : commandMatch[1],
+                    reason: "",
+                    match_any: [],
+                  };
+                  rules.push(currentRule);
+                  inMatchAny = false;
+                  continue;
+                }
+
+                if (currentRule === null) {
+                  throw new Error(`Unexpected line before first rule: ${line}`);
+                }
+
+                const reasonMatch = line.match(/^    reason:\s*(.+)$/);
+                if (reasonMatch) {
+                  currentRule.reason = reasonMatch[1];
+                  inMatchAny = false;
+                  continue;
+                }
+
+                if (line === "    match_any:") {
+                  inMatchAny = true;
+                  continue;
+                }
+
+                const patternMatch = line.match(/^      -\s*(.+)$/);
+                if (patternMatch && inMatchAny) {
+                  const pattern = patternMatch[1].replace(/^"(.*)"$/, "$1");
+                  currentRule.match_any.push(pattern);
+                  continue;
+                }
+
+                throw new Error(`Could not parse rule line: ${line}`);
+              }
+
+              return rules;
+            };
+
+            let rules;
+            try {
+              rules = parseRules(yamlMatch[1]);
+            } catch (error) {
+              core.setFailed(`Failed to parse benchmark options YAML: ${error.message}`);
+              return;
+            }
+
+            if (rules.length === 0) {
+              core.setFailed("No benchmark suggestion rules were found.");
+              return;
+            }
+
+            const escapeRegex = (value) =>
+              value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+
+            const globToRegExp = (glob) => {
+              let pattern = escapeRegex(glob);
+              pattern = pattern.replace(/\*\*/g, "::DOUBLE_STAR::");
+              pattern = pattern.replace(/\*/g, "[^/]*");
+              pattern = pattern.replace(/::DOUBLE_STAR::/g, ".*");
+              return new RegExp(`^${pattern}$`);
+            };
+
+            const matchers = rules.map((rule, index) => {
+              if (!Array.isArray(rule?.match_any) || rule.match_any.length === 0) {
+                throw new Error(`Rule ${index + 1} is missing match_any patterns.`);
+              }
+
+              return {
+                command: rule.command ?? null,
+                reason:
+                  typeof rule.reason === "string"
+                    ? rule.reason.trim()
+                    : "Potential impact area matches this benchmark rule.",
+                patterns: rule.match_any.map((pattern) => ({
+                  raw: pattern,
+                  regex: globToRegExp(pattern),
+                })),
+              };
+            });
+
+            const matchedRule = matchers.find((rule) =>
+              changedFiles.some((file) =>
+                rule.patterns.some((pattern) => pattern.regex.test(file))
+              )
+            );
+
+            if (!matchedRule) {
+              core.info("No benchmark suggestion rule matched.");
+              return;
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: pull_number,
+              per_page: 100,
+            });
+
+            const existingComment = comments.find(
+              (comment) =>
+                comment.user?.type === "Bot" &&
+                typeof comment.body === "string" &&
+                comment.body.includes(marker)
+            );
+
+            if (
+              matchedRule.command === null
+            ) {
+              if (existingComment) {
+                await github.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: existingComment.id,
+                });
+                core.info("Removed stale benchmark suggestion comment.");
+              } else {
+                core.info("No benchmark suggestion needed.");
+              }
+              return;
+            }
+
+            const body = [
+              marker,
+              "Performance impact looks plausible here.",
+              "",
+              `Suggested command: \`${matchedRule.command}\``,
+              "",
+              `Why: ${matchedRule.reason}`,
+              "",
+              "_This is an automated suggestion based on the PR diff and `AVAILABLE_CI_BENCHMARK_OPTIONS.md`._",
+            ].join("\n");
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existingComment.id,
+                body,
+              });
+              core.info("Updated existing benchmark suggestion comment.");
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull_number,
+                body,
+              });
+              core.info("Created benchmark suggestion comment.");
+            }

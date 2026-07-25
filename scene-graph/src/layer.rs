@@ -1,6 +1,5 @@
 use std::{
     collections::HashSet,
-    fmt::Debug,
     ops::{Deref, DerefMut},
 };
 
@@ -16,8 +15,7 @@ use super::{Edge, Node, NodeId, Observer};
 /// relationships with other layers in the Scene Graph.
 /// Each Layer is a well-defined Graph structure representing a specific aspect of the scene,
 /// such as semantic relationships or physical connections between objects.
-// #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Layer {
     /// Unique identifier for the layer.
     pub id: u32,
@@ -28,28 +26,6 @@ pub struct Layer {
     /// Optional spatial index for node positions.
     #[serde(skip)]
     pos_index: Option<PosIndex>,
-}
-
-// TODO: remove these when PosIndex is Clone and Debug
-impl Clone for Layer {
-    fn clone(&self) -> Self {
-        let pos_index = self.clone_pos_index_for(&self.nodes).unwrap_or(None);
-        Self {
-            id: self.id,
-            nodes: self.nodes.clone(),
-            children: self.children.clone(),
-            pos_index,
-        }
-    }
-}
-impl Debug for Layer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Layer")
-            .field("id", &self.id)
-            .field("nodes", &self.nodes)
-            .field("children", &self.children)
-            .finish()
-    }
 }
 
 /// Node Access and Modification

@@ -1,0 +1,7 @@
+ignore-not-existing: true
+branch: false
+output-type: lcov
+output-path: ./lcov.info
+ignore:
+  - "target/*"
+  - "src/test_utils.rs"
