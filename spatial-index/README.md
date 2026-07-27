@@ -83,6 +83,19 @@ as an omission, not a decision, and is the third thing worth reporting upstream.
 Without it `scene-graph` cannot derive `Clone`/`Debug` on `Layer` or `Node`, which
 `SceneGraph: Clone` depends on.
 
+### 4. Adaptive split-dimension selection
+
+The substantive change, documented in [`ADAPTIVE_SPLIT.md`](ADAPTIVE_SPLIT.md): a new
+`EytzingerAdaptive` stem strategy that picks a full leaf's split axis by widest spread and records
+it in the low bits of the split value, rather than deriving it from tree depth. Existing
+strategies are unaffected — the two trait hooks it needs default to current behaviour, and the
+policy is gated behind an opt-in associated const.
+
+One deliberate limitation: **bulk construction is refused for adaptive strategies**, returning
+`ConstructionError::AdaptiveSplitBulkBuildUnsupported`. The bulk builder partitions around a pivot
+before writing it, so it cannot record a dimension in that value without moving the plane off its
+own partition. Incremental `add` is unaffected, and is the only path `scene-graph` uses.
+
 ## Baseline
 
 Upstream's suite passes unmodified in this fork, and is the reference to re-run after every
@@ -99,10 +112,12 @@ cargo test -p spatial-index --features fuzz     # adds the randomised kd_tree_fu
    whose points all share one value on the cycled axis has no pivot and the insert is refused
    with `ConstructionError::UnsplittableBucket`. Voxel-quantized indoor geometry puts thousands
    of points on one plane, far past a 128-point bucket. Characterized by
-   `scene-graph/src/pos.rs::coplanar_defect`.
+   `scene-graph/src/pos.rs::coplanar_geometry`.
+   **Fixed** by deviation 4 below; verified in `bench/BASELINE.md`.
 2. **Ordered incremental inserts consume exponential memory.** Stems live in a flat array
    addressed by breadth-first position, so `stems.resize(stem_idx + 1, ..)` and
    `leaf_idx_map.resize(right_child_idx + 1, ..)` cost `~2^depth` slots. Spatially clustered
    insertion order deepens one path instead of broadening the tree: 528,826 real points in file
    order exceed 6 GB and get OOM-killed, while the *same* points shuffled build in 157 MB and
-   291 ms. Whether adaptive split selection bounds this is an open question, not an assumption.
+   291 ms. Adaptive split selection does **not** bound this: measured post-patch, the fork still exceeds a
+   1 GiB budget on clustered insertion order, marginally sooner than upstream. Out of scope.

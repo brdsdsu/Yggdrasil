@@ -65,10 +65,12 @@ actually did, including where it departed from the plan above.
 **`dim_packing`** — `dim_bits`/`dim_mask` as `const fn` of `K`, plus pack/unpack over one byte at
 a computed offset. Driven by the value's *width* only, since every axis type this crate supports
 keeps its fraction in the low-order bits, so no per-type `Axis` methods were needed. The
-dimension is stored **complemented**, which makes an all-ones low-bit pattern — what every
-`max_value()` filler has — decode to dimension 0 for every `K`. That removed both the range
-clamp and any change to the filler, and so removed the interaction with `Donnelly`'s
-`is_max_value` routing entirely.
+dimension is stored plainly, and `unpack_from` clamps the decode into range. An earlier draft
+stored it complemented, on the belief that every `max_value()` filler has all its low bits set;
+that is true for integer and fixed-point axes but **not** for floats, where `max_value()` is
+infinity and the mantissa is all zeros. No single encoding is safe for both families, so the
+clamp does the work — one comparison, and the filler is left untouched, which keeps `Donnelly`'s
+`is_max_value` routing working.
 
 **`grid_separator`** — given the pair a split brackets, returns an aligned value strictly between
 them, or `None` below one grid cell. Candidates are verified by value comparison rather than
@@ -89,6 +91,25 @@ sweep over gaps of 4..64 ULP pins the guarantee that a separator always exists b
   prove the wiring. That cannot work: the encoded value differs from the pivot by up to one grid
   cell, and `split_leaf` has already partitioned against the pivot, so the stored plane would sit
   off the partition and queries would lose points. Encoding and partitioning are inseparable.
+
+### Bulk construction is refused, not adapted
+
+`new_from_slice` / `new_from_source` / `new_from_entries` return
+`ConstructionError::AdaptiveSplitBulkBuildUnsupported` when the strategy sets
+`ADAPTIVE_SPLIT_DIM`, guarded in `new_from_source_with` just after the single-leaf early return —
+a tree with no stems has no dimension to record, so that case stays allowed.
+
+The reason it is refused rather than fixed: the bulk builder chooses a pivot from `sort_index`,
+partitions around it, and *then* writes it. Folding a dimension into the written value would move
+each plane up to one grid cell off the partition it was built from, so points would sit on the
+wrong side of their own split and queries would lose them. Making it correct needs the same
+grid-aligned bracketing the incremental split does — which is real work, not the two-line change
+an earlier draft of this file claimed.
+
+Refusing costs this workspace nothing: `scene-graph` maintains its indexes point by point through
+`add`, and never bulk-builds. The alternative — leaving it unencoded — would produce a tree that
+answers queries on arbitrary axes with no error at all, which is the exact failure this design
+exists to prevent.
 
 ### Remaining — one coherent change
 

@@ -14,6 +14,13 @@
 //! the choice, so this cursor reads it back out of the low bits of the split value — see
 //! [`crate::stem_strategy::dim_packing`] for the encoding.
 //!
+//! # Limitation: incremental construction only
+//!
+//! A tree using this strategy must be built with `add`. The bulk constructors refuse it with
+//! [`ConstructionError::AdaptiveSplitBulkBuildUnsupported`](crate::kd_tree::ConstructionError),
+//! because they partition around a pivot before writing it and so cannot record a dimension in
+//! that value without shifting the plane off its own partition.
+//!
 //! # Why the dimension is decoded on demand rather than cached
 //!
 //! [`StemStrategy::dim`] is not generic over the axis type, so it cannot interpret the bytes at

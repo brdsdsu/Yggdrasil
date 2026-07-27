@@ -53,6 +53,16 @@ pub enum ConstructionError {
         /// Human-readable type name of the generated item type.
         item_type: &'static str,
     },
+    /// FORK DEVIATION (see ADAPTIVE_SPLIT.md): a bulk constructor was used with a stem strategy
+    /// that records each stem's split dimension inside its split value.
+    ///
+    /// The bulk builder writes split values it has already partitioned around, so folding a
+    /// dimension into them afterwards would shift each plane off its own partition and lose
+    /// points at query time. Until it chooses grid-aligned planes the way the incremental split
+    /// does, building such a tree in bulk is refused rather than silently answering queries on
+    /// the wrong axis. Insert incrementally with `add` instead.
+    AdaptiveSplitBulkBuildUnsupported,
+
     /// A full mutable bucket could not be split without violating bucket semantics.
     UnsplittableBucket {
         /// Split dimension selected when the failure occurred.
@@ -69,6 +79,11 @@ impl std::fmt::Display for ConstructionError {
             } => write!(
                 f,
                 "cannot auto-generate {item_count} item indices for item type {item_type}"
+            ),
+            Self::AdaptiveSplitBulkBuildUnsupported => write!(
+                f,
+                "bulk construction is not supported for a stem strategy that packs split \
+                 dimensions into split values; insert incrementally with `add`"
             ),
             Self::UnsplittableBucket { split_dim } => {
                 write!(

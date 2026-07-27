@@ -425,7 +425,17 @@ where
         let leaf_node_count = item_count.div_ceil(B);
 
         if leaf_node_count < 2 {
+            // A single leaf has no stems, so there is no split dimension to record and nothing
+            // for an adaptive strategy to disagree with.
             return Self::new_from_source_no_stems_with(source, &axis_at, item_at);
+        }
+
+        // FORK DEVIATION (see ADAPTIVE_SPLIT.md): this builder writes split values it has already
+        // partitioned around, so it cannot fold a dimension into them without shifting each plane
+        // off its own partition. Refuse rather than build a tree whose queries would descend on
+        // the wrong axis and quietly return the wrong neighbours.
+        if SS::ADAPTIVE_SPLIT_DIM {
+            return Err(ConstructionError::AdaptiveSplitBulkBuildUnsupported);
         }
 
         let mut stems_depth: usize = leaf_node_count.next_power_of_two().ilog2() as usize;

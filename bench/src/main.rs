@@ -691,6 +691,14 @@ fn report(name: &str, n: usize, f: &Outcome, u: &Outcome, json: bool) {
                 pct(fb.bytes as f64, ub.bytes as f64)
             );
         }
+        // The fork refuses bulk construction with the adaptive cursor by design: that builder
+        // partitions before it writes, so it cannot record a split dimension in the value without
+        // shifting the plane off its own partition. `scene-graph` only ever inserts incrementally,
+        // so nothing is lost - but it means the bulk row is not comparable and is labelled rather
+        // than reported as a failure.
+        (Err(fe), _) if fe.contains("not supported") => {
+            println!("  bulk build       n/a for fork: adaptive splits require incremental insert")
+        }
         (Err(fe), Err(_)) => println!("  bulk build       both failed: {fe}"),
         (Ok(_), Err(ue)) => println!("  bulk build       fork ok, upstream failed: {ue}"),
         (Err(fe), Ok(_)) => println!("  bulk build       fork failed: {fe}, upstream ok"),
