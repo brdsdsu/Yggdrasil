@@ -466,6 +466,81 @@ mod coplanar_geometry {
     }
 }
 
+/// Scale test for the position index, at the size real scenes reach.
+///
+/// Nothing else in this crate builds an index this large: `parse/concept_graph.rs` puts its point
+/// cloud in an *unindexed* layer and `examples/demo.rs` uses 100 points, which is why the coplanar
+/// defect went unnoticed for so long. This is the test that would have caught it.
+#[cfg(test)]
+mod scale {
+    use super::*;
+    use crate::layer::Layer;
+    use crate::node::AnonNode;
+
+    /// Points on a 0.05 m lattice filling a room-sized volume, emitted in a scattered order.
+    ///
+    /// The order matters and is not incidental. Lattice points in scan order arrive spatially
+    /// clustered, which drives tree depth rather than breadth — and stems are addressed by
+    /// breadth-first position, so that costs `2^depth` slots and exhausts memory well before
+    /// 350,000 points. That is a separate, unfixed defect (see `bench/BASELINE.md`), so this test
+    /// deliberately interleaves the points instead of pretending it does not exist.
+    fn scattered_lattice(count: usize) -> Vec<Coordinate> {
+        // A stride coprime with the span walks every cell exactly once in a scattered order,
+        // which is deterministic without needing a PRNG.
+        const SPAN: usize = 71;
+        let cells = SPAN * SPAN * SPAN;
+        let stride = 47_351usize;
+        assert!(count <= cells);
+        (0..count)
+            .map(|i| {
+                let c = (i.wrapping_mul(stride)) % cells;
+                Coordinate::new(
+                    (c % SPAN) as f32 * 0.05,
+                    ((c / SPAN) % SPAN) as f32 * 0.05,
+                    ((c / SPAN / SPAN) % SPAN) as f32 * 0.05,
+                )
+            })
+            .collect()
+    }
+
+    /// Build an indexed layer of ~350,000 lattice points and query it.
+    ///
+    /// Slow in a debug build, so it is ignored by default:
+    /// `cargo test -p scene-graph --release -- --ignored`
+    #[test]
+    #[ignore = "350k inserts; run explicitly, ideally in release"]
+    fn indexed_layer_holds_350k_lattice_points() {
+        let points = scattered_lattice(350_000);
+        let mut layer = Layer::with_pos_index(0);
+
+        for (i, p) in points.iter().enumerate() {
+            layer
+                .push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None))
+                .unwrap_or_else(|e| panic!("insert {i} of {} refused: {e}", points.len()));
+        }
+        assert_eq!(layer.all_nodes().len(), points.len());
+
+        // A query at a lattice site must find that site at distance zero, and return neighbours in
+        // nondecreasing order of distance.
+        let probe = points[points.len() / 2];
+        let found = layer.nearest_nodes(&probe, PosQueryCount::Count(16));
+        assert_eq!(found.len(), 16);
+        assert!(found[0].1 <= 1e-6, "nearest to a lattice site is itself");
+        for w in found.windows(2) {
+            assert!(w[0].1 <= w[1].1 + 1e-6, "results not ordered by distance");
+        }
+
+        // And a radius query must agree with the same radius measured by brute force.
+        let radius = 0.12f32;
+        let within = layer.nodes_within(&probe, radius, PosQueryCount::All);
+        let expected = points
+            .iter()
+            .filter(|q| q.distance(probe) <= radius + 1e-6)
+            .count();
+        assert_eq!(within.len(), expected, "radius query lost or gained points");
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
