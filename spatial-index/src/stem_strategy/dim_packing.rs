@@ -92,6 +92,94 @@ pub unsafe fn unpack_from(ptr: *const u8, width: usize, mask: u8) -> usize {
     (!lsb & mask) as usize
 }
 
+/// Find a value carrying `dim` in its low bits that separates `lower` from `upper`, i.e. one
+/// satisfying `lower < separator <= upper`.
+///
+/// A leaf is split by sorting on the chosen axis and cutting between two adjacent distinct
+/// values; `lower` is the largest value that must stay left and `upper` the smallest that must
+/// go right. The stored split value has to be the one the partition is performed against, so it
+/// must be grid-aligned *and* still separate that pair — hence choosing it here rather than
+/// rounding a pivot afterwards, which would move points across the plane relative to where they
+/// were placed.
+///
+/// Returns `None` when the pair is too close together for a grid point to fall between them,
+/// i.e. when they differ by less than one grid cell. On coordinates quantised to any real-world
+/// lattice this does not arise: 4 ULP at a coordinate of 3.85 is 8.6e-7.
+///
+/// Candidates are checked by **value comparison** rather than derived by arithmetic on bit
+/// patterns. IEEE 754 orders negative floats in reverse of their bit patterns, so "round the bits
+/// down" moves the value down for positive coordinates and up for negative ones; verifying each
+/// candidate sidesteps that asymmetry entirely instead of encoding it in sign-dependent branches.
+#[inline]
+pub fn grid_separator<A: PartialOrd + Copy>(
+    lower: A,
+    upper: A,
+    width: usize,
+    dim: usize,
+    mask: u8,
+) -> Option<A> {
+    debug_assert!(lower < upper, "caller must bracket two distinct values");
+
+    if mask == 0 {
+        // K == 1: nothing is packed, so the upper value itself is already "aligned".
+        return Some(upper);
+    }
+
+    let cell = mask as i32 + 1;
+    let mut candidate = upper;
+    unsafe { pack_into((&mut candidate as *mut A).cast(), width, dim, mask) };
+
+    // Aligning `upper` moves it by less than one cell, in a direction that depends on its sign.
+    // Stepping one cell either way therefore covers every grid point that could lie in the
+    // interval, and the bounds check is what decides which is valid.
+    for step in [0i32, -cell, cell] {
+        let mut probe = candidate;
+        if step != 0 {
+            unsafe { offset_bits((&mut probe as *mut A).cast(), width, step) };
+            // Stepping must not disturb the packed bits.
+            debug_assert_eq!(
+                unsafe { unpack_from((&probe as *const A).cast(), width, mask) },
+                dim
+            );
+        }
+        if probe > lower && probe <= upper {
+            return Some(probe);
+        }
+    }
+
+    None
+}
+
+/// Add `delta` to the raw integer representation of the `width`-byte value at `ptr`.
+///
+/// Operates on the whole word rather than the least significant byte so that a step can carry
+/// across byte boundaries. `delta` is a multiple of the grid cell, so the packed low bits are
+/// preserved.
+///
+/// # Safety
+///
+/// `ptr` must be valid for reads and writes of `width` bytes, and `width` must be 2, 4 or 8.
+#[inline]
+unsafe fn offset_bits(ptr: *mut u8, width: usize, delta: i32) {
+    unsafe {
+        match width {
+            2 => {
+                let p = ptr.cast::<u16>();
+                *p = (*p).wrapping_add(delta as u16);
+            }
+            4 => {
+                let p = ptr.cast::<u32>();
+                *p = (*p).wrapping_add(delta as u32);
+            }
+            8 => {
+                let p = ptr.cast::<u64>();
+                *p = (*p).wrapping_add(delta as i64 as u64);
+            }
+            _ => debug_assert!(false, "unsupported axis width {width}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,6 +244,81 @@ mod tests {
                 let got = unsafe { unpack_from((&v as *const f32).cast(), 4, mask) };
                 assert_eq!(got, 0, "K={k}: all-ones low bits must decode to dim 0");
                 assert!(got < k);
+            }
+        }
+    }
+
+    /// The property the split depends on: whatever `grid_separator` returns must both carry the
+    /// requested dimension and genuinely separate the bracketing pair. Swept across signs and
+    /// magnitudes, including pairs that straddle zero, where bit-pattern order reverses.
+    #[test]
+    fn grid_separator_separates_and_carries_the_dim() {
+        const K: usize = 3;
+        let mask = dim_mask(K);
+        let pairs = [
+            (0.0f32, 0.05),
+            (3.80, 3.85),
+            (-1.65, -1.60),
+            (-0.05, 0.05),
+            (-1e-30, 1e-30),
+            (-3.85, -3.80),
+            (1e20, 1.1e20),
+            (f32::MIN, f32::MAX),
+            (-0.0, 0.05),
+        ];
+        for (lower, upper) in pairs {
+            for dim in 0..K {
+                let s = grid_separator(lower, upper, 4, dim, mask)
+                    .unwrap_or_else(|| panic!("no separator for ({lower}, {upper}) dim {dim}"));
+                assert!(
+                    s > lower && s <= upper,
+                    "({lower}, {upper}) dim {dim}: separator {s} outside the interval"
+                );
+                let got = unsafe { unpack_from((&s as *const f32).cast(), 4, mask) };
+                assert_eq!(got, dim, "({lower}, {upper}): separator {s} carries dim {got}");
+            }
+        }
+    }
+
+    /// A pair closer than one grid cell has no aligned value between them for at least some
+    /// dimensions. The split must decline rather than return something that fails to separate.
+    #[test]
+    fn grid_separator_declines_when_the_gap_is_too_small() {
+        const K: usize = 3;
+        let mask = dim_mask(K);
+        let lower = 1.0f32;
+        let upper = f32::from_bits(lower.to_bits() + 1); // one ULP apart, quarter of a cell
+        let outcomes: Vec<_> = (0..K)
+            .map(|d| grid_separator(lower, upper, 4, d, mask))
+            .collect();
+        assert!(
+            outcomes.iter().any(|o| o.is_none()),
+            "expected at least one dimension to have no aligned separator, got {outcomes:?}"
+        );
+        // Whatever it does return must still be correct.
+        for s in outcomes.into_iter().flatten() {
+            assert!(s > lower && s <= upper);
+        }
+    }
+
+    /// Exhaustive over a dense range of bit patterns: for every bracketing pair at least one grid
+    /// cell wide, a separator must exist for every dimension.
+    #[test]
+    fn grid_separator_always_succeeds_beyond_one_cell() {
+        const K: usize = 3;
+        let mask = dim_mask(K);
+        let base = 3.85f32.to_bits();
+        for gap in (mask as u32 + 1)..64 {
+            for offset in 0..8u32 {
+                let lower = f32::from_bits(base + offset);
+                let upper = f32::from_bits(base + offset + gap);
+                for dim in 0..K {
+                    let s = grid_separator(lower, upper, 4, dim, mask).unwrap_or_else(|| {
+                        panic!("gap {gap} offset {offset} dim {dim}: no separator")
+                    });
+                    assert!(s > lower && s <= upper, "gap {gap} dim {dim}: {s} out of range");
+                    assert_eq!(unsafe { unpack_from((&s as *const f32).cast(), 4, mask) }, dim);
+                }
             }
         }
     }
