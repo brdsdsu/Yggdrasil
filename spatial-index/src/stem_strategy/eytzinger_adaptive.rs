@@ -81,6 +81,10 @@ impl EytzingerAdaptive {
 impl StemStrategy for EytzingerAdaptive {
     const ROOT_IDX: usize = 1;
 
+    /// The point of this strategy: `dim` recovers the axis from the stem, so construction is free
+    /// to choose it from the data.
+    const ADAPTIVE_SPLIT_DIM: bool = true;
+
     type DeferredState = EytzingerAdaptiveDeferred;
     type StackContext<A> = crate::kd_tree::query_stack::QueryStackContext<A, Self::DeferredState>;
     type Stack<A> = crate::kd_tree::query_stack::QueryStack<A, Self>;
@@ -143,9 +147,9 @@ impl StemStrategy for EytzingerAdaptive {
                     .cast_const(),
                 width,
                 dim_mask(K),
+                K,
             )
         };
-        debug_assert!(dim < K, "stem {} decoded dimension {dim}", self.stem_idx);
         dim
     }
 

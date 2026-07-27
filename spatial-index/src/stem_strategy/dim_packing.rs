@@ -17,18 +17,20 @@
 //! `dim_bits` never exceeds 8 for `K <= 256`, the affected bits always live inside the single
 //! least-significant byte, so this is a one-byte read/modify/write at a computable offset.
 //!
-//! # Why the dimension is stored complemented
+//! # Why the decode is range-clamped
 //!
-//! Slots in the stem array that no split has written hold `A::max_value()`, and for every
-//! supported axis type that value has **all** its low bits set (`f32::MAX` is `0x7F7FFFFF`,
-//! `i32::MAX` is `0x7FFFFFFF`). Stored plainly, those bits would decode to `dim_mask`, which
-//! for a non-power-of-two `K` is out of range — `K = 3` would yield dimension 3, indexed into
-//! a `[A; 3]` with `get_unchecked`, reading past the end of the array.
+//! Slots in the stem array that no split has written hold `A::max_value()`, and its low bits
+//! depend on the axis family: for floats that value is **infinity**, whose mantissa is all
+//! zeros, while for integer and fixed-point axes it is `MAX`, whose low bits are all ones. So
+//! no single encoding makes every filler decode in range — plain encoding is safe against the
+//! float filler and unsafe against the integer one, and the reverse holds for a complemented
+//! encoding.
 //!
-//! Storing the complement makes an all-ones pattern decode to dimension **0** for every `K`,
-//! so an unwritten slot is harmless by construction rather than by a range check in the hot
-//! path. It also means `A::max_value()` keeps its exact bit pattern, which matters because
-//! other strategies detect unwritten slots with `Axis::is_max_value`.
+//! Since `K` need not be a power of two, an out-of-range decode is not harmless: `K = 3` would
+//! yield dimension 3, indexed into a `[A; 3]` with `get_unchecked`, reading past the end of the
+//! array. [`unpack_from`] therefore clamps into range, which costs one comparison and holds for
+//! any axis type and any filler. The filler itself is deliberately left alone: other strategies
+//! detect unwritten slots with `Axis::is_max_value`, which needs its exact bit pattern.
 //!
 //! # Cost
 //!
@@ -73,23 +75,23 @@ const fn lsb_offset(width: usize) -> usize {
 pub unsafe fn pack_into(ptr: *mut u8, width: usize, dim: usize, mask: u8) {
     debug_assert!(width > 0);
     let lsb = unsafe { ptr.add(lsb_offset(width)) };
-    // Complemented: see the module docs on unwritten slots.
-    let encoded = !(dim as u8) & mask;
-    unsafe { *lsb = (*lsb & !mask) | encoded };
+    unsafe { *lsb = (*lsb & !mask) | (dim as u8 & mask) };
 }
 
 /// Recover the dimension folded into the `width`-byte value at `ptr` by [`pack_into`].
 ///
-/// Returns 0 for any slot never written by a split, since `A::max_value()` has all low bits set.
+/// Clamped into `0..k`, so a slot no split has written — whose low bits are whatever
+/// `A::max_value()` happens to carry — can never produce an index outside a `[A; k]`. See the
+/// module docs.
 ///
 /// # Safety
 ///
 /// `ptr` must be valid for reads of `width` bytes.
 #[inline(always)]
-pub unsafe fn unpack_from(ptr: *const u8, width: usize, mask: u8) -> usize {
-    debug_assert!(width > 0);
+pub unsafe fn unpack_from(ptr: *const u8, width: usize, mask: u8, k: usize) -> usize {
+    debug_assert!(width > 0 && k > 0);
     let lsb = unsafe { *ptr.add(lsb_offset(width)) };
-    (!lsb & mask) as usize
+    ((lsb & mask) as usize).min(k - 1)
 }
 
 /// Find a value carrying `dim` in its low bits that separates `lower` from `upper`, i.e. one
@@ -138,7 +140,7 @@ pub fn grid_separator<A: PartialOrd + Copy>(
             unsafe { offset_bits((&mut probe as *mut A).cast(), width, step) };
             // Stepping must not disturb the packed bits.
             debug_assert_eq!(
-                unsafe { unpack_from((&probe as *const A).cast(), width, mask) },
+                unsafe { unpack_from((&probe as *const A).cast(), width, mask, dim + 1) },
                 dim
             );
         }
@@ -207,7 +209,7 @@ mod tests {
                 let mut v = value;
                 unsafe {
                     pack_into((&mut v as *mut f32).cast(), 4, dim, mask);
-                    let got = unpack_from((&v as *const f32).cast(), 4, mask);
+                    let got = unpack_from((&v as *const f32).cast(), 4, mask, K);
                     assert_eq!(got, dim, "value {value} dim {dim} decoded as {got}");
                 }
                 // The stored value stays within one grid cell of the original.
@@ -226,24 +228,33 @@ mod tests {
                 let mut v = value;
                 unsafe {
                     pack_into((&mut v as *mut f64).cast(), 8, dim, mask);
-                    assert_eq!(unpack_from((&v as *const f64).cast(), 8, mask), dim);
+                    assert_eq!(unpack_from((&v as *const f64).cast(), 8, mask, K), dim);
                 }
             }
         }
     }
 
-    /// The property the complement exists for: a slot holding `max_value()` must decode to a
-    /// dimension that is in range for every `K`, because descent indexes a `[A; K]` with
-    /// `get_unchecked`.
+    /// The property the clamp exists for: whatever an unwritten slot holds must decode inside
+    /// `0..K`, because descent indexes a `[A; K]` with `get_unchecked`.
     #[test]
-    fn unwritten_slots_decode_to_zero() {
+    fn unwritten_slots_decode_in_range() {
         for k in 1..=16usize {
             let mask = dim_mask(k);
-            for max in [f32::MAX.to_bits(), u32::MAX, 0x7FFF_FFFF] {
-                let v = f32::from_bits(max);
-                let got = unsafe { unpack_from((&v as *const f32).cast(), 4, mask) };
-                assert_eq!(got, 0, "K={k}: all-ones low bits must decode to dim 0");
-                assert!(got < k);
+            // Both fillers actually in use, plus the extremes of the low-bit space. `max_value()`
+            // is infinity for float axes (mantissa all zeros) and MAX for integer and
+            // fixed-point axes (low bits all ones), so no single encoding puts every filler in
+            // range on its own - the clamp is what does.
+            for bits in [
+                f32::INFINITY.to_bits(),
+                f32::NEG_INFINITY.to_bits(),
+                f32::MAX.to_bits(),
+                u32::MAX,
+                0x7FFF_FFFF,
+                0,
+            ] {
+                let v = f32::from_bits(bits);
+                let got = unsafe { unpack_from((&v as *const f32).cast(), 4, mask, k) };
+                assert!(got < k, "K={k}: bits {bits:#010X} decoded dimension {got}");
             }
         }
     }
@@ -274,7 +285,7 @@ mod tests {
                     s > lower && s <= upper,
                     "({lower}, {upper}) dim {dim}: separator {s} outside the interval"
                 );
-                let got = unsafe { unpack_from((&s as *const f32).cast(), 4, mask) };
+                let got = unsafe { unpack_from((&s as *const f32).cast(), 4, mask, K) };
                 assert_eq!(got, dim, "({lower}, {upper}): separator {s} carries dim {got}");
             }
         }
@@ -317,7 +328,7 @@ mod tests {
                         panic!("gap {gap} offset {offset} dim {dim}: no separator")
                     });
                     assert!(s > lower && s <= upper, "gap {gap} dim {dim}: {s} out of range");
-                    assert_eq!(unsafe { unpack_from((&s as *const f32).cast(), 4, mask) }, dim);
+                    assert_eq!(unsafe { unpack_from((&s as *const f32).cast(), 4, mask, K) }, dim);
                 }
             }
         }
@@ -332,7 +343,7 @@ mod tests {
         unsafe {
             pack_into((&mut v as *mut f32).cast(), 4, 0, mask);
             assert_eq!(v.to_bits(), before);
-            assert_eq!(unpack_from((&v as *const f32).cast(), 4, mask), 0);
+            assert_eq!(unpack_from((&v as *const f32).cast(), 4, mask, 1), 0);
         }
     }
 }

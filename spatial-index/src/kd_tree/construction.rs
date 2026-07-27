@@ -96,7 +96,8 @@ where
         let split_dim = stem_strategy.dim::<K>();
 
         // Split the leaf
-        let (pivot_val, new_leaf_idx) = self.leaves.split_leaf(old_leaf_idx, split_dim)?;
+        let (pivot_val, new_leaf_idx, split_dim) =
+            self.leaves.split_leaf(old_leaf_idx, split_dim)?;
 
         // Get the indices of the children of the stem at which the split occurs
         let (left_child_idx, right_child_idx) = stem_strategy.child_indices::<A>();

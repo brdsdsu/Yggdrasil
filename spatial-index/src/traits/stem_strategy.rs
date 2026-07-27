@@ -13,6 +13,15 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     /// The stem index of the root node of the tree
     const ROOT_IDX: usize = 0;
 
+    /// FORK DEVIATION (see ADAPTIVE_SPLIT.md): whether a full leaf should pick its split axis
+    /// from the data (widest spread) rather than from the depth-cycling convention.
+    ///
+    /// Opting in requires [`Self::encode_split`] and [`Self::dim`] to round-trip the chosen axis,
+    /// since nothing else records it. Strategies that derive the axis from depth must leave this
+    /// false, or construction and queries would disagree about which coordinate a stem splits on.
+    #[doc(hidden)]
+    const ADAPTIVE_SPLIT_DIM: bool = false;
+
     /// The block size of this strategy
     ///
     /// The default is 1, which means that the strategy is not block-based.

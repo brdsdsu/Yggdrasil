@@ -302,9 +302,9 @@ fn best(times: Vec<Duration>) -> Duration {
 /// is identical apart from the paths it resolves through — which is what has to stay true for
 /// an A/B to mean anything.
 macro_rules! measure_with {
-    ($lib:ident) => {{
+    ($lib:ident, $ss:ident) => {{
         type Tree =
-            $lib::KdTree<f32, Item, $lib::Eytzinger, $lib::VecOfArrays<f32, Item, 3, B>, 3, B>;
+            $lib::KdTree<f32, Item, $lib::$ss, $lib::VecOfArrays<f32, Item, 3, B>, 3, B>;
 
         fn run(points: &[[f32; 3]], queries: &[[f32; 3]], radius: f32, reps: usize) -> Outcome {
             // --- incremental build ---------------------------------------------------
@@ -728,8 +728,9 @@ fn main() {
         BUILD_MEMORY_BUDGET.store((gib * (1u64 << 30) as f64) as usize, Relaxed);
     }
 
-    let fork_run = measure_with!(fork);
-    let upstream_run = measure_with!(upstream);
+    // The fork under test uses the adaptive cursor; upstream has only the cycling one.
+    let fork_run = measure_with!(fork, EytzingerAdaptive);
+    let upstream_run = measure_with!(upstream, Eytzinger);
 
     let mut cases: Vec<(String, Vec<[f32; 3]>)> = vec![
         ("uniform-100k".into(), uniform(100_000, 10.0, 0xC0FFEE)),
@@ -752,7 +753,7 @@ fn main() {
         println!(
             "k-d tree A/B: vendored spatial-index vs crates.io kiddo 6.0.0-alpha.3\n\
              B = {B}, item = u64, {reps} reps per query set; columns are fork / upstream / delta.\n\
-             Behaviour is identical today, so every delta here is harness and machine noise."
+             Fork splits on the widest axis; upstream cycles the axis with depth."
         );
     }
 

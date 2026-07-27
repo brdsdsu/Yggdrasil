@@ -298,11 +298,20 @@ where
     /// Returns true if the specified leaf is full.
     fn is_leaf_full(&self, leaf_idx: usize) -> bool;
 
-    /// Splits a full leaf, returning the pivot value and the index of
-    /// the new leaf that the leaf was split into.
+    /// Splits a full leaf, returning the pivot value, the index of the new leaf that the leaf
+    /// was split into, and the dimension the split was performed on.
+    ///
+    /// `preferred_dim` is the dimension the caller's depth-cycling convention nominates. A leaf
+    /// may split on a different one when [`StemStrategy::ADAPTIVE_SPLIT_DIM`] is set, which is
+    /// why the dimension used is reported back — the caller needs it to place the point whose
+    /// insertion triggered the split.
+    ///
+    /// The returned value is what the caller must store for the stem verbatim: an adaptive split
+    /// folds the dimension into it and partitions against the folded value, so re-deriving or
+    /// adjusting it afterwards would move points across the plane.
     fn split_leaf(
         &mut self,
         leaf_idx: usize,
-        split_dim: usize,
-    ) -> Result<(AX, usize), crate::kd_tree::ConstructionError>;
+        preferred_dim: usize,
+    ) -> Result<(AX, usize, usize), crate::kd_tree::ConstructionError>;
 }

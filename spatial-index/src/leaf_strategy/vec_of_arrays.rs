@@ -426,8 +426,13 @@ where
     fn split_leaf(
         &mut self,
         leaf_idx: usize,
-        split_dim: usize,
-    ) -> Result<(AX, usize), ConstructionError> {
+        preferred_dim: usize,
+    ) -> Result<(AX, usize, usize), ConstructionError> {
+        if SS::ADAPTIVE_SPLIT_DIM {
+            return self.split_leaf_adaptive::<SS>(leaf_idx);
+        }
+        // Depth-cycling strategies take upstream's path below, unchanged.
+        let split_dim = preferred_dim;
         debug_assert!(leaf_idx < self.leaves.len(), "leaf_idx out of bounds");
         unsafe {
             let orig = self.leaves.get_unchecked_mut(leaf_idx);
@@ -576,7 +581,7 @@ where
 
             let new_leaf_idx = self.copy_split_data_to_new_leaf(&old_leaf_copy, pivot_idx);
 
-            Ok((split_val, new_leaf_idx))
+            Ok((split_val, new_leaf_idx, split_dim))
         }
     }
 }
@@ -918,7 +923,7 @@ mod test {
         <VecOfArrays<f32, u32, 2, 4> as MutableLeafStrategy<f32, u32, Eytzinger, 2, 4>>::add_to_leaf(&mut leaves, 0, &[2.0, 202.0], 12);
         <VecOfArrays<f32, u32, 2, 4> as MutableLeafStrategy<f32, u32, Eytzinger, 2, 4>>::add_to_leaf(&mut leaves, 0, &[4.0, 400.0], 13);
 
-        let (split_val, new_leaf_idx) = <VecOfArrays<f32, u32, 2, 4> as MutableLeafStrategy<
+        let (split_val, new_leaf_idx, _split_dim) = <VecOfArrays<f32, u32, 2, 4> as MutableLeafStrategy<
             f32,
             u32,
             Eytzinger,
@@ -950,5 +955,157 @@ mod test {
         assert_eq!(right_points[0], &[4.0]);
         assert_eq!(right_points[1], &[400.0]);
         assert_eq!(right_items, &[13]);
+    }
+}
+
+/// FORK DEVIATION (see ADAPTIVE_SPLIT.md): choosing a full leaf's split axis from the data
+/// rather than from tree depth.
+impl<AX: Axis<Coord = AX>, T: Content + PartialEq, const K: usize, const B: usize>
+    VecOfArrays<AX, T, K, B>
+{
+    /// The axis on which this leaf's live points are most spread out, ties to the lowest index.
+    ///
+    /// Splitting on a near-degenerate axis is what makes upstream fail: a leaf whose points all
+    /// share one value there has no plane to cut at, and one where they nearly all share it
+    /// separates almost nothing, so the same region overflows again and the tree deepens without
+    /// dividing space. Widest spread avoids both.
+    ///
+    /// Leaves are dimension-major, so each dimension's scan is a walk over contiguous values.
+    fn widest_dim(leaf: &LeafNode<AX, T, K, B>) -> (usize, AX) {
+        let mut best = (0usize, AX::zero());
+        for dim in 0..K {
+            let values = &leaf.content_points[dim][..leaf.size];
+            let mut lo = values[0];
+            let mut hi = values[0];
+            for &v in &values[1..] {
+                if v < lo {
+                    lo = v;
+                } else if v > hi {
+                    hi = v;
+                }
+            }
+            // `hi >= lo`, so this cannot wrap even for unsigned axis types.
+            let spread = hi - lo;
+            if dim == 0 || spread > best.1 {
+                best = (dim, spread);
+            }
+        }
+        best
+    }
+
+    /// Split a full leaf on its widest axis, recording the axis in the value stored for the stem.
+    ///
+    /// Returns the value to store verbatim, the new leaf's index, and the axis used. The value is
+    /// the one the points were partitioned against, which is why it must not be adjusted
+    /// afterwards — see [`crate::stem_strategy::dim_packing::grid_separator`].
+    fn split_leaf_adaptive<SS: StemStrategy>(
+        &mut self,
+        leaf_idx: usize,
+    ) -> Result<(AX, usize, usize), ConstructionError> {
+        let orig = &mut self.leaves[leaf_idx];
+        let n = orig.size;
+        debug_assert!(n > 1, "a leaf is only split once full");
+
+        let (split_dim, spread) = Self::widest_dim(orig);
+        if spread == AX::zero() {
+            // Every axis is degenerate: the points are identical, so no plane separates them and
+            // no choice of axis can help. Storing them needs an overflow representation rather
+            // than a better split.
+            return Err(ConstructionError::UnsplittableBucket { split_dim });
+        }
+
+        // Bracket the plane around the *median* on that axis, between two distinct values: the
+        // largest that may stay left and the smallest that must go right. Bracketing near an
+        // extreme instead would peel a handful of points off each split, so depth would grow with
+        // the point count rather than with its logarithm - and stems are addressed by
+        // breadth-first position, making that cost 2^depth slots.
+        //
+        // The median is taken on a copy, so the leaf itself is not reordered here; the partition
+        // below does the only rearranging, and it has to be against the stored value anyway.
+        let mut scratch: [AX; B] = orig.content_points[split_dim];
+        scratch[..n].select_nth_unstable_by(n / 2, |a, b| {
+            a.partial_cmp(b).expect("leaf holds a non-comparable coordinate")
+        });
+        let median = scratch[n / 2];
+
+        // `select_nth_unstable_by` leaves everything below the median in the lower half, so the
+        // largest value strictly below it is found there when one exists at all.
+        let mut lower = median;
+        let mut upper = median;
+        let mut bracketed = false;
+        for &v in &scratch[..n / 2] {
+            if v < median && (!bracketed || v > lower) {
+                lower = v;
+                bracketed = true;
+            }
+        }
+        if !bracketed {
+            // The median is the minimum: every value below it is equal to it. Bracket upwards
+            // instead, against the smallest value above it. One exists because spread > 0.
+            for &v in &scratch[..n] {
+                if v > median && (!bracketed || v < upper) {
+                    upper = v;
+                    bracketed = true;
+                }
+            }
+            lower = median;
+        }
+        if !bracketed {
+            return Err(ConstructionError::UnsplittableBucket { split_dim });
+        }
+        debug_assert!(lower < upper);
+
+        let separator = crate::stem_strategy::dim_packing::grid_separator(
+            lower,
+            upper,
+            size_of::<AX>(),
+            split_dim,
+            crate::stem_strategy::dim_packing::dim_mask(K),
+        )
+        .ok_or(ConstructionError::UnsplittableBucket { split_dim })?;
+        let separator = SS::encode_split::<AX, K>(separator, split_dim);
+
+        // Partition against the value that will be stored, tracking the permutation so the other
+        // dimensions and the items follow.
+        let mut mirror: [usize; B] = array_init::array_init(|i| i);
+        let mut boundary = 0usize;
+        for i in 0..n {
+            if orig.content_points[split_dim][i] < separator {
+                mirror[boundary] = i;
+                boundary += 1;
+            }
+        }
+        let mut hi = boundary;
+        for i in 0..n {
+            if !(orig.content_points[split_dim][i] < separator) {
+                mirror[hi] = i;
+                hi += 1;
+            }
+        }
+
+        if boundary == 0 || boundary == n {
+            // TODO: quantisation left no aligned plane between the bracketing values, so the
+            // partition collapsed. Only reachable when two distinct values sit within
+            // dim_mask(K)+1 ULP on this axis - millions of ULP apart on a 0.05 m lattice. Fix by
+            // widening the separator search, then falling through to the next-widest axis.
+            return Err(ConstructionError::UnsplittableBucket { split_dim });
+        }
+
+        for dim in 0..K {
+            let temp = orig.content_points[dim];
+            for i in 0..n {
+                orig.content_points[dim][i] = temp[mirror[i]];
+            }
+        }
+        let temp_items = orig.content_items;
+        for i in 0..n {
+            orig.content_items[i] = temp_items[mirror[i]];
+        }
+
+        let old_leaf_copy = orig.clone();
+        orig.size = boundary;
+        let new_leaf_idx = self.copy_split_data_to_new_leaf(&old_leaf_copy, boundary);
+
+        Ok((separator, new_leaf_idx, split_dim))
     }
 }
