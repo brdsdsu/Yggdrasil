@@ -11,8 +11,13 @@ that are within the field of view of the given camera.
 In order to query the scene graph for objects within the field of view, we first have to create an observer.
 Observers in `yggdrasil` can be thought of as a cone frustum. Cone frustums have three main parameters: 
 1. Location
-2. Rotation
+2. Direction
 3. Far and near reach
+
+The direction is a plain vector in whatever frame your own coordinates use, so nothing here assumes a
+particular "up" axis. Only its axis matters, since a cone is symmetric about the direction it points
+along; a direction of zero length or one carrying a `NaN` is rejected, which is why the constructor
+returns a `Result`.
 > For more detailed documentation on how to setup an observer, you can read the API doc for the `yggdrasil::Observer` struct.
 
 In the following snippet, we create a cone frustum observer that is located at (0, 0, 0) and can view all the positive space.
@@ -28,15 +33,15 @@ use yggdrasil::{Coordinate, Observer};
     // towards the (1, 1, 1) direction, with a field of view of 90 degrees and a far reach of 6
     // units.
     let pos = Coordinate::ZERO;
-    let yaw = 45_f32.to_radians();
-    let pitch = -35.26439_f32.to_radians();
-    let roll = 0.0;
+    let direction = Coordinate::ONE;
+    // Widen the cone just past the angle from the (1, 1, 1) diagonal to each axis, so
+    // the whole positive octant falls inside it.
     let half_angle = (1.0 / 3.0_f32.sqrt()).acos() + 0.001;
 
     let near = 0.001;
     let far = 6_f32;
 
-    let observer = Observer::from_ypr(pos, yaw, pitch, roll, half_angle, near, far);
+    let observer = Observer::new_looking_along(pos, direction, half_angle, near, far)?;
 ```
 
 In order to successfully run the `visible_subgraph` query, we also need to provide a reference node. The reference node acts 
@@ -103,7 +108,7 @@ the static ones.
     // Expanding the `far` reach of the observer to 35 should include all the dynamic objects as
     // well as the static ones, meaning that the subgraph should be the same as the original scene
     // graph.
-    let observer = Observer::from_ypr(pos, yaw, pitch, roll, half_angle, near, 35.0);
+    let observer = Observer::looking_along(pos, direction, half_angle, near, 35.0)?;
     let subgraph = ygg.visible_subgraph(&observer, root_node_id)?;
     assert_eq!(subgraph.layer(0)?.all_nodes().len(),ygg.layer(0)?.all_nodes().len());
     assert_eq!(subgraph.layer(1)?.all_nodes().len(),ygg.layer(1)?.all_nodes().len());

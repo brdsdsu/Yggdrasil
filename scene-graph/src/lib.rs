@@ -170,18 +170,16 @@ mod test {
     }
 
     fn cone() -> Observer {
-        // Observer at origin, yaw=30°, pitch=5°, roll=0°
+        // Observer at origin, looking down +Z
         let pos = Coordinate::new(0.0, 0.0, 0.0);
-        let yaw = 0_f32.to_radians();
-        let pitch = 0_f32.to_radians();
-        let roll = 0_f32.to_radians();
+        let direction = Coordinate::Z;
 
         // Cone View Frustum: half-angle=35°, near=0.6, far=6.0
         let half_angle = 35_f32.to_radians();
         let near = 0.6;
         let far = 6.0;
 
-        Observer::from_ypr(pos, yaw, pitch, roll, half_angle, near, far)
+        Observer::new_looking_along(pos, direction, half_angle, near, far).unwrap()
     }
 
     #[test]

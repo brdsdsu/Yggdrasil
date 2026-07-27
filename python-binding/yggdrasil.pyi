@@ -59,10 +59,27 @@ class PosQueryCount:
 
 class Observer:
     """
-    A field-of-view cone frustum in 3D space, defined by a position, orientation
-    (yaw, pitch, roll), a half-angle, and near/far distances.
+    A field-of-view cone frustum in 3D space, defined by a position, a viewing
+    direction, a half-angle, and near/far distances.
     """
-    ...
+
+    def __init__(
+        self,
+        position: Coordinate,
+        direction: Coordinate,
+        half_angle: float,
+        near: float,
+        far: float,
+    ) -> None:
+        """
+        Build an observer at `position` looking along `direction`.
+
+        `direction` is an (x, y, z) vector in the scene's own frame; only its axis
+        matters, so it need not be a unit vector. Raises `ValueError` if it has zero
+        length or is not finite. `half_angle` is in radians, measured out from the
+        direction, so the cone's full opening is twice it.
+        """
+        ...
 
 
 class __Node:

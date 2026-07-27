@@ -123,12 +123,8 @@ pub struct QueryPanelState {
     pub use_all: bool,
     /// Observer position inputs for VisibleSubgraph queries.
     pub fov_pos: [String; 3],
-    /// Observer yaw (rotation around Y-axis) for VisibleSubgraph queries.
-    pub fov_yaw: String,
-    /// Observer pitch (rotation around X-axis) for VisibleSubgraph queries.
-    pub fov_pitch: String,
-    /// Observer roll (rotation around Z-axis) for VisibleSubgraph queries.
-    pub fov_roll: String,
+    /// Observer XYZ direction inputs for VisibleSubgraph queries.
+    pub fov_dir: [String; 3],
     /// Half-angle of the FOV cone for VisibleSubgraph queries.
     pub fov_half_angle: String,
     /// Near clipping distance for VisibleSubgraph queries.
