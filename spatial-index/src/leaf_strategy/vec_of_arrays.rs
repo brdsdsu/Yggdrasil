@@ -963,34 +963,65 @@ mod test {
 impl<AX: Axis<Coord = AX>, T: Content + PartialEq, const K: usize, const B: usize>
     VecOfArrays<AX, T, K, B>
 {
-    /// The axis on which this leaf's live points are most spread out, ties to the lowest index.
+    /// Smallest and largest value the leaf's live points take on `dim`.
     ///
-    /// Splitting on a near-degenerate axis is what makes upstream fail: a leaf whose points all
-    /// share one value there has no plane to cut at, and one where they nearly all share it
-    /// separates almost nothing, so the same region overflows again and the tree deepens without
-    /// dividing space. Widest spread avoids both.
-    ///
-    /// Leaves are dimension-major, so each dimension's scan is a walk over contiguous values.
-    fn widest_dim(leaf: &LeafNode<AX, T, K, B>) -> (usize, AX) {
-        let mut best = (0usize, AX::zero());
-        for dim in 0..K {
-            let values = &leaf.content_points[dim][..leaf.size];
-            let mut lo = values[0];
-            let mut hi = values[0];
-            for &v in &values[1..] {
-                if v < lo {
-                    lo = v;
-                } else if v > hi {
-                    hi = v;
-                }
-            }
-            // `hi >= lo`, so this cannot wrap even for unsigned axis types.
-            let spread = hi - lo;
-            if dim == 0 || spread > best.1 {
-                best = (dim, spread);
+    /// Leaves are dimension-major, so this is a walk over contiguous values.
+    fn axis_bounds(leaf: &LeafNode<AX, T, K, B>, dim: usize) -> (AX, AX) {
+        let values = &leaf.content_points[dim][..leaf.size];
+        let mut lo = values[0];
+        let mut hi = values[0];
+        for &v in &values[1..] {
+            if v < lo {
+                lo = v;
+            } else if v > hi {
+                hi = v;
             }
         }
-        best
+        (lo, hi)
+    }
+
+    /// The two adjacent distinct values straddling the median on `dim`, or `None` when every
+    /// value there is equal.
+    ///
+    /// Bracketing near the median is what keeps the tree balanced. Bracketing near an extreme
+    /// would peel a handful of points off each split, so depth would grow with the point count
+    /// rather than its logarithm — and stems are addressed by breadth-first position, making that
+    /// cost `2^depth` slots.
+    ///
+    /// Taken on a copy, so the leaf is not reordered here; the partition does the only
+    /// rearranging, and it has to be against the stored value anyway.
+    fn median_bracket(leaf: &LeafNode<AX, T, K, B>, dim: usize) -> Option<(AX, AX)> {
+        let n = leaf.size;
+        let mut scratch: [AX; B] = leaf.content_points[dim];
+        scratch[..n].select_nth_unstable_by(n / 2, |a, b| {
+            a.partial_cmp(b)
+                .expect("leaf holds a non-comparable coordinate")
+        });
+        let median = scratch[n / 2];
+
+        // `select_nth_unstable_by` leaves everything below the median in the lower half, so the
+        // largest value strictly below it is found there when one exists.
+        let mut lower = median;
+        let mut found = false;
+        for &v in &scratch[..n / 2] {
+            if v < median && (!found || v > lower) {
+                lower = v;
+                found = true;
+            }
+        }
+        if found {
+            return Some((lower, median));
+        }
+
+        // The median is the minimum: bracket upwards against the smallest value above it.
+        let mut upper = median;
+        for &v in &scratch[..n] {
+            if v > median && (!found || v < upper) {
+                upper = v;
+                found = true;
+            }
+        }
+        found.then_some((median, upper))
     }
 
     /// Split a full leaf on its widest axis, recording the axis in the value stored for the stem.
@@ -1006,63 +1037,61 @@ impl<AX: Axis<Coord = AX>, T: Content + PartialEq, const K: usize, const B: usiz
         let n = orig.size;
         debug_assert!(n > 1, "a leaf is only split once full");
 
-        let (split_dim, spread) = Self::widest_dim(orig);
-        if spread == AX::zero() {
-            // Every axis is degenerate: the points are identical, so no plane separates them and
-            // no choice of axis can help. Storing them needs an overflow representation rather
-            // than a better split.
-            return Err(ConstructionError::UnsplittableBucket { split_dim });
+        // Try axes widest-first. A wider axis gives a more balanced split, but a narrow one can
+        // still be usable, so falling through matters: refusing here is what upstream does, and
+        // the whole point is not to.
+        let mut bounds = [(AX::zero(), AX::zero()); K];
+        let mut tried = [false; K];
+        for dim in 0..K {
+            bounds[dim] = Self::axis_bounds(orig, dim);
         }
 
-        // Bracket the plane around the *median* on that axis, between two distinct values: the
-        // largest that may stay left and the smallest that must go right. Bracketing near an
-        // extreme instead would peel a handful of points off each split, so depth would grow with
-        // the point count rather than with its logarithm - and stems are addressed by
-        // breadth-first position, making that cost 2^depth slots.
-        //
-        // The median is taken on a copy, so the leaf itself is not reordered here; the partition
-        // below does the only rearranging, and it has to be against the stored value anyway.
-        let mut scratch: [AX; B] = orig.content_points[split_dim];
-        scratch[..n].select_nth_unstable_by(n / 2, |a, b| {
-            a.partial_cmp(b).expect("leaf holds a non-comparable coordinate")
-        });
-        let median = scratch[n / 2];
-
-        // `select_nth_unstable_by` leaves everything below the median in the lower half, so the
-        // largest value strictly below it is found there when one exists at all.
-        let mut lower = median;
-        let mut upper = median;
-        let mut bracketed = false;
-        for &v in &scratch[..n / 2] {
-            if v < median && (!bracketed || v > lower) {
-                lower = v;
-                bracketed = true;
-            }
-        }
-        if !bracketed {
-            // The median is the minimum: every value below it is equal to it. Bracket upwards
-            // instead, against the smallest value above it. One exists because spread > 0.
-            for &v in &scratch[..n] {
-                if v > median && (!bracketed || v < upper) {
-                    upper = v;
-                    bracketed = true;
+        let mut chosen: Option<(usize, AX)> = None;
+        for _ in 0..K {
+            // Widest untried axis.
+            let mut dim = usize::MAX;
+            for d in 0..K {
+                let spread = bounds[d].1 - bounds[d].0;
+                if !tried[d] && (dim == usize::MAX || spread > bounds[dim].1 - bounds[dim].0) {
+                    dim = d;
                 }
             }
-            lower = median;
-        }
-        if !bracketed {
-            return Err(ConstructionError::UnsplittableBucket { split_dim });
-        }
-        debug_assert!(lower < upper);
+            tried[dim] = true;
+            let (lo, hi) = bounds[dim];
+            if lo == hi {
+                // Degenerate on this axis, and every remaining one is no wider.
+                break;
+            }
 
-        let separator = crate::stem_strategy::dim_packing::grid_separator(
-            lower,
-            upper,
-            size_of::<AX>(),
-            split_dim,
-            crate::stem_strategy::dim_packing::dim_mask(K),
-        )
-        .ok_or(ConstructionError::UnsplittableBucket { split_dim })?;
+            let mask = crate::stem_strategy::dim_packing::dim_mask(K);
+            let width = size_of::<AX>();
+
+            // Preferred: a plane next to the median, for balance.
+            let near_median = Self::median_bracket(orig, dim)
+                .and_then(|(l, u)| {
+                    crate::stem_strategy::dim_packing::grid_separator(l, u, width, dim, mask)
+                })
+                // Fallback: anywhere in the axis's full range. Any aligned value in `(lo, hi]`
+                // separates the leaf, since `lo` then sits left and `hi` right — so this succeeds
+                // whenever the axis spans at least one grid cell, even when the values around the
+                // median are packed closer than that. Less balanced, but a split.
+                .or_else(|| {
+                    crate::stem_strategy::dim_packing::grid_separator(lo, hi, width, dim, mask)
+                });
+
+            if let Some(sep) = near_median {
+                chosen = Some((dim, sep));
+                break;
+            }
+        }
+
+        let (split_dim, separator) = match chosen {
+            Some(c) => c,
+            // Every axis spans less than one grid cell, so no aligned plane exists anywhere in
+            // this leaf. Identical points land here too. Both need an overflow representation
+            // rather than a different axis.
+            None => return Err(ConstructionError::UnsplittableBucket { split_dim: 0 }),
+        };
         let separator = SS::encode_split::<AX, K>(separator, split_dim);
 
         // Partition against the value that will be stored, tracking the permutation so the other

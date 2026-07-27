@@ -120,3 +120,77 @@ Re-run and compare. The rows that should move:
   keeps splits balanced, but `2^depth` addressing means any deep tree stays expensive.
 * Everything in the first table should stay inside the noise floor. A real regression in
   `nearest_*` matters most: indexing exists in `scene-graph` to cut query latency.
+
+---
+
+# Post-patch results
+
+Measured after adaptive split-dimension selection landed (`osqtpkxs`, `sqsvmuxr`). Same machine,
+same inputs, same methodology. Deltas are fork versus upstream; recall the noise floor is ±2%
+typical and ±8% worst case on the synthetic sets.
+
+## What the patch set out to do, it does
+
+| case | before | after |
+| --- | --- | --- |
+| `surfaces-0.05-100k` | refused after 3,854 | **completes all 100,000** |
+| `coplanar` / lattice-room (`scene-graph` tests) | refused | build, and match brute force |
+
+That is the defect fixed: surface geometry snapped to a voxel lattice — thousands of points per
+plane — inserts and queries correctly, where upstream gives up after 4% of it.
+
+## Query throughput: within noise, with one exception
+
+| case | nearest_1 | nearest_10 | nearest_100 | within |
+| --- | --- | --- | --- | --- |
+| uniform-100k | +1.5% | −1.4% | −1.6% | −0.9% |
+| uniform-500k | +7.5% | +3.2% | **+11.2%** | +2.6% |
+| lattice-0.05-100k | −5.8% | −1.6% | −3.1% | +1.7% |
+
+Queries are essentially unaffected, which is the criterion that matters most — indexing exists in
+`scene-graph` to cut latency. The `nearest_100` figure on 500k is outside the noise band and
+should be re-measured before being trusted or acted on; every other query number is inside it.
+
+## Build throughput: a real regression
+
+| case | fork ns/insert | upstream | delta |
+| --- | --- | --- | --- |
+| uniform-100k | 69.8 | 41.7 | **+67%** |
+| uniform-500k | 94.5 | 58.2 | **+62%** |
+| lattice-0.05-100k | 66.0 | 42.2 | **+57%** |
+
+Inserts cost roughly 1.6× what they did. This is not noise and it is not free. Per split the
+adaptive path now does: a bounds scan per axis (`K` passes), a 128-element copy plus
+`select_nth` to find the median, a few grid probes, and a two-pass partition — against upstream's
+single `select_nth`. Removal is also up 15–18% on uniform data.
+
+Worth optimising, and there is obvious headroom: the bounds scan and the median could share one
+pass, and the scratch copy exists only to avoid reordering the leaf twice. Not attempted yet.
+
+## What it does not fix
+
+`clustered-100k` still fails, and marginally sooner — the fork exceeds the 1 GiB budget after
+25,600 points against upstream's 31,744. Spatially clustered insertion order still drives depth,
+and stems are still addressed by breadth-first position, so the cost is still `2^depth` slots.
+Balanced splits alone do not bound it. Deliberately out of scope, but now measured rather than
+assumed.
+
+Tree shape tells the same story more precisely:
+
+| case | fork depth / slots | upstream depth / slots |
+| --- | --- | --- |
+| uniform-100k | 11 / 2,938 | 10 / 2,040 |
+| uniform-500k | 13 / 14,653 | 13 / 15,224 |
+| lattice-0.05-100k | 10 / 1,919 | 10 / 1,890 |
+
+Note the fork is *slightly worse* on `uniform-100k`. That is the full-range fallback at work: when
+the values around the median sit closer together than one grid cell, the split plane is taken from
+anywhere in the axis's range instead, which splits less evenly. This synthetic generator provokes
+it unusually often — it emits multiples of `10/2^24 ≈ 6e-7`, finer than one ULP at a coordinate of
+10.0 — so the effect here is a property of the test data as much as of the patch. Real
+lattice-quantised data (`lattice-0.05-100k`) shows no depth penalty at all.
+
+## Bulk construction
+
+Reported as `n/a for fork`. Refused by design for adaptive strategies — see
+`spatial-index/ADAPTIVE_SPLIT.md`. `scene-graph` only ever inserts incrementally.
