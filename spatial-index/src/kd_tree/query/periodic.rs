@@ -474,6 +474,7 @@ fn periodic_backtracking_query<Tree, A, T, SS, LS, QC, O, D, F, const K: usize, 
 
     let stems_ptr = NonNull::new(tree.stems().as_ptr() as *mut u8).unwrap();
     let mut stem_strat: SS = SS::new(stems_ptr);
+    stem_strat.bind_stems::<A>(tree.stems());
 
     let query = *query_ctx.query();
     let mut query_wide = [O::zero(); K];

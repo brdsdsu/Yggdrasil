@@ -58,6 +58,7 @@ where
     fn find_leaf_with_context(&self, query: &[A; K]) -> (SS, Option<NonMaxUsize>, bool) {
         let stems_ptr = NonNull::new(self.stems.as_ptr() as *mut u8).unwrap();
         let mut stem_strat: SS = SS::new(stems_ptr);
+        stem_strat.bind_stems::<A>(self.stems.as_slice());
         let mut parent_stem_idx: Option<NonMaxUsize> = None;
         let mut is_right_child = false;
 
