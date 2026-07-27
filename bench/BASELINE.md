@@ -84,6 +84,20 @@ The real-data row makes the second one concrete on the same input. For unity's 3
 | incremental `add` | 6,467 | 5.0 GiB |
 | bulk `new_from_entries` | 50 | 14.2 MiB |
 
+Tree shape, read directly off `KdTreeAccessor` rather than inferred:
+
+| case | depth | balanced depth | stem slots | leaves |
+| --- | --- | --- | --- | --- |
+| uniform-500k | 13 | 12 | 15,224 | 3,907 |
+| lattice-0.05-100k | 10 | 10 | 1,890 | 782 |
+| real:unity 304k | **27** | 12 | **266,301,286** | 2,377 |
+
+266 million stem slots for 2,377 leaves — 112,000× more slots than nodes, which at 4 bytes per
+stem plus 8 per `leaf_idx_map` entry is the ~3.2 GB behind the 5.0 GiB peak. Depth-cycled
+selection splits on whichever axis the depth says, even when that axis has almost no spread
+inside the overflowing leaf; the split then barely separates the points, the same leaf
+re-overflows, and depth is spent instead of space being divided.
+
 **129× the time and 360× the memory**, same points, same tree type. The bulk builder picks
 global medians and stays balanced; the incremental path does not. `scene-graph` can only use the
 incremental path, because layer and node indexes are maintained point by point as the graph

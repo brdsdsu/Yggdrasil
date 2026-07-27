@@ -1,3 +1,7 @@
+//! FORK DEVIATION: `dim_packing` carries a stem's split dimension in the low bits of its
+//! split value, so an adaptive (non-depth-derived) choice can be recorded. See its module docs.
+pub mod dim_packing;
+
 pub mod donnelly;
 
 pub mod eytzinger;

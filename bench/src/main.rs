@@ -262,9 +262,28 @@ impl BuildResult {
     }
 }
 
+/// Shape of a built tree, for separating "how deep" from "how big".
+#[derive(Clone, Copy)]
+struct Shape {
+    /// Deepest interior stem level reached.
+    depth: i32,
+    /// Slots in the stem array — sized by the deepest path, not the node count.
+    stem_slots: usize,
+    /// Leaves a perfectly balanced tree would need for this many points.
+    leaves: usize,
+}
+
+impl Shape {
+    /// Depth a balanced tree over `leaves` leaves would have.
+    fn ideal_depth(&self) -> u32 {
+        self.leaves.max(1).next_power_of_two().ilog2()
+    }
+}
+
 /// What one implementation did with one dataset.
 struct Outcome {
     build: BuildResult,
+    shape: Option<Shape>,
     queries: Vec<(&'static str, Measure)>,
     remove: Option<Measure>,
     bulk: Result<Measure, String>,
@@ -332,6 +351,7 @@ macro_rules! measure_with {
                         build: stopped.expect("checked"),
                         queries: Vec::new(),
                         remove: None,
+                        shape: None,
                         bulk: Err("skipped: incremental build did not complete".into()),
                         size: reached,
                     };
@@ -349,6 +369,19 @@ macro_rules! measure_with {
             for (i, p) in points.iter().enumerate() {
                 tree.add(p, i as Item).expect("build already proved to succeed");
             }
+
+            // Tree shape, read straight off the accessor. Stems are addressed by
+            // breadth-first position, so the stem array is sized by the *deepest* path
+            // rather than by the number of nodes actually in it: that gap is the whole
+            // memory story, and this measures it instead of inferring it.
+            let shape = Shape {
+                depth: <Tree as $lib::kd_tree::KdTreeAccessor<_, _, _, _, 3, B>>::max_stem_level(
+                    &tree,
+                ),
+                stem_slots: <Tree as $lib::kd_tree::KdTreeAccessor<_, _, _, _, 3, B>>::stems(&tree)
+                    .len(),
+                leaves: points.len().div_ceil(B),
+            };
 
             // --- queries -------------------------------------------------------------
             let mut results = Vec::new();
@@ -457,6 +490,7 @@ macro_rules! measure_with {
 
             Outcome {
                 build,
+                shape: Some(shape),
                 queries: results,
                 remove: Some(remove),
                 bulk,
@@ -493,6 +527,8 @@ fn merge_best(a: Outcome, b: Outcome) -> Outcome {
             (other @ (BuildResult::Refused(_) | BuildResult::Exceeded { .. }), _) => other,
             (_, other) => other,
         },
+        // Shape is a property of the tree, not of the run, so both positions agree.
+        shape: a.shape.or(b.shape),
         queries: a
             .queries
             .into_iter()
@@ -605,6 +641,17 @@ fn report(name: &str, n: usize, f: &Outcome, u: &Outcome, json: bool) {
                 return;
             }
         }
+    }
+
+    if let (Some(fs), Some(us)) = (&f.shape, &u.shape) {
+        println!(
+            "  {:<16} {:>10} {:>10}  depth (balanced would be {})",
+            "tree depth", fs.depth, us.depth, fs.ideal_depth()
+        );
+        println!(
+            "  {:<16} {:>10} {:>10}  stem slots for {} leaves",
+            "stem slots", fs.stem_slots, us.stem_slots, fs.leaves
+        );
     }
 
     for ((label, fm), (_, um)) in f.queries.iter().zip(u.queries.iter()) {
