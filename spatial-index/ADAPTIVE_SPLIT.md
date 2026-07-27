@@ -1,7 +1,8 @@
 # Adaptive split-dimension selection — design and remaining work
 
-Status: encoding layer done and tested (`src/stem_strategy/dim_packing.rs`). The cursor,
-the trait hooks and the selection policy are not written yet.
+Status: encoding helpers, the grid separator, the `EytzingerAdaptive` cursor and its trait hooks
+are landed and tested. Nothing names the cursor yet, so behaviour is still bit-identical to
+upstream. The split policy itself — widest-spread selection in `split_leaf` — is not written.
 
 ## The defect
 
@@ -54,52 +55,76 @@ where a bogus address is harmless, and `split_leaf` reallocates the array
 through the cursor** (tree is `&self`, so no reallocation can happen mid-descent) and
 **construction reads and writes dimensions through `self.stems` directly**.
 
-## Remaining work
+## Progress
 
-### Commit 1 — plumbing, behaviour provably identical
+Status line at the top of this file is the summary; this section records what each landed piece
+actually did, including where it departed from the plan above.
 
-1. Two provided methods on `StemStrategy`, both defaulting to preserve current behaviour:
-   - `encode_split<A: Axis, const K: usize>(value: A, dim: usize) -> A`, default identity.
-     Required because `split_leaf` is shared code — packing unconditionally would perturb every
-     strategy's split values by a few ULP and break the "identical behaviour" gate.
-   - `sync_root_dim<A: Axis, const K: usize>(&mut self, stems: &[A])`, default no-op. Needed
-     because `new()` has no `A` either, so the root's dimension cannot be decoded at
-     construction; call it right after `SS::new` at the ~10 descent entry points
-     (6 in `orchestrator/mod.rs`, 2 `construction.rs`, 1 `iter.rs`, 1 `query/periodic.rs`).
-2. `EytzingerAdaptive`: copy of `EytzingerFlexPf`, with `traverse` decoding the child's dimension
-   in place of `(dim + 1) % K`, and `construction_dim` returning `level % K` — pure arithmetic,
-   so it stays safe on the dangling pointer `new_no_ptr()` hands the bulk builder.
-3. Both construction paths call `encode_split` with the dimension they already choose — still
-   the **cycled** one. Incremental: `construction.rs:95`. Bulk: `construction.rs:714, 902`.
-   The bulk path must encode even though it stays cycling, or bulk-built trees decode garbage.
-4. `scene-graph/src/pos.rs`: `PosIndex` uses `EytzingerAdaptive`.
+### Landed
 
-Gate: 402 `spatial-index` tests, 25 + 5 `scene-graph` tests, and `bench/BASELINE.md` all
-unmoved. That proves pack/unpack round-trips in situ before any policy change.
+**`dim_packing`** — `dim_bits`/`dim_mask` as `const fn` of `K`, plus pack/unpack over one byte at
+a computed offset. Driven by the value's *width* only, since every axis type this crate supports
+keeps its fraction in the low-order bits, so no per-type `Axis` methods were needed. The
+dimension is stored **complemented**, which makes an all-ones low-bit pattern — what every
+`max_value()` filler has — decode to dimension 0 for every `K`. That removed both the range
+clamp and any change to the filler, and so removed the interaction with `Donnelly`'s
+`is_max_value` routing entirely.
 
-### Commit 2 — the policy
+**`grid_separator`** — given the pair a split brackets, returns an aligned value strictly between
+them, or `None` below one grid cell. Candidates are verified by value comparison rather than
+derived by bit arithmetic, which is what makes the sign asymmetry a non-issue. An exhaustive
+sweep over gaps of 4..64 ULP pins the guarantee that a separator always exists beyond one cell.
 
-5. In `split_leaf`, choose the dimension by widest bound spread over the bucket's live points,
-   ties to the lowest index, then partition against the **encoded** value (not the raw median —
-   the stored value must be the one compared, or points land on the wrong side).
-   Leaves are dimension-major (`content_points: [[A; B]; K]`), so a min/max scan per axis is a
-   linear walk over contiguous floats.
-6. Guard the case where quantisation collapses the split, and leave the TODO:
+**`EytzingerAdaptive` + trait hooks** — `encode_split` (default identity) and `bind_stems`
+(default no-op), both `doc(hidden)`. Two departures from the plan above:
+
+* **No `sync_root_dim`, and no cached dimension.** The plan had `traverse` decode the child's
+  dimension into a cached field. That is unsound: `traverse` runs one step further than the
+  descent loop reads — the last step computes a child index the loop never visits — so it would
+  decode from a slot past the end of the stems array. `dim()` decodes on demand instead, which is
+  safe because `dim()` is only reached at an index the caller has just read. The hook became
+  `bind_stems`, supplying the axis width and stem count that `dim()` cannot obtain otherwise, at
+  eight descent entry points. `DeferredState` lost its `dim` field as a result.
+* **Construction does not encode yet.** The plan had commit 1 encode the *cycled* dimension to
+  prove the wiring. That cannot work: the encoded value differs from the pivot by up to one grid
+  cell, and `split_leaf` has already partitioned against the pivot, so the stored plane would sit
+  off the partition and queries would lose points. Encoding and partitioning are inseparable.
+
+### Remaining — one coherent change
+
+All in `VecOfArrays::split_leaf` unless noted:
+
+1. Choose the axis by widest bound spread over the leaf's live points, ties to the lowest index.
+   Leaves are dimension-major (`content_points: [[A; B]; K]`), so each scan is a contiguous walk.
+2. Sort on that axis, take the bracketing pair `(points[pivot_idx - 1], points[pivot_idx])`, pass
+   it to `grid_separator`, fold the dimension in with `SS::encode_split`, and partition against
+   **that** value.
+3. This *replaces* upstream's pivot-nudge logic (the path ending in its "we're fucked" comment)
+   on the adaptive route. That logic exists to shuffle the pivot when equal values straddle it,
+   which is only necessary because the axis was chosen blind. Cycling strategies keep it, since
+   `encode_split` defaults to identity.
+4. `grid_separator` returning `None` → `UnsplittableBucket` plus this TODO:
    ```rust
-   if boundary == 0 || boundary == orig.size {
-       // TODO: grid quantisation collapsed the split. Only reachable when two distinct values
-       // sit within dim_mask(K)+1 ULP on the split axis — millions of ULP apart on a 0.05 m
-       // lattice. Fix by retrying neighbouring grid points, then the next-widest axis.
-       return Err(ConstructionError::UnsplittableBucket { split_dim });
-   }
+   // TODO: grid quantisation left no aligned plane between the bracketing values. Only
+   // reachable when two distinct values sit within dim_mask(K)+1 ULP on the split axis —
+   // millions of ULP apart on a 0.05 m lattice. Fix by widening the search, then falling
+   // through to the next-widest axis.
    ```
    Without it the point that triggered the split is routed into the still-full leaf and
    `add_to_leaf` panics on `content_points[dim][B]`.
-7. Rewrite `pos.rs::coplanar_defect` into acceptance tests: coplanar and lattice cases must
-   build and agree with brute force; identical-points must still fail cleanly (phase 4).
-8. Re-run the A/B against `bench/BASELINE.md`. Expect `surfaces-0.05-100k` and
-   `clustered-100k` to build, and `real:unity`'s depth 27 / 266M slots to fall towards the
-   bulk builder's numbers. Query throughput must stay inside the ±2% noise floor.
+5. The bulk builder (`construction.rs:825, 933`) must encode too, or a bulk-built tree decodes
+   arbitrary low bits as dimensions and returns silently wrong neighbours. It may keep cycling —
+   `EytzingerAdaptive::construction_dim` is `level % K`, pure arithmetic, so it stays safe on the
+   dangling pointer `new_no_ptr()` hands the builder.
+6. `scene-graph/src/pos.rs`: `PosIndex` uses `EytzingerAdaptive`.
+7. Rewrite `pos.rs::coplanar_defect` into acceptance tests — coplanar and lattice cases must
+   build and agree with brute force; identical points must still fail cleanly, which is phase 4.
+8. Re-run the A/B against `bench/BASELINE.md`.
+
+Expected movement in the A/B: `surfaces-0.05-100k` and `clustered-100k` should build rather than
+report a failure; `real:unity`'s depth 27 and 266,301,286 stem slots should fall towards the bulk
+builder's figures; `nearest_*` must stay inside the ±2% noise floor, since indexing exists in
+`scene-graph` to cut query latency.
 
 ## Known guarantee
 
