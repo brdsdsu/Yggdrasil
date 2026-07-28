@@ -207,6 +207,113 @@ where
     }
 }
 
+/// FORK DEVIATION (see ADAPTIVE_SPLIT.md): rebalancing a degenerate tree.
+///
+/// Stems are addressed breadth-first, so a leaf at depth `d` needs `~2^d` slots, and a spatially
+/// coherent insertion order — any mesh vertex buffer walked in order — deepens one path instead of
+/// broadening the tree. `stems.resize` then allocates *and fills* an array that doubles per level,
+/// which is why wall-clock time and resident memory blow up together rather than separately.
+///
+/// Incremental insertion cannot dig itself out: re-inserting the same points in a different order
+/// does not reliably give a shallower tree, and on a spatially concentrated subset it frequently
+/// gives a deeper one. Bulk construction can, because it partitions from the whole point set at
+/// once. This pairs the two — a cheap shape test on each insert, and a bulk rebuild when it trips.
+impl<A, T, SS, LS, const K: usize, const B: usize> KdTree<A, T, SS, LS, K, B>
+where
+    A: Axis<Coord = A>,
+    T: Content,
+    SS: StemStrategy,
+    LS: MutableLeafStrategy<A, T, SS, K, B> + ConstructibleLeafStrategy<A, T, SS, K, B>,
+{
+    /// Allocated stem slots per split actually performed, above which [`Self::add_rebalancing`]
+    /// rebuilds.
+    ///
+    /// Set from measurement, and the numbers matter because the obvious value is wrong. A
+    /// *bulk-built* tree sits at 2.4–3.9, but an incrementally built one is legitimately less
+    /// balanced and gets relatively deeper as it grows: on well-spread input this ratio peaks at
+    /// 3.2 / 4.7 / 5.9 / 9.4 for 2k / 6k / 20k / 60k points, roughly logarithmic. A threshold of 8
+    /// would therefore rebuild healthy trees past ~50k points.
+    ///
+    /// Degenerate trees are nowhere near: coherent insertion reaches 304 at only 2,000 points and
+    /// 8,101 by 20,000. 64 sits between the two with several times' margin on each side, and bounds
+    /// the stem array at `64 x leaves` — about 5.6 MB for the benchmark corpus, against the
+    /// 15,203,841 slots an un-rebalanced coherent build reaches.
+    ///
+    /// The headroom is finite rather than infinite, since the healthy figure grows with `n`. It is
+    /// ample for millions of points; a caller inserting billions coherently should re-measure.
+    pub const REBALANCE_SLOT_RATIO: usize = 64;
+
+    /// Below this many leaves the ratio means little — a two-leaf tree legitimately sits at 4 — so
+    /// no rebuild is considered.
+    pub const REBALANCE_MIN_LEAVES: usize = 8;
+
+    /// Allocated stem slots divided by splits performed. See [`Self::REBALANCE_SLOT_RATIO`].
+    pub fn stem_slot_ratio(&self) -> f64 {
+        let splits = self.leaves.leaf_count().saturating_sub(1);
+        if splits == 0 {
+            return 1.0;
+        }
+        self.stems.len() as f64 / splits as f64
+    }
+
+    /// Rebuild from the points currently held, discarding the depth the stem array has accumulated.
+    ///
+    /// Bulk construction is order-independent, so this is not "the same insertions again" — it is
+    /// the tree the points would have produced had they all been available up front.
+    pub fn rebalance(&mut self) -> Result<(), ConstructionError> {
+        let entries: Vec<(T, [A; K])> = self.iter().collect();
+        *self = Self::new_from_entries(&entries)?;
+        Ok(())
+    }
+
+    /// [`Self::add`], preceded by a rebuild when the insert is about to demand a disproportionate
+    /// stem array.
+    ///
+    /// The test is on the slots the *pending* split would require, before they are allocated, so
+    /// the pathological array is never created — as opposed to created, measured and discarded,
+    /// which would already have paid for it.
+    pub fn add_rebalancing(&mut self, point: &[A; K], item: T) -> Result<(), ConstructionError> {
+        let leaves = self.leaves.leaf_count();
+        if leaves >= Self::REBALANCE_MIN_LEAVES {
+            let budget = Self::REBALANCE_SLOT_RATIO.saturating_mul(leaves.saturating_sub(1).max(1));
+            if self
+                .pending_split_slots(point)
+                .is_some_and(|needed| needed > budget)
+            {
+                // A rebuild that cannot be performed is not an insertion failure. Bulk
+                // construction may legitimately refuse a point set — a bucket of near-coincident
+                // points has no separating plane on any axis — and `rebalance` leaves the tree
+                // untouched when it does. Propagating that would make an index that merely wants
+                // reshaping *less* usable than one that never tried, so the optimisation is
+                // skipped and the insert proceeds against the tree we already have.
+                let _ = self.rebalance();
+            }
+        }
+        self.add(point, item)
+    }
+
+    /// Stem slots the split triggered by inserting `point` would require, or `None` when the target
+    /// leaf has room and no split is pending.
+    fn pending_split_slots(&self, point: &[A; K]) -> Option<usize> {
+        let (stem_strat, _, _) = self.find_leaf_with_context(point);
+        let leaf_idx = match &self.stem_leaf_resolution {
+            OwnedStemLeafResolution::Mapped { leaf_idx_map, .. } => leaf_idx_map
+                .get(stem_strat.stem_idx())
+                .copied()
+                .flatten()?
+                .get(),
+            _ => stem_strat.leaf_idx(),
+        };
+        if !self.leaves.is_leaf_full(leaf_idx) {
+            return None;
+        }
+        // Splitting this leaf turns its terminal stem into an interior one, so the array has to
+        // reach the further of the two children it gains.
+        let (_, right_child_idx) = stem_strat.child_indices::<A>();
+        Some(right_child_idx + 1)
+    }
+}
+
 impl<A, T, SS, LS, const K: usize, const B: usize> KdTree<A, T, SS, LS, K, B>
 where
     A: Axis<Coord = A>,
@@ -993,6 +1100,18 @@ where
             }
         }
 
+        // Capacity is a budget derived from the leaf count, but the actual partition can exceed
+        // it: `calc_pivot` deliberately overrides the budget to force a split when everything
+        // would otherwise land left (its "splitting finer" branch uses `right_capacity.max(B)`),
+        // and the pivot moves again to avoid straddling equal values. Either can hand a child more
+        // items than it was allotted, and a child that recurses with a capacity of zero over a
+        // chunk larger than one bucket trips the `left_capacity > 0` assertion below.
+        //
+        // Widening the budget to the partition it has to describe is what keeps the two
+        // consistent. It only ever raises a capacity, so it cannot tighten a split.
+        let left_capacity = left_capacity.max(pivot);
+        let right_capacity = right_capacity.max(chunk_length - pivot);
+
         let right_stem_ordering = stem_ordering.branch::<A, K>();
         let (lower_sort_index, upper_sort_index) = sort_index.split_at_mut(pivot);
 
@@ -1665,6 +1784,193 @@ mod tests {
         );
     }
 
+
+    /// Clustered geometry in a wide extent, emitted cluster by cluster so consecutive insertions
+    /// are spatial neighbours. This is the shape of object-claimed mesh geometry and the order a
+    /// vertex buffer hands you, and it is what drives depth in an incremental tree.
+    fn coherent_clusters(count: usize, clusters: usize) -> Vec<[f32; 3]> {
+        const STEP: f32 = 0.05;
+        let per_cluster = count.div_ceil(clusters);
+        let side = (per_cluster as f64).sqrt().ceil().max(1.0) as usize;
+
+        let mut points = Vec::with_capacity(count);
+        for cluster in 0..clusters {
+            let f = cluster as f32;
+            let origin = [
+                (f * 12.9898).sin() * 10.0,
+                (f * 78.2330).sin() * 8.5,
+                (f * 37.7190).sin() * 1.5,
+            ];
+            for i in 0..per_cluster {
+                if points.len() == count {
+                    break;
+                }
+                points.push([
+                    clear_dim_bits(origin[0] + (i % side) as f32 * STEP),
+                    clear_dim_bits(origin[1] + (i / side) as f32 * STEP),
+                    clear_dim_bits(origin[2]),
+                ]);
+            }
+        }
+        points
+    }
+
+    /// The point of the whole exercise: inserting in a coherent order must not run the stem array
+    /// away. Asserted against plain `add` on the identical points, so the test states a difference
+    /// rather than a magic number — it fails if the trigger never fires *or* if it fires without
+    /// bounding anything.
+    #[test]
+    fn add_rebalancing_bounds_the_stem_array_on_coherent_insertion() {
+        let points = coherent_clusters(6_000, 150);
+
+        let mut plain = AdaptiveTree::default();
+        for (idx, point) in points.iter().enumerate() {
+            plain.add(point, idx as u32).expect("plain add");
+        }
+
+        let mut healed = AdaptiveTree::default();
+        for (idx, point) in points.iter().enumerate() {
+            healed
+                .add_rebalancing(point, idx as u32)
+                .expect("rebalancing add");
+        }
+
+        assert_eq!(healed.size(), points.len(), "rebalancing must not lose points");
+        assert_every_point_is_retrievable(&healed, &points);
+
+        let balanced_slots = 2 * points.len().div_ceil(32);
+        assert!(
+            healed.stems().len() < plain.stems().len(),
+            "rebalancing gave {} stem slots against plain add's {}, so it bought nothing",
+            healed.stems().len(),
+            plain.stems().len(),
+        );
+        assert!(
+            healed.stem_slot_ratio() <= AdaptiveTree::REBALANCE_SLOT_RATIO as f64,
+            "ratio {} exceeds the threshold it is supposed to enforce (slots {}, balanced would \
+             be about {balanced_slots})",
+            healed.stem_slot_ratio(),
+            healed.stems().len(),
+        );
+    }
+
+    /// A rebuild is only useful if it is transparent: same points, same answers.
+    #[test]
+    fn rebalance_preserves_every_point_and_its_answers() {
+        let points = coherent_clusters(4_000, 100);
+        let mut tree = AdaptiveTree::default();
+        for (idx, point) in points.iter().enumerate() {
+            tree.add(point, idx as u32).expect("add");
+        }
+
+        let before: Vec<f32> = (0..100u32)
+            .map(|i| {
+                let f = i as f32;
+                let query = [(f * 0.31).sin() * 9.0, (f * 0.53).cos() * 8.0, (f * 0.17).sin()];
+                tree.query(&query)
+                    .nearest_one::<SquaredEuclidean<f32>>()
+                    .execute()
+                    .distance
+            })
+            .collect();
+
+        tree.rebalance().expect("rebalance");
+
+        assert_eq!(tree.size(), points.len());
+        assert_every_point_is_retrievable(&tree, &points);
+        for (i, expected) in before.iter().enumerate() {
+            let f = i as f32;
+            let query = [(f * 0.31).sin() * 9.0, (f * 0.53).cos() * 8.0, (f * 0.17).sin()];
+            let after = tree
+                .query(&query)
+                .nearest_one::<SquaredEuclidean<f32>>()
+                .execute()
+                .distance;
+            assert_eq!(after, *expected, "rebalance changed the answer at {query:?}");
+        }
+    }
+
+    /// A healthy tree must not be rebuilt: the trigger has to distinguish shape from size, or it
+    /// would rebuild on every split and turn an out-of-memory into a hang.
+    #[test]
+    fn add_rebalancing_leaves_a_well_spread_tree_alone() {
+        // A shuffled point set builds a balanced tree incrementally, so nothing should fire.
+        let mut points = coherent_clusters(6_000, 150);
+        shuffle_points(&mut points);
+
+        let mut healed = AdaptiveTree::default();
+        for (idx, point) in points.iter().enumerate() {
+            healed.add_rebalancing(point, idx as u32).expect("add");
+        }
+        let mut plain = AdaptiveTree::default();
+        for (idx, point) in points.iter().enumerate() {
+            plain.add(point, idx as u32).expect("add");
+        }
+
+        assert_eq!(
+            healed.stems().len(),
+            plain.stems().len(),
+            "a well-spread insertion order triggered a rebuild it did not need"
+        );
+    }
+
+    /// `add_rebalancing` must never fail where `add` would have succeeded.
+    ///
+    /// Bulk construction can legitimately refuse a point set, so a rebuild is an optimisation that
+    /// may not be available. Propagating that refusal made the office corpus fail to build at all
+    /// — an index that merely wanted reshaping became less usable than one that never tried. The
+    /// fixture mixes coherent clusters with near-coincident points, which is what pushes bulk
+    /// construction into refusing; the corpus build is the broader regression test.
+    #[test]
+    fn add_rebalancing_never_fails_where_add_succeeds() {
+        let mut points = coherent_clusters(3_000, 80);
+        // Sprinkle in points a few ULP from an existing one, on every axis at once. A bucket of
+        // these has no separating plane, which is the case that makes a rebuild impossible.
+        let nudged: Vec<[f32; 3]> = points
+            .iter()
+            .take(600)
+            .map(|p| {
+                [
+                    f32::from_bits(p[0].to_bits() + 1),
+                    f32::from_bits(p[1].to_bits() + 2),
+                    f32::from_bits(p[2].to_bits() + 1),
+                ]
+            })
+            .collect();
+        points.extend(nudged);
+
+        let mut plain = AdaptiveTree::default();
+        let mut healed = AdaptiveTree::default();
+        for (idx, point) in points.iter().enumerate() {
+            let plain_result = plain.add(point, idx as u32);
+            let healed_result = healed.add_rebalancing(point, idx as u32);
+            assert!(
+                !(plain_result.is_ok() && healed_result.is_err()),
+                "insert {idx} at {point:?} succeeded with add but failed with add_rebalancing: \
+                 {healed_result:?}"
+            );
+            if plain_result.is_err() {
+                break; // both hit a genuinely unsplittable bucket; nothing left to compare
+            }
+        }
+
+        assert_eq!(
+            healed.size(),
+            plain.size(),
+            "the two paths accepted different numbers of points"
+        );
+    }
+
+    fn shuffle_points(points: &mut [[f32; 3]]) {
+        let mut state: u64 = 0x2026_0727;
+        for i in (1..points.len()).rev() {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            points.swap(i, (state >> 33) as usize % (i + 1));
+        }
+    }
+
     /// `update_pivot` must leave a partition where **no** left-hand element equals the boundary
     /// value, not merely the one at `pivot - 1`.
     ///
@@ -1783,21 +2089,24 @@ mod tests {
         );
     }
 
-    /// Pre-existing defect, recorded here rather than left to be rediscovered: bulk construction
-    /// mis-accounts capacity whenever the leaf count is not a power of two, and trips
-    /// `left_capacity is zero - should never happen`. Measured with the *cycling* strategy, so it
-    /// predates and is independent of adaptive split-value encoding; 16/32/64/128 leaves build
-    /// fine while 54 and 94 panic. It is a `debug_assert`, so release builds sail past it — which
-    /// is why bulk builds over the office corpus (324 leaves) looked healthy.
+    /// Bulk construction used to mis-account capacity whenever the leaf count was not a power of
+    /// two, tripping `left_capacity is zero - should never happen` (16/32/64/128 leaves built fine
+    /// while 54 and 94 panicked). It reproduced with the *cycling* strategy, so it was independent
+    /// of adaptive split-value encoding, and it was a `debug_assert`, so release builds sailed past
+    /// it — which is why bulk builds over the office corpus (324 leaves) looked healthy. Fixed by
+    /// widening each child's capacity to the partition it actually receives.
     ///
-    /// Ignored because it fails by design. Remove the attribute once the capacity math is fixed.
     #[test]
-    #[ignore = "pre-existing bulk-build capacity defect, not related to adaptive encoding"]
-    fn bulk_build_panics_on_non_power_of_two_leaf_count() {
-        // 1,728 points over a bucket of 32 is 54 leaves.
-        let points = lattice(12, 12, 12, 0.05, [1.65, -0.55, 3.85]);
-        assert_eq!(points.len().div_ceil(32), 54, "fixture should give 54 leaves");
-        CyclingTree::new_from_slice(&points).expect("bulk build should not depend on leaf count");
+    fn bulk_build_handles_non_power_of_two_leaf_counts() {
+        // 1,728 points over a bucket of 32 is 54 leaves, which used to trip the assertion.
+        for (nx, ny, nz) in [(12, 12, 12), (10, 10, 10), (7, 13, 11), (5, 5, 5)] {
+            let points = lattice(nx, ny, nz, 0.05, [1.65, -0.55, 3.85]);
+            CyclingTree::new_from_slice(&points)
+                .unwrap_or_else(|e| panic!("cycling bulk build of {} points failed: {e}", points.len()));
+            let adaptive = AdaptiveTree::new_from_slice(&points)
+                .unwrap_or_else(|e| panic!("adaptive bulk build of {} points failed: {e}", points.len()));
+            assert_every_point_is_retrievable(&adaptive, &points);
+        }
     }
 
     /// Cycling strategies must be untouched by the deviation: they still store the boundary

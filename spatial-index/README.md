@@ -105,6 +105,29 @@ produced. See [`ADAPTIVE_SPLIT.md`](ADAPTIVE_SPLIT.md), "Bulk construction, adap
 This matters because bulk construction is immune to the insertion-order defect below: it partitions
 from the whole point set rather than one point at a time.
 
+### 6. Rebalancing a degenerate tree
+
+`add_rebalancing` is `add` preceded by a shape test: if the pending split would demand more than
+`REBALANCE_SLOT_RATIO` stem slots per split performed, the tree is bulk-rebuilt from the points it
+already holds. The test is on the slots the split *would* need, before they are allocated, so the
+pathological array is never created rather than created and discarded.
+
+Two things worth knowing before changing the threshold or the failure handling:
+
+* **It is set from incremental measurements, not bulk ones.** A bulk-built tree sits at ratio
+  2.4-3.9, but an incrementally built one is legitimately less balanced and gets relatively deeper
+  as it grows — on well-spread input the ratio peaks at 3.2 / 4.7 / 5.9 / 9.4 for 2k / 6k / 20k /
+  60k points. A threshold of 8, which the bulk figures suggest, rebuilds healthy trees past ~50k
+  points. 64 is used: degenerate trees reach 304 at 2,000 points and 8,101 by 20,000, so there is
+  several times' margin on each side.
+* **A rebuild that cannot be performed is not an insertion failure.** Bulk construction may
+  legitimately refuse a point set, and `rebalance` leaves the tree untouched when it does.
+  Propagating that refusal made the benchmark corpus fail to build at all, because an index that
+  merely wanted reshaping became less usable than one that never tried. `add_rebalancing` therefore
+  skips the optimisation and proceeds with the plain insert.
+
+`scene-graph` routes all four of its index insertions through it, so its position indexes self-heal.
+
 ## Baseline
 
 Upstream's suite passes unmodified in this fork, and is the reference to re-run after every
@@ -131,17 +154,19 @@ cargo test -p spatial-index --features fuzz     # adds the randomised kd_tree_fu
    291 ms. Adaptive split selection does **not** bound this: measured post-patch, the fork still exceeds a
    1 GiB budget on clustered insertion order, marginally sooner than upstream.
 
-   Still unfixed *for incremental insertion*, but no longer without a remedy: **bulk construction
-   now works for adaptive strategies** (deviation 5 below), and it is immune to insertion order
-   because it partitions by median from the whole point set. On the benchmark corpus the same
-   354,885 points cost 163,842 stem slots at depth 17 bulk-built, against 15,203,841 slots at
-   depth 23 incrementally in mesh order — and the incremental build never completes. A caller
-   holding an index that has degenerated can rebuild it; a `created/used` slot ratio separates
-   healthy from pathological by four orders of magnitude (2.4-3.9 against 112,000) and makes a
-   cheap trigger. Note that the timing cost of the defect has the same single cause as the memory
-   cost — `A::max_value()` is infinity for `f32`, so the resize fill is non-zero and every new
-   slot is physically written rather than served as a zero page, which is why wall-clock and RSS
-   move in lockstep.
+   **Mitigated** by deviations 5 and 6: bulk construction now works for adaptive strategies and is
+   immune to insertion order, and `add_rebalancing` uses it to rebuild a tree whose stem array has
+   run away. The underlying `2^depth` addressing is unchanged, so the defect is contained rather
+   than removed. Measured on the benchmark corpus, building the whole indexed scene graph
+   (354,885 points, mesh order for the unindexed target and a decorrelated order for the indexed
+   one) went from **6.04 s and 7.4 GB peak RSS to 1.98 s and 839 MB** — the same as the unindexed
+   target's 837 MB, so position indexes stopped dominating memory. Build time also became
+   near-linear: 202k to 358k points was 6.3x the time before and is 2.0x now.
+
+   Note that the timing cost of the defect has the same single cause as the memory cost —
+   `A::max_value()` is infinity for `f32`, so the resize fill is non-zero and every new slot is
+   physically written rather than served as a zero page, which is why wall-clock and RSS move in
+   lockstep, and why fixing the memory fixed the time.
 
    Also still true: bulk construction trips a `left_capacity is zero` debug assertion whenever the
    leaf count is not a power of two (16/32/64/128 build; 54 and 94 panic). Independent of the

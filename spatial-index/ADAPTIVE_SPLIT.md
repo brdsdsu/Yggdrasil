@@ -145,6 +145,36 @@ Measured on the office corpus (354,885 lattice points, bucket 128), stem slots a
 Balanced would be depth 12, so there is still headroom — the remaining gap is the pivot being
 chosen from a leaf budget rather than from the data.
 
+### Rebalancing, which is what bulk construction was wanted for
+
+`add_rebalancing` pairs a cheap shape test with a bulk rebuild. Measured findings that a reader
+should not have to rediscover:
+
+* **Re-inserting incrementally is not a rebalance.** The obvious way to avoid needing adaptive bulk
+  construction is to drain the tree and re-add the points in a shuffled order. It does not work:
+  shuffling a *spatially concentrated* subset does not decorrelate it, and the rebuild frequently
+  produces a **deeper** tree than the one it replaced (measured: slots 32 -> 897 at depth 4 -> 9,
+  and 821 -> 21,508 at depth 9 -> 14). Every threshold from 4 to 64 then failed with the rebuild
+  itself exceeding the slot budget. Bulk construction is load bearing, not a convenience.
+* **The threshold comes from incremental measurements.** See README deviation 6 — bulk-built trees
+  sit at 2.4-3.9 but incremental ones reach 9.4 by 60k points and keep climbing, so the naive
+  threshold of 8 rebuilds healthy trees.
+* **Thrashing was the predicted risk and did not materialise.** 11-189 rebuilds and under 0.9 s of
+  rebuild time across tens of thousands of inserts, so no amortisation guard was needed. The
+  measured counts were themselves inflated by the broken incremental rebuild, which often failed to
+  reduce the ratio and re-triggered at once.
+* **A failed rebuild must not fail the insert.** Bulk construction can refuse a point set; treating
+  that as an insertion error made the corpus unbuildable.
+
+End-to-end on the benchmark corpus, building the whole indexed scene graph: 6.04 s and 7.4 GB peak
+RSS before, 1.98 s and 839 MB after, against 837 MB for the unindexed target — so the indexes
+stopped dominating memory. Build time went from 6.3x to 2.0x when going from 202k to 358k points.
+
+Still open: with rebalancing bounding memory, mesh-order insertion now progresses far enough to hit
+a *different* wall — `split_leaf_adaptive` refusing a bucket whose points are near-coincident on
+every axis, which is the phase-4 overflow representation, below. So the benchmark still decorrelates
+its insertion order, for that reason rather than for memory.
+
 ### Bulk construction is refused, not adapted
 
 `new_from_slice` / `new_from_source` / `new_from_entries` return
