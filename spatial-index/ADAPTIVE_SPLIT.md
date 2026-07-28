@@ -1,8 +1,15 @@
 # Adaptive split-dimension selection — design and remaining work
 
-Status: encoding helpers, the grid separator, the `EytzingerAdaptive` cursor and its trait hooks
-are landed and tested. Nothing names the cursor yet, so behaviour is still bit-identical to
-upstream. The split policy itself — widest-spread selection in `split_leaf` — is not written.
+Status: **landed, incremental and bulk.** Encoding helpers, the grid separator, the
+`EytzingerAdaptive` cursor and its trait hooks; widest-spread selection in
+`VecOfArrays::split_leaf_adaptive` for incremental `add`; and `KdTree::choose_split` for the bulk
+builders. `scene-graph`'s `PosIndex` names the cursor, so this workspace is on the adaptive path
+throughout.
+
+> **This file's older sections lag the code.** The "Remaining — one coherent change" list below is
+> kept for its reasoning, but items 1, 2, 3 and 6 are done, and "Bulk construction is refused, not
+> adapted" is no longer true — see "Bulk construction, adapted" for what replaced it. `README.md`
+> and `bench/BASELINE.md` are the current descriptions.
 
 ## The defect
 
@@ -91,6 +98,52 @@ sweep over gaps of 4..64 ULP pins the guarantee that a separator always exists b
   prove the wiring. That cannot work: the encoded value differs from the pivot by up to one grid
   cell, and `split_leaf` has already partitioned against the pivot, so the stored plane would sit
   off the partition and queries would lose points. Encoding and partitioning are inseparable.
+
+### Bulk construction, adapted
+
+Supersedes "Bulk construction is refused, not adapted" below, which explains why this was
+originally deferred and is worth reading first.
+
+`KdTree::choose_split` replaces the bare `stems[stem_index] = axis_at(&source[sort_index[pivot]],
+dim)` at both write sites. Per internal node, for adaptive strategies only:
+
+1. Rank the axes by spread over the chunk, widest first, using `Axis::saturating_dist`. Ties keep
+   the cycled axis's precedence so well-conditioned data behaves as before.
+2. For each axis in turn: `update_pivot`, then bracket the boundary and ask `grid_separator` for an
+   aligned value strictly inside the bracket. First success wins; the partition left in
+   `sort_index` is the chosen axis's, since each attempt re-partitions from scratch.
+3. Because the separator lies strictly between the bracketing coordinates, the index partition and
+   the value partition coincide — no re-partitioning, and the recursion is untouched.
+
+Cycling strategies take an early return that is exactly upstream's behaviour, so the 397 upstream
+tests stay bit-identical.
+
+Two things the original design did not anticipate, both found by testing against the corpus rather
+than by reasoning:
+
+* **`grid_separator` returning `None` is common, not unreachable.** The claim was that two distinct
+  values within one 4-ULP cell "does not arise" on a 0.05 m lattice. It arises constantly, because
+  interpolated mesh vertices are not exactly on the lattice they were derived from. This is why the
+  axis fall-through in step 2 is load bearing rather than defensive: without it the corpus refuses.
+* **`update_pivot` had to be tightened.** Its leftward nudge walks contiguously, which assumes
+  `select_nth_unstable_by` leaves equal values adjacent to the pivot. It does not in general, and
+  the case that breaks it is a highly asymmetric pivot — a chunk of `B + 1` splitting 128/1, where a
+  full bucket of duplicates sits left of the boundary. A cycling strategy survives that (it stores
+  the boundary coordinate verbatim, and the query's branch-and-bound recovers); an adaptive one has
+  no value satisfying `max(left) < s <= min(right)` and refuses a chunk it should have split. One
+  forward pass now moves every left-hand element equal to the boundary into the right region.
+  Gated on `ADAPTIVE_SPLIT_DIM`, so cycling is untouched.
+
+Measured on the office corpus (354,885 lattice points, bucket 128), stem slots and depth:
+
+| build | slots | depth |
+|---|---|---|
+| incremental, mesh order | 15,203,841 (abandoned at 11,768 points) | 23 |
+| bulk, cycling axes | 1,310,722 | 20 |
+| bulk, adaptive axes | **163,842** | **17** |
+
+Balanced would be depth 12, so there is still headroom — the remaining gap is the pivot being
+chosen from a leaf budget rather than from the data.
 
 ### Bulk construction is refused, not adapted
 

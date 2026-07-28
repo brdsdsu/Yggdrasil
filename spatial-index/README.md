@@ -91,10 +91,19 @@ it in the low bits of the split value, rather than deriving it from tree depth. 
 strategies are unaffected — the two trait hooks it needs default to current behaviour, and the
 policy is gated behind an opt-in associated const.
 
-One deliberate limitation: **bulk construction is refused for adaptive strategies**, returning
-`ConstructionError::AdaptiveSplitBulkBuildUnsupported`. The bulk builder partitions around a pivot
-before writing it, so it cannot record a dimension in that value without moving the plane off its
-own partition. Incremental `add` is unaffected, and is the only path `scene-graph` uses.
+### 5. Adaptive bulk construction
+
+Bulk construction was originally refused for adaptive strategies with
+`ConstructionError::AdaptiveSplitBulkBuildUnsupported`, because the builder partitioned around a
+pivot *before* writing it and so could not record a dimension in that value without moving the
+plane off its own partition. `KdTree::choose_split` now picks a grid-aligned separator before the
+value is stored — so plane and partition agree — and selects the axis by widest spread, falling
+through to another axis when one admits no separator. Cycling strategies take an early return that
+is upstream's behaviour verbatim. The error variant is retained for compatibility but is no longer
+produced. See [`ADAPTIVE_SPLIT.md`](ADAPTIVE_SPLIT.md), "Bulk construction, adapted".
+
+This matters because bulk construction is immune to the insertion-order defect below: it partitions
+from the whole point set rather than one point at a time.
 
 ## Baseline
 
@@ -120,4 +129,22 @@ cargo test -p spatial-index --features fuzz     # adds the randomised kd_tree_fu
    insertion order deepens one path instead of broadening the tree: 528,826 real points in file
    order exceed 6 GB and get OOM-killed, while the *same* points shuffled build in 157 MB and
    291 ms. Adaptive split selection does **not** bound this: measured post-patch, the fork still exceeds a
-   1 GiB budget on clustered insertion order, marginally sooner than upstream. Out of scope.
+   1 GiB budget on clustered insertion order, marginally sooner than upstream.
+
+   Still unfixed *for incremental insertion*, but no longer without a remedy: **bulk construction
+   now works for adaptive strategies** (deviation 5 below), and it is immune to insertion order
+   because it partitions by median from the whole point set. On the benchmark corpus the same
+   354,885 points cost 163,842 stem slots at depth 17 bulk-built, against 15,203,841 slots at
+   depth 23 incrementally in mesh order — and the incremental build never completes. A caller
+   holding an index that has degenerated can rebuild it; a `created/used` slot ratio separates
+   healthy from pathological by four orders of magnitude (2.4-3.9 against 112,000) and makes a
+   cheap trigger. Note that the timing cost of the defect has the same single cause as the memory
+   cost — `A::max_value()` is infinity for `f32`, so the resize fill is non-zero and every new
+   slot is physically written rather than served as a zero page, which is why wall-clock and RSS
+   move in lockstep.
+
+   Also still true: bulk construction trips a `left_capacity is zero` debug assertion whenever the
+   leaf count is not a power of two (16/32/64/128 build; 54 and 94 panic). Independent of the
+   adaptive work — it reproduces with cycling strategies — and it is a `debug_assert`, so release
+   builds pass it. Pinned by the ignored test
+   `construction::tests::bulk_build_panics_on_non_power_of_two_leaf_count`.

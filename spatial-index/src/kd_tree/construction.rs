@@ -430,14 +430,13 @@ where
             return Self::new_from_source_no_stems_with(source, &axis_at, item_at);
         }
 
-        // FORK DEVIATION (see ADAPTIVE_SPLIT.md): this builder writes split values it has already
-        // partitioned around, so it cannot fold a dimension into them without shifting each plane
-        // off its own partition. Refuse rather than build a tree whose queries would descend on
-        // the wrong axis and quietly return the wrong neighbours.
-        if SS::ADAPTIVE_SPLIT_DIM {
-            return Err(ConstructionError::AdaptiveSplitBulkBuildUnsupported);
-        }
-
+        // FORK DEVIATION (see ADAPTIVE_SPLIT.md): adaptive strategies used to be refused here,
+        // because this builder wrote the coordinate it had already partitioned around and folding
+        // a dimension into that value afterwards would shift each plane off its own partition.
+        // `split_value_for_stem` now chooses a grid-aligned separator *before* the value is
+        // stored, so the stored plane and the partition agree and the refusal is gone. The split
+        // axis itself still cycles with depth (`construction_dim`); adaptive selection at build
+        // time is a separate change.
         let mut stems_depth: usize = leaf_node_count.next_power_of_two().ilog2() as usize;
 
         // Pad stem tree height to the next block boundary for block-based strategies
@@ -650,6 +649,159 @@ where
     SS: StemStrategy,
     LS: ConstructibleLeafStrategy<A, T, SS, K, B>,
 {
+    /// The value to store at a stem for the split that puts `sort_index[..pivot]` left and
+    /// `sort_index[pivot..]` right.
+    ///
+    /// Cycling strategies store the boundary coordinate itself, exactly as upstream does, so
+    /// their behaviour is bit-identical.
+    ///
+    /// FORK DEVIATION (see ADAPTIVE_SPLIT.md): an adaptive strategy stores its split dimension
+    /// in the low [`dim_bits`](crate::stem_strategy::dim_packing::dim_bits) bits of the split
+    /// value, and queries compare against **that stored value**. Encoding the boundary
+    /// coordinate in place would move it by up to one grid cell while the partition stays fixed
+    /// by index, stranding every point between the old and new plane on the wrong side of its
+    /// own split — a silently wrong nearest-neighbour, not an error. So the value is *chosen* to
+    /// separate the partition instead of being derived from it: bracket the boundary, ask
+    /// [`grid_separator`](crate::stem_strategy::dim_packing::grid_separator) for an aligned value
+    /// strictly inside the bracket, and encode into the bits it left free. Because the separator
+    /// lies strictly between the two bracketing coordinates, the index partition and the value
+    /// partition coincide and no re-partitioning is needed.
+    /// Choose the axis, the partition and the value to store for one internal node.
+    ///
+    /// Cycling strategies have no choice to make: the axis is implied by depth, so this is
+    /// `update_pivot` plus the boundary coordinate, exactly as upstream.
+    ///
+    /// FORK DEVIATION (see ADAPTIVE_SPLIT.md): an adaptive strategy records its axis in the
+    /// stored value, so construction is free to pick a different one — and sometimes must. Two
+    /// reasons an axis can be unusable: every point in the chunk shares a value on it, or its two
+    /// bracketing values sit closer together than one grid cell so no aligned plane fits between
+    /// them. The second was expected to be unreachable on quantised data; it is not, because
+    /// interpolated mesh vertices are not exactly on the lattice they were derived from.
+    ///
+    /// Candidates are tried widest-spread first, which both avoids those cases and keeps the tree
+    /// shallow — the whole point of bulk construction here is a balanced tree, and `2^depth` stem
+    /// addressing makes every wasted level expensive.
+    ///
+    /// Returns the axis used, the partition boundary, and the value to store — `None` when the
+    /// partition puts everything on one side, in which case no stem is written.
+    #[allow(clippy::type_complexity)]
+    fn choose_split<X, FA>(
+        source: &[X],
+        axis_at: &FA,
+        sort_index: &mut [usize],
+        preferred_dim: usize,
+        init_pivot: usize,
+    ) -> Result<(usize, usize, Option<A>), ConstructionError>
+    where
+        FA: Fn(&X, usize) -> A,
+    {
+        if !SS::ADAPTIVE_SPLIT_DIM {
+            let pivot = Self::update_pivot(source, axis_at, sort_index, preferred_dim, init_pivot)?;
+            let value = (pivot < sort_index.len())
+                .then(|| (*axis_at)(&source[sort_index[pivot]], preferred_dim));
+            return Ok((preferred_dim, pivot, value));
+        }
+
+        // Spread per axis over this chunk, so the widest is tried first: it is the most likely to
+        // admit a separator and it keeps the tree shallow. `saturating_dist` gives a real width,
+        // which matters — an ordering built from range containment is not a total order and
+        // `sort_by` is entitled to reject it.
+        let mut order: Vec<usize> = (0..K).collect();
+        let spread: Vec<A> = (0..K)
+            .map(|dim| {
+                let mut lo = A::max_value();
+                let mut hi = A::min_value();
+                for &idx in sort_index.iter() {
+                    let value = (*axis_at)(&source[idx], dim);
+                    if A::cmp(value, lo) == std::cmp::Ordering::Less {
+                        lo = value;
+                    }
+                    if A::cmp(hi, value) == std::cmp::Ordering::Less {
+                        hi = value;
+                    }
+                }
+                A::saturating_dist(lo, hi)
+            })
+            .collect();
+        order.sort_by(|&a, &b| {
+            // Widest first, then the cycled axis's precedence so ties stay deterministic and
+            // well-conditioned data keeps behaving as it did.
+            A::cmp(spread[b], spread[a]).then_with(|| {
+                let rank = |d: usize| (d + K - preferred_dim) % K;
+                rank(a).cmp(&rank(b))
+            })
+        });
+
+        let mut last_error = None;
+        for dim in order {
+            let pivot = match Self::update_pivot(source, axis_at, sort_index, dim, init_pivot) {
+                Ok(pivot) => pivot,
+                Err(e) => {
+                    last_error = Some(e);
+                    continue;
+                }
+            };
+            if pivot >= sort_index.len() {
+                // Everything on one side: nothing to store, and no axis would change that.
+                return Ok((dim, pivot, None));
+            }
+            match Self::split_value_for_stem(source, axis_at, sort_index, dim, pivot) {
+                Ok(value) => return Ok((dim, pivot, Some(value))),
+                Err(e) => last_error = Some(e),
+            }
+        }
+
+        Err(last_error.unwrap_or(ConstructionError::UnsplittableBucket {
+            split_dim: preferred_dim,
+        }))
+    }
+
+    fn split_value_for_stem<X, FA>(
+        source: &[X],
+        axis_at: &FA,
+        sort_index: &[usize],
+        dim: usize,
+        pivot: usize,
+    ) -> Result<A, ConstructionError>
+    where
+        FA: Fn(&X, usize) -> A,
+    {
+        let upper = (*axis_at)(&source[sort_index[pivot]], dim);
+        if !SS::ADAPTIVE_SPLIT_DIM {
+            return Ok(upper);
+        }
+
+        // `select_nth_unstable_by` only guarantees that everything left of `pivot` is <= the
+        // element *at* `pivot`; the element at `pivot - 1` is merely one of them, not necessarily
+        // the largest. The separator has to clear the true maximum, or some other left-hand point
+        // tests `>= stored` and queries for it descend right while it lives in the left leaf.
+        let mut lower = None;
+        for &idx in &sort_index[..pivot] {
+            let value = (*axis_at)(&source[idx], dim);
+            if lower.is_none_or(|current| A::cmp(current, value) == std::cmp::Ordering::Less) {
+                lower = Some(value);
+            }
+        }
+        // An empty left partition, or a left maximum that reaches the boundary value, leaves no
+        // plane that separates the two sides. `update_pivot` is supposed to have ruled the latter
+        // out; checking is cheap and the alternative is a silently wrong tree.
+        let lower = match lower {
+            Some(lower) if A::cmp(lower, upper) == std::cmp::Ordering::Less => lower,
+            _ => return Err(ConstructionError::UnsplittableBucket { split_dim: dim }),
+        };
+
+        let separator = crate::stem_strategy::dim_packing::grid_separator(
+            lower,
+            upper,
+            size_of::<A>(),
+            dim,
+            crate::stem_strategy::dim_packing::dim_mask(K),
+        )
+        .ok_or(ConstructionError::UnsplittableBucket { split_dim: dim })?;
+
+        Ok(SS::encode_split::<A, K>(separator, dim))
+    }
+
     fn write_leaf_from_sort_index<X, FA, FI>(
         source: &[X],
         axis_at: &FA,
@@ -797,8 +949,12 @@ where
         );
 
         // only bother with this logic if we are putting at least one item in the right-hand child
+        let mut dim = dim;
         if pivot < chunk_length {
-            pivot = Self::update_pivot(source, axis_at, sort_index, dim, pivot)?;
+            let (chosen_dim, chosen_pivot, split_value) =
+                Self::choose_split(source, axis_at, sort_index, dim, pivot)?;
+            dim = chosen_dim;
+            pivot = chosen_pivot;
 
             debug_assert!(
                 pivot > 0,
@@ -827,13 +983,13 @@ where
             //     );
             // }
 
-            if pivot < chunk_length {
+            if let Some(split_value) = split_value {
                 debug_assert!(
                     A::Coord::is_max_value(stems[stem_index]),
                     "Wrote to stem #{stem_index:?} for a second time",
                 );
 
-                stems[stem_index] = axis_at(&source[sort_index[pivot]], dim);
+                stems[stem_index] = split_value;
             }
         }
 
@@ -924,24 +1080,28 @@ where
             stems.resize(stem_index + 1, A::max_value());
         }
 
-        let (left_leaf_budget, right_leaf_budget, pivot) = if leaf_budget == 1 {
-            (1usize, 0usize, chunk_length)
+        let (left_leaf_budget, right_leaf_budget, pivot, split_value) = if leaf_budget == 1 {
+            (1usize, 0usize, chunk_length, None)
         } else {
             let left_leaf_budget = Self::soft_left_leaf_budget(leaf_budget);
             let right_leaf_budget = leaf_budget - left_leaf_budget;
             let mut pivot = Self::soft_ideal_pivot(chunk_length, left_leaf_budget, leaf_budget);
+            let mut split_value = None;
             if pivot < chunk_length {
-                pivot = Self::update_pivot(source, axis_at, sort_index, dim, pivot)?;
+                let (_, chosen_pivot, chosen_value) =
+                    Self::choose_split(source, axis_at, sort_index, dim, pivot)?;
+                pivot = chosen_pivot;
+                split_value = chosen_value;
             }
-            (left_leaf_budget, right_leaf_budget, pivot)
+            (left_leaf_budget, right_leaf_budget, pivot, split_value)
         };
 
-        if pivot < chunk_length {
+        if let Some(split_value) = split_value {
             debug_assert!(
                 A::Coord::is_max_value(stems[stem_index]),
                 "Wrote to stem #{stem_index:?} for a second time",
             );
-            stems[stem_index] = axis_at(&source[sort_index[pivot]], dim);
+            stems[stem_index] = split_value;
         }
 
         let right_stem_ordering = stem_ordering.branch::<A, K>();
@@ -1121,6 +1281,35 @@ where
             A::cmp((*axis_at)(&source[ia], dim), (*axis_at)(&source[ib], dim))
         });
 
+        // FORK DEVIATION (see ADAPTIVE_SPLIT.md): tighten the partition so that *no* left-hand
+        // element equals the boundary value, not merely the one at `pivot - 1`.
+        //
+        // The nudge below walks contiguously, which relies on `select_nth_unstable_by` leaving
+        // equal values adjacent to the pivot. It only promises a partition, so an element equal to
+        // the boundary can sit anywhere in the left region. A cycling strategy tolerates that: it
+        // stores the boundary coordinate verbatim, and such an element merely tests to the right
+        // of a plane it sits left of, which the query's branch-and-bound recovers from. An
+        // adaptive strategy cannot, because there is then no value at all satisfying
+        // `max(left) < s <= min(right)` for it to store.
+        //
+        // One forward pass moves every non-equal element to the front, so `[0, pivot)` ends up
+        // strictly below the boundary and the equal ones join the right region, which only
+        // requires `>= boundary`. Driving `pivot` to zero is fine — the rightward-nudge branch
+        // below already handles an empty left side.
+        if SS::ADAPTIVE_SPLIT_DIM && pivot > 0 {
+            let boundary = (*axis_at)(&source[sort_index[pivot]], dim);
+            let mut write = 0usize;
+            for read in 0..pivot {
+                if A::cmp((*axis_at)(&source[sort_index[read]], dim), boundary)
+                    != std::cmp::Ordering::Equal
+                {
+                    sort_index.swap(write, read);
+                    write += 1;
+                }
+            }
+            pivot = write;
+        }
+
         // if the pivot straddles two values that are equal, keep nudging it left until they aren't
         while pivot > 0
             && (*axis_at)(&source[sort_index[pivot]], dim)
@@ -1194,7 +1383,448 @@ mod tests {
     use crate::leaf_strategy::FlatVec;
     use crate::leaf_strategy::VecOfArenas;
     use crate::leaf_strategy::VecOfArrays;
-    use crate::Eytzinger;
+    use crate::traits::kd_tree::KdTreeAccessor;
+    use crate::{Eytzinger, EytzingerAdaptive};
+
+    // ---- FORK DEVIATION: adaptive bulk construction (see ADAPTIVE_SPLIT.md) --------------
+    //
+    // These pin the invariant that makes storing an encoded split value safe:
+    //
+    //     max(left) < stored <= min(right)
+    //
+    // Break it and queries descend past points that are physically in the other leaf, with no
+    // error raised — so "it built and the sizes look right" is not evidence of correctness. Every
+    // test below therefore checks *retrievability*, not shape.
+
+    type AdaptiveTree = KdTree<f32, u32, EytzingerAdaptive, VecOfArrays<f32, u32, 3, 32>, 3, 32>;
+    type CyclingTree = KdTree<f32, u32, Eytzinger, VecOfArrays<f32, u32, 3, 32>, 3, 32>;
+
+    /// Lattice geometry with heavy coordinate coincidence, which is what voxel-derived meshes
+    /// look like and what makes boundary-duplicate splits the common case rather than an edge
+    /// case. `step` is the lattice pitch; `origin` shifts the whole block so sign handling gets
+    /// exercised.
+    ///
+    /// **The dimensions below are chosen so `n.div_ceil(B)` is a power of two**, which is not
+    /// cosmetic: bulk construction trips the `left_capacity is zero` debug assertion for any
+    /// other leaf count — see [`bulk_build_panics_on_non_power_of_two_leaf_count`], which is a
+    /// pre-existing defect unrelated to the split-value encoding these tests cover. Resizing a
+    /// fixture without keeping that property will fail for reasons that have nothing to do with
+    /// what the test is checking.
+    fn lattice(nx: usize, ny: usize, nz: usize, step: f32, origin: [f32; 3]) -> Vec<[f32; 3]> {
+        let mut points = Vec::with_capacity(nx * ny * nz);
+        for ix in 0..nx {
+            for iy in 0..ny {
+                for iz in 0..nz {
+                    points.push([
+                        clear_dim_bits(origin[0] + ix as f32 * step),
+                        clear_dim_bits(origin[1] + iy as f32 * step),
+                        clear_dim_bits(origin[2] + iz as f32 * step),
+                    ]);
+                }
+            }
+        }
+        points
+    }
+
+    /// Zero the bits the dimension encoding claims, moving the value by at most one grid cell.
+    ///
+    /// This is what makes the fixtures adversarial rather than merely realistic, and it is load
+    /// bearing. Encoding dimension `d > 0` into such a value can only move it **upwards**, so
+    /// every point sharing the boundary coordinate ends up on the far side of a plane that was
+    /// encoded in place — which is precisely the bug. Left to whatever low bits `origin + k*step`
+    /// happens to produce, the shift may go the other way and the defect hides: verified by
+    /// mutation testing, where an un-quantised lattice let the naive implementation pass all of
+    /// these tests.
+    fn clear_dim_bits(value: f32) -> f32 {
+        let mask = crate::stem_strategy::dim_packing::dim_mask(3) as u32;
+        f32::from_bits(value.to_bits() & !mask)
+    }
+
+    fn brute_force_nearest(points: &[[f32; 3]], query: &[f32; 3]) -> f32 {
+        points
+            .iter()
+            .map(|p| {
+                (0..3)
+                    .map(|d| (p[d] - query[d]) * (p[d] - query[d]))
+                    .sum::<f32>()
+            })
+            .fold(f32::INFINITY, f32::min)
+    }
+
+    /// Querying at a point that is *in* the tree must find it at distance zero. This is the
+    /// direct test for a plane that has drifted off its own partition: a stranded point is
+    /// invisible to the descent that should reach it, so its own coordinates stop finding it.
+    fn assert_every_point_is_retrievable(tree: &AdaptiveTree, points: &[[f32; 3]]) {
+        for (idx, point) in points.iter().enumerate() {
+            let found = tree
+                .query(point)
+                .nearest_one::<SquaredEuclidean<f32>>()
+                .execute();
+            assert_eq!(
+                found.distance, 0.0,
+                "point {idx} at {point:?} is in the tree but its own coordinates do not \
+                 reach it (nearest was item {} at squared distance {}) - a split plane does \
+                 not match the partition it was built from",
+                found.item, found.distance,
+            );
+        }
+    }
+
+    #[test]
+    fn adaptive_bulk_build_retrieves_every_point_on_lattice_geometry() {
+        // 8 x 16 x 16 = 2,048 points over a bucket of 32, so 64 leaves and six levels of
+        // splits, with at most 16 distinct values per axis: boundary duplicates everywhere.
+        let points = lattice(8, 16, 16, 0.05, [1.65, -0.55, 3.85]);
+        let tree = AdaptiveTree::new_from_slice(&points).expect("adaptive bulk build is supported");
+
+        assert_eq!(tree.size(), points.len());
+        assert_every_point_is_retrievable(&tree, &points);
+    }
+
+    #[test]
+    fn adaptive_bulk_build_matches_brute_force_for_off_lattice_queries() {
+        let points = lattice(8, 8, 16, 0.05, [-0.25, -0.25, -0.25]);
+        let tree = AdaptiveTree::new_from_slice(&points).unwrap();
+
+        // Queries deliberately off the lattice and outside it, so the descent has to pick the
+        // correct side of planes rather than landing exactly on stored values.
+        for i in 0..200u32 {
+            let f = i as f32;
+            let query = [
+                (f * 0.7301).sin() * 0.9,
+                (f * 1.1301).cos() * 0.9,
+                (f * 0.3701).sin() * 0.9,
+            ];
+            let found = tree
+                .query(&query)
+                .nearest_one::<SquaredEuclidean<f32>>()
+                .execute();
+            let expected = brute_force_nearest(&points, &query);
+            assert_eq!(
+                found.distance, expected,
+                "query {query:?} returned squared distance {} but brute force says {expected}",
+                found.distance,
+            );
+        }
+    }
+
+    /// Coordinates spanning zero. IEEE 754 orders negative floats in reverse of their bit
+    /// patterns, so any attempt to replace `grid_separator`'s value comparisons with bit
+    /// arithmetic moves the separator the wrong way for negatives. This fails if that happens.
+    #[test]
+    fn adaptive_bulk_build_handles_coordinates_spanning_zero() {
+        let points = lattice(8, 16, 16, 0.05, [-0.3, -0.3, -0.3]);
+        assert!(
+            points.iter().any(|p| p[0] < 0.0) && points.iter().any(|p| p[0] > 0.0),
+            "the fixture must straddle zero for this test to mean anything"
+        );
+
+        let tree = AdaptiveTree::new_from_slice(&points).unwrap();
+        assert_every_point_is_retrievable(&tree, &points);
+    }
+
+    /// The whole purpose of the encoding: a stem must report back the axis it was split on.
+    /// Skip `encode_split` and the low bits hold whatever the data happened to carry, so the
+    /// decoded dimension is wrong and queries compare the wrong coordinate against the plane.
+    #[test]
+    fn adaptive_bulk_build_records_the_split_dimension_in_every_written_stem() {
+        use crate::stem_strategy::dim_packing::{dim_mask, unpack_from};
+
+        let points = lattice(8, 16, 16, 0.05, [1.65, 2.0, 3.85]);
+        let tree = AdaptiveTree::new_from_slice(&points).unwrap();
+
+        // The axis is *chosen* by spread, not implied by depth, so there is no per-stem value to
+        // predict. What must hold is that the stored values carry real axis information: with the
+        // fixture's dimension bits cleared, an unencoded stem decodes as axis 0, so a tree built
+        // without encoding shows axis 0 everywhere. A tree that genuinely records its choices
+        // uses more than one, because the fixture is deliberately not cubic.
+        let mut counts = [0usize; 3];
+        for (stem_idx, stored) in tree.stems().iter().enumerate().skip(1) {
+            if f32::is_max_value(*stored) {
+                continue; // never written
+            }
+            let decoded = unsafe {
+                unpack_from(
+                    (stored as *const f32).cast(),
+                    size_of::<f32>(),
+                    dim_mask(3),
+                    3,
+                )
+            };
+            assert!(
+                decoded < 3,
+                "stem {stem_idx} decodes to axis {decoded}, which is not an axis of a 3-d tree"
+            );
+            counts[decoded] += 1;
+        }
+
+        let written: usize = counts.iter().sum();
+        assert!(
+            written >= 8,
+            "expected the fixture to write a meaningful number of stems, only saw {written}"
+        );
+        let axes_used = counts.iter().filter(|c| **c > 0).count();
+        assert!(
+            axes_used >= 2,
+            "every written stem decodes to the same axis (counts {counts:?}); the split \
+             dimension is not being recorded in the stored value"
+        );
+    }
+
+    /// Bulk and incremental construction are two different code paths that must agree, since the
+    /// rebalance this unlocks swaps one for the other mid-life.
+    #[test]
+    fn adaptive_bulk_build_answers_identically_to_incremental_add() {
+        let points = lattice(8, 8, 16, 0.05, [1.65, -0.55, 3.85]);
+
+        let bulk = AdaptiveTree::new_from_slice(&points).unwrap();
+        let mut incremental = AdaptiveTree::default();
+        for (idx, point) in points.iter().enumerate() {
+            incremental.add(point, idx as u32).unwrap();
+        }
+
+        assert_eq!(bulk.size(), incremental.size());
+        for i in 0..200u32 {
+            let f = i as f32;
+            let query = [
+                1.65 + (f * 0.7301).sin() * 0.8,
+                -0.55 + (f * 1.1301).cos() * 0.8,
+                3.85 + (f * 0.3701).sin() * 0.8,
+            ];
+            let from_bulk = bulk
+                .query(&query)
+                .nearest_one::<SquaredEuclidean<f32>>()
+                .execute();
+            let from_incremental = incremental
+                .query(&query)
+                .nearest_one::<SquaredEuclidean<f32>>()
+                .execute();
+            assert_eq!(
+                from_bulk.distance, from_incremental.distance,
+                "bulk and incremental disagree at {query:?}"
+            );
+        }
+    }
+
+    /// Radius queries walk the tree differently from nearest-neighbour, so they can expose a bad
+    /// plane that `nearest_one` happens to survive. The returned set must be exactly the set
+    /// brute force finds.
+    #[test]
+    fn adaptive_bulk_build_within_radius_matches_brute_force() {
+        let points = lattice(8, 16, 16, 0.05, [1.65, -0.55, 3.85]);
+        let tree = AdaptiveTree::new_from_slice(&points).unwrap();
+
+        let radius = 0.12f32;
+        for i in 0..40u32 {
+            let f = i as f32;
+            let query = [
+                1.65 + (f * 0.31).sin() * 0.3,
+                -0.55 + (f * 0.53).cos() * 0.3,
+                3.85 + (f * 0.17).sin() * 0.3,
+            ];
+            let mut found: Vec<u32> = tree
+                .query(&query)
+                .within::<SquaredEuclidean<f32>>(radius * radius)
+                .execute()
+                .into_iter()
+                .map(|n| n.item)
+                .collect();
+            found.sort_unstable();
+
+            let mut expected: Vec<u32> = points
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    (0..3)
+                        .map(|d| (p[d] - query[d]) * (p[d] - query[d]))
+                        .sum::<f32>()
+                        <= radius * radius
+                })
+                .map(|(idx, _)| idx as u32)
+                .collect();
+            expected.sort_unstable();
+
+            assert_eq!(found, expected, "radius query at {query:?} returned the wrong set");
+        }
+    }
+
+    /// The reason bulk construction is wanted at all: it must produce a near-balanced tree, since
+    /// stems are addressed breadth-first and depth costs ~2^depth slots. A regression that
+    /// reintroduces depth blow-up would still pass every correctness test above.
+    #[test]
+    fn adaptive_bulk_build_stays_near_balanced() {
+        let points = lattice(16, 16, 16, 0.05, [1.65, -0.55, 3.85]);
+        let tree = AdaptiveTree::new_from_slice(&points).unwrap();
+
+        let balanced = (points.len().div_ceil(32) as f64).log2().ceil() as i32;
+        assert!(
+            tree.max_stem_level() <= balanced + 2,
+            "bulk build reached depth {} where balanced is {balanced}; stems hold {} slots",
+            tree.max_stem_level(),
+            tree.stems().len(),
+        );
+    }
+
+    /// `update_pivot` must leave a partition where **no** left-hand element equals the boundary
+    /// value, not merely the one at `pivot - 1`.
+    ///
+    /// `select_nth_unstable_by` partitions but does not gather equal values next to the pivot, so
+    /// the contiguous nudge can leave one behind. For a cycling strategy that is survivable; for
+    /// an adaptive one there is then no value satisfying `max(left) < s <= min(right)`, and the
+    /// chunk gets refused even though it is perfectly splittable. Removing the tightening makes
+    /// the office corpus's 313,522 unclaimed vertices fail to bulk-build at all.
+    ///
+    /// Driven as a property over heavily duplicated values, because which element ends up where
+    /// is an internal detail of the standard library's quickselect and cannot be dictated.
+    #[test]
+    fn update_pivot_leaves_no_left_element_equal_to_the_boundary() {
+        fn next(state: &mut u64) -> u64 {
+            *state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            *state >> 33
+        }
+
+        let axis_at = |p: &[f32; 3], dim: usize| p[dim];
+        let mut state: u64 = 0x5EED_2026;
+        let mut exercised = 0usize;
+
+        for _ in 0..3_000 {
+            // Large enough to get real quickselect rather than a small-slice sort, and few
+            // enough distinct values that duplicates straddle the pivot constantly.
+            // A chunk of B+1 splits 128/1, so the pivot sits at the very edge. That asymmetry
+            // is what puts a full bucket's worth of duplicates on the left of the boundary; a
+            // symmetric len/2 pivot never reproduces it.
+            let len = 129 + (next(&mut state) % 400) as usize;
+            let distinct = 2 + (next(&mut state) % 40) as usize;
+            let source: Vec<[f32; 3]> = (0..len)
+                .map(|_| [(next(&mut state) % distinct as u64) as f32, 0.0, 0.0])
+                .collect();
+            let mut sort_index: Vec<usize> = (0..len).collect();
+
+            let init_pivot = 1 + (next(&mut state) % (len as u64 - 1)) as usize;
+            let Ok(pivot) =
+                AdaptiveTree::update_pivot(&source, &axis_at, &mut sort_index, 0, init_pivot)
+            else {
+                continue; // legitimately unsplittable on this axis
+            };
+            if pivot == 0 || pivot >= len {
+                continue; // nothing on one side, so there is no boundary to check
+            }
+
+            let boundary = source[sort_index[pivot]][0];
+            let left_max = sort_index[..pivot]
+                .iter()
+                .map(|&i| source[i][0])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!(
+                left_max < boundary,
+                "left partition reaches {left_max} but the boundary is {boundary}: an element \
+                 equal to the boundary was left on the left-hand side (len {len}, {distinct} \
+                 distinct values, pivot {pivot})"
+            );
+            exercised += 1;
+        }
+
+        assert!(
+            exercised > 300,
+            "only {exercised} of 3000 trials produced a two-sided split; the fixture is not \
+             exercising the postcondition"
+        );
+    }
+
+    /// The left bound handed to `grid_separator` must be the **true maximum** of the left
+    /// partition, not merely the element sitting at `pivot - 1`.
+    ///
+    /// `grid_separator` always returns a value within one cell of `upper`, so on well-spread data
+    /// a too-small left bound yields the same separator and nothing looks wrong — which is why
+    /// the black-box tests above cannot see this. It matters exactly when some *other* left
+    /// element lies within a cell of the boundary: the honest answer is then "no plane separates
+    /// these", and a bound read off `pivot - 1` instead reports success with a plane that leaves
+    /// that element on the wrong side.
+    ///
+    /// Driven directly rather than through a fixture, since `select_nth_unstable_by` cannot be
+    /// asked to place a particular element at `pivot - 1`.
+    #[test]
+    fn split_value_requires_the_true_left_maximum() {
+        let upper = 2.0f32; // mantissa zero, so the dimension bits are already clear
+        let near = f32::from_bits(upper.to_bits() - 1); // one ULP below the boundary
+
+        // Values live on axis 1, which is the axis passed below. Index 1 holds the true left
+        // maximum; index 2 — the `pivot - 1` slot — holds something far below it.
+        let source = [
+            [0.0f32, 1.0, 0.0],
+            [0.0, near, 0.0],
+            [0.0, 1.5, 0.0],
+            [0.0, upper, 0.0],
+        ];
+        let sort_index = [0usize, 1, 2, 3];
+        let axis_at = |p: &[f32; 3], dim: usize| p[dim];
+
+        let result = AdaptiveTree::split_value_for_stem(&source, &axis_at, &sort_index, 1, 3);
+
+        assert!(
+            matches!(
+                result,
+                Err(ConstructionError::UnsplittableBucket { split_dim: 1 })
+            ),
+            "a left element one ULP below the boundary leaves no separating plane, so this must \
+             be refused; got {result:?}, which means the left bound was not the true maximum"
+        );
+
+        // Sanity: with that element removed the same split is perfectly fine, so the refusal
+        // above is about the near-boundary value and not about the fixture being malformed.
+        let sort_index_without_near = [0usize, 2, 3];
+        let ok = AdaptiveTree::split_value_for_stem(&source, &axis_at, &sort_index_without_near, 1, 2);
+        let separator = ok.expect("a well-spread left partition must produce a separator");
+        assert!(
+            separator > 1.5 && separator <= upper,
+            "separator {separator} must satisfy max(left) < s <= min(right)"
+        );
+    }
+
+    /// Pre-existing defect, recorded here rather than left to be rediscovered: bulk construction
+    /// mis-accounts capacity whenever the leaf count is not a power of two, and trips
+    /// `left_capacity is zero - should never happen`. Measured with the *cycling* strategy, so it
+    /// predates and is independent of adaptive split-value encoding; 16/32/64/128 leaves build
+    /// fine while 54 and 94 panic. It is a `debug_assert`, so release builds sail past it — which
+    /// is why bulk builds over the office corpus (324 leaves) looked healthy.
+    ///
+    /// Ignored because it fails by design. Remove the attribute once the capacity math is fixed.
+    #[test]
+    #[ignore = "pre-existing bulk-build capacity defect, not related to adaptive encoding"]
+    fn bulk_build_panics_on_non_power_of_two_leaf_count() {
+        // 1,728 points over a bucket of 32 is 54 leaves.
+        let points = lattice(12, 12, 12, 0.05, [1.65, -0.55, 3.85]);
+        assert_eq!(points.len().div_ceil(32), 54, "fixture should give 54 leaves");
+        CyclingTree::new_from_slice(&points).expect("bulk build should not depend on leaf count");
+    }
+
+    /// Cycling strategies must be untouched by the deviation: they still store the boundary
+    /// coordinate verbatim, with no bits stolen.
+    #[test]
+    fn cycling_bulk_build_stores_unencoded_coordinates() {
+        let points = lattice(8, 16, 16, 0.05, [1.65, -0.55, 3.85]);
+        let tree = CyclingTree::new_from_slice(&points).unwrap();
+
+        let coordinates: std::collections::HashSet<u32> = points
+            .iter()
+            .flat_map(|p| p.iter().map(|v| v.to_bits()))
+            .collect();
+        let mut checked = 0usize;
+        for stored in tree.stems().iter() {
+            if f32::is_max_value(*stored) {
+                continue;
+            }
+            assert!(
+                coordinates.contains(&stored.to_bits()),
+                "cycling stem holds {stored}, which is not one of the source coordinates - the \
+                 adaptive encoding has leaked into the non-adaptive path"
+            );
+            checked += 1;
+        }
+        assert!(checked >= 8, "expected written stems, saw {checked}");
+    }
 
     #[test]
     fn update_pivot_shifts_right_when_left_scan_hits_zero() {
