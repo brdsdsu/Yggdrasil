@@ -6,10 +6,12 @@ Status: **landed, incremental and bulk.** Encoding helpers, the grid separator, 
 builders. `scene-graph`'s `PosIndex` names the cursor, so this workspace is on the adaptive path
 throughout.
 
-> **This file's older sections lag the code.** The "Remaining — one coherent change" list below is
-> kept for its reasoning, but items 1, 2, 3 and 6 are done, and "Bulk construction is refused, not
-> adapted" is no longer true — see "Bulk construction, adapted" for what replaced it. `README.md`
-> and `bench/BASELINE.md` are the current descriptions.
+> **This file's older sections lag the code, deliberately.** The "Remaining — one coherent change"
+> list is kept for its reasoning even though items 1, 2, 3, 5 and 6 are done, item 4 turned out to
+> be the common case rather than the unreachable one it predicted, and item 8's A/B has been run.
+> Only item 7 — folding `pos.rs::coplanar_defect` into acceptance tests — is genuinely outstanding.
+> "Bulk construction is refused, not adapted" is no longer true; see "Bulk construction, adapted".
+> `README.md` and `bench/BASELINE.md` are the current descriptions.
 
 ## The defect
 
@@ -207,7 +209,10 @@ All in `VecOfArrays::split_leaf` unless noted:
    on the adaptive route. That logic exists to shuffle the pivot when equal values straddle it,
    which is only necessary because the axis was chosen blind. Cycling strategies keep it, since
    `encode_split` defaults to identity.
-4. `grid_separator` returning `None` → `UnsplittableBucket` plus this TODO:
+4. `grid_separator` returning `None` → `UnsplittableBucket` plus this TODO. **The prediction in it
+   was wrong**: this is not "only reachable" on a lattice, it is common, because interpolated mesh
+   vertices are not exactly on the lattice they were derived from. The axis fall-through it suggests
+   is therefore load bearing, not defensive, and is implemented.
    ```rust
    // TODO: grid quantisation left no aligned plane between the bracketing values. Only
    // reachable when two distinct values sit within dim_mask(K)+1 ULP on the split axis —
@@ -239,9 +244,19 @@ axis, which needs the overflow representation (phase 4) rather than a better axi
 
 ## Not in scope
 
-- **The `2^depth` stem addressing itself.** Deprioritised deliberately. Adaptive selection should
-  reduce depth substantially, but any deep tree stays expensive; whether that is sufficient is an
-  open question the A/B will answer.
+- **The `2^depth` stem addressing itself.** Still unchanged, but no longer an exposure for this
+  workspace. The open question this section used to pose — whether adaptive selection alone bounds
+  depth — has been answered, and the answer was no: clustered insertion still drove the array past
+  a 1 GiB budget after the split patch. What bounds it is `add_rebalancing` (README deviation 6),
+  which detects the runaway from the *prospective* `stem_idx` and bulk-rebuilds before the
+  allocation happens. `scene-graph` routes every index insertion through it, so a tree there cannot
+  explode; a caller using plain `add` still can, which is a reason to prefer `add_rebalancing`
+  rather than an open defect. Replacing the flat breadth-first array with indirect addressing would
+  remove the exposure at the root and remains out of scope.
 - **Making the Donnelly / SIMD block strategies adaptive.** They would need per-lane dimension
   gathers. Nothing in this workspace instantiates them.
-- **Phase 4**, the overflow representation for buckets of identical points.
+- **Phase 4**, the overflow representation for buckets of points identical on every axis. Now the
+  *active* blocker rather than a theoretical one, and it only became visible once rebalancing let
+  mesh-order insertion run far enough to reach it: `split_leaf_adaptive` refuses a bucket whose
+  points sit within one grid cell on all three axes, which real interpolated mesh vertices do. This
+  is why `yggdrasil-bench` still decorrelates its insertion order — for this reason, not for memory.

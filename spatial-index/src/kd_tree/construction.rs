@@ -1525,10 +1525,10 @@ mod tests {
     ///
     /// **The dimensions below are chosen so `n.div_ceil(B)` is a power of two**, which is not
     /// cosmetic: bulk construction trips the `left_capacity is zero` debug assertion for any
-    /// other leaf count — see [`bulk_build_panics_on_non_power_of_two_leaf_count`], which is a
-    /// pre-existing defect unrelated to the split-value encoding these tests cover. Resizing a
-    /// fixture without keeping that property will fail for reasons that have nothing to do with
-    /// what the test is checking.
+    /// other leaf count, until the capacity accounting was fixed — see
+    /// [`bulk_build_handles_non_power_of_two_leaf_counts`], which now covers exactly that. The
+    /// property is kept here anyway so these tests fail for encoding reasons alone rather than
+    /// for a capacity reason that would be someone else's bug.
     fn lattice(nx: usize, ny: usize, nz: usize, step: f32, origin: [f32; 3]) -> Vec<[f32; 3]> {
         let mut points = Vec::with_capacity(nx * ny * nz);
         for ix in 0..nx {

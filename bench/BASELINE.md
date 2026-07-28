@@ -167,13 +167,20 @@ single `select_nth`. Removal is also up 15–18% on uniform data.
 Worth optimising, and there is obvious headroom: the bounds scan and the median could share one
 pass, and the scratch copy exists only to avoid reordering the leaf twice. Not attempted yet.
 
-## What it does not fix
+## What the split patch does not fix
 
 `clustered-100k` still fails, and marginally sooner — the fork exceeds the 1 GiB budget after
 25,600 points against upstream's 31,744. Spatially clustered insertion order still drives depth,
 and stems are still addressed by breadth-first position, so the cost is still `2^depth` slots.
-Balanced splits alone do not bound it. Deliberately out of scope, but now measured rather than
-assumed.
+Balanced splits alone do not bound it: measured rather than assumed.
+
+> **Superseded for callers, though the measurement stands.** This section is the A/B for adaptive
+> split selection *on its own*, and it is worth keeping in that form because it is the evidence
+> that the split patch was not sufficient. What bounds the cost is the later `add_rebalancing`
+> insert (see `README.md` deviation 6), which rebuilds a runaway tree from the *prospective* stem
+> index before the allocation happens. `clustered-100k` is only reproducible through plain `add`;
+> `scene-graph` routes every insertion through `add_rebalancing` and cannot hit it. Re-running this
+> row against `add_rebalancing` is the obvious follow-up and has not been done.
 
 Tree shape tells the same story more precisely:
 

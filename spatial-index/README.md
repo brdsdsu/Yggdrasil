@@ -131,10 +131,11 @@ Two things worth knowing before changing the threshold or the failure handling:
 ## Baseline
 
 Upstream's suite passes unmodified in this fork, and is the reference to re-run after every
-change to the split policy:
+change to the split policy. The lib count is above upstream's 397 because the fork's own
+deviations carry tests; nothing upstream was removed or skipped, and no test is `#[ignore]`d:
 
 ```
-cargo test -p spatial-index                     # 397 lib + 13 integration + 7 doctests
+cargo test -p spatial-index                     # 420 lib + 13 integration + 7 doctests
 cargo test -p spatial-index --features fuzz     # adds the randomised kd_tree_fuzz_v6 target
 ```
 
@@ -151,13 +152,16 @@ cargo test -p spatial-index --features fuzz     # adds the randomised kd_tree_fu
    `leaf_idx_map.resize(right_child_idx + 1, ..)` cost `~2^depth` slots. Spatially clustered
    insertion order deepens one path instead of broadening the tree: 528,826 real points in file
    order exceed 6 GB and get OOM-killed, while the *same* points shuffled build in 157 MB and
-   291 ms. Adaptive split selection does **not** bound this: measured post-patch, the fork still exceeds a
-   1 GiB budget on clustered insertion order, marginally sooner than upstream.
+   291 ms. Adaptive split selection alone does **not** bound it — measured after that patch the
+   fork still exceeded a 1 GiB budget on clustered order, marginally sooner than upstream.
 
-   **Mitigated** by deviations 5 and 6: bulk construction now works for adaptive strategies and is
+   **Bounded, as of deviations 5 and 6.** Bulk construction works for adaptive strategies and is
    immune to insertion order, and `add_rebalancing` uses it to rebuild a tree whose stem array has
-   run away. The underlying `2^depth` addressing is unchanged, so the defect is contained rather
-   than removed. Measured on the benchmark corpus, building the whole indexed scene graph
+   run away — detecting the runaway from the *prospective* `stem_idx` before the allocation, so the
+   pathological array is never created. Any caller going through `add_rebalancing`, which is all of
+   `scene-graph`, cannot hit this. What remains unchanged is the `2^depth` addressing itself, so a
+   caller using plain `add` is still exposed; that is a reason to prefer `add_rebalancing`, not an
+   open defect. Measured on the benchmark corpus, building the whole indexed scene graph
    (354,885 points, mesh order for the unindexed target and a decorrelated order for the indexed
    one) went from **6.04 s and 7.4 GB peak RSS to 1.98 s and 839 MB** — the same as the unindexed
    target's 837 MB, so position indexes stopped dominating memory. Build time also became
@@ -168,8 +172,12 @@ cargo test -p spatial-index --features fuzz     # adds the randomised kd_tree_fu
    physically written rather than served as a zero page, which is why wall-clock and RSS move in
    lockstep, and why fixing the memory fixed the time.
 
-   Also still true: bulk construction trips a `left_capacity is zero` debug assertion whenever the
-   leaf count is not a power of two (16/32/64/128 build; 54 and 94 panic). Independent of the
-   adaptive work — it reproduces with cycling strategies — and it is a `debug_assert`, so release
-   builds pass it. Pinned by the ignored test
-   `construction::tests::bulk_build_panics_on_non_power_of_two_leaf_count`.
+   A separate defect surfaced and was fixed alongside this: bulk construction tripped a
+   `left_capacity is zero` debug assertion whenever the leaf count was not a power of two
+   (16/32/64/128 built; 54 and 94 panicked). It reproduced with cycling strategies, so it predated
+   the adaptive work, and being a `debug_assert` it let release builds through — which is why bulk
+   builds over the office corpus looked healthy. `calc_pivot` deliberately overrides the capacity
+   budget to force a split, and the pivot moves again to avoid straddling equal values, so a child
+   could receive more items than it was allotted; each child's capacity is now widened to the
+   partition it actually receives. Covered by
+   `construction::tests::bulk_build_handles_non_power_of_two_leaf_counts`.
