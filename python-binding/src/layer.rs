@@ -30,14 +30,15 @@ impl PyLayerRef {
     }
 
     /// Add a new node to the layer.
-    pub fn push_node(&mut self, node: PyAnonNode) -> PyNodeId {
-        self.sg
+    pub fn push_node(&mut self, node: PyAnonNode) -> Result<PyNodeId> {
+        Ok(self
+            .sg
             .lock()
             .unwrap()
             .layer_mut(self.lid)
             .unwrap()
-            .push_node(node.into_inner())
-            .into()
+            .push_node(node.into_inner())?
+            .into())
     }
 
     /// Add an edge from source node to destination node with a description.

@@ -1,0 +1,213 @@
+# Vendored fork of kiddo 6.0.0-alpha.3. See README.md for provenance and the list of
+# deviations from upstream.
+#
+# Everything under src/, tests/, benches/, examples/ and build.rs is upstream's, byte for
+# byte, except where README.md says otherwise. This manifest is the exception that cannot be
+# verbatim: the package is renamed, upstream's [profile.*] sections are dropped because a
+# workspace member may not define them, and the example/bench targets are dropped because
+# they pull in heavy dev-dependencies (criterion, las, reqwest) that this workspace has no
+# use for. The library keeps upstream's `kiddo` lib name so that upstream's own tests and
+# doctests compile unmodified; dependents rename it at the dependency edge instead.
+
+[package]
+name = "spatial-index"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89.0"
+license = "MIT OR Apache-2.0"
+description = "Vendored fork of kiddo: a k-d tree with an adaptive split-dimension policy"
+build = "build.rs"
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+[lib]
+name = "kiddo"
+path = "src/lib.rs"
+
+[features]
+buffered_result_collection = ["dep:smallvec"]
+cargo_asm = [
+    "dep:rand",
+    "dep:rand_chacha",
+]
+csv = ["dep:csv"]
+default = ["fixed"]
+f16 = ["dep:half"]
+fixed = ["dep:fixed"]
+fuzz = ["test_utils"]
+huge_pages = ["dep:libc"]
+las = ["dep:las"]
+leaf_nta_prefetch = []
+leaf_view_chunked = []
+logging_off = [
+    "dep:log",
+    "tracing/max_level_off",
+    "tracing/release_max_level_off",
+    "log/max_level_off",
+    "log/release_max_level_off",
+]
+modified_van_emde_boas = []
+no_inline = []
+result_collection_stats = []
+rkyv_08 = [
+    "dep:rkyv_08",
+    "dep:ptr_meta",
+    "dep:bytecheck",
+]
+serde = [
+    "dep:serde",
+    "serde/derive",
+    "fixed/serde",
+    "aligned-vec/serde",
+]
+simd = []
+simulator = []
+small_n_result_collectors = ["dep:smallvec"]
+test_utils = [
+    "dep:rand",
+    "dep:rand_chacha",
+    "dep:rayon",
+    "dep:fixed",
+]
+unreliable_select_nth_unstable = []
+
+[dependencies.aligned-vec]
+version = "0.6.1"
+
+[dependencies.array-init]
+version = "2.1.0"
+
+[dependencies.az]
+version = "1"
+
+[dependencies.bytecheck]
+version = "0.8"
+optional = true
+
+[dependencies.cmov]
+version = "0.5"
+
+[dependencies.csv]
+version = "1"
+optional = true
+
+[dependencies.fixed]
+version = "1,<1.31.0"
+features = ["num-traits"]
+optional = true
+
+[dependencies.half]
+version = "2.5.0"
+features = ["num-traits"]
+optional = true
+
+[dependencies.las]
+version = "0.10"
+features = ["laz-parallel"]
+optional = true
+
+[dependencies.libc]
+version = "0.2"
+optional = true
+
+[dependencies.log]
+version = "0.4"
+optional = true
+
+[dependencies.nonmax]
+version = "0.5.5"
+
+[dependencies.num-traits]
+version = "0.2"
+
+[dependencies.ptr_meta]
+version = "0.3"
+optional = true
+
+[dependencies.rand]
+version = "0.10"
+optional = true
+
+[dependencies.rand_chacha]
+version = "0.10"
+optional = true
+
+[dependencies.rayon]
+version = "1"
+optional = true
+
+[dependencies.rkyv_08]
+version = "0.8.9"
+optional = true
+package = "rkyv"
+
+[dependencies.serde]
+version = "1"
+optional = true
+
+[dependencies.smallvec]
+version = "1"
+optional = true
+
+[dependencies.sorted-vec]
+version = "0.8"
+
+[dependencies.test-log]
+version = "0.2.19"
+features = ["trace"]
+
+[dependencies.tracing]
+version = "0.1"
+
+[dev-dependencies]
+assert_float_eq = "1.2"
+rand = "0.10"
+rstest = "0.26"
+zzz = "0.3.2"
+trybuild = "1"
+rand_chacha = "0.10"
+
+# Upstream's own integration tests, kept as a regression net for the adaptive-split patch.
+# Upstream's example and bench targets are deliberately not declared.
+[[test]]
+name = "donnelly_simd_regressions"
+path = "tests/donnelly_simd_regressions.rs"
+
+[[test]]
+name = "kd_tree_fuzz_v6"
+path = "tests/kd_tree_fuzz_v6.rs"
+required-features = ["fuzz"]
+
+[[test]]
+name = "string_data_test"
+path = "tests/string_data_test.rs"
+
+[[test]]
+name = "builder_ui"
+path = "tests/builder_ui.rs"
+
+[[test]]
+name = "custom_metric_block_fallback"
+path = "tests/custom_metric_block_fallback.rs"
+
+[[test]]
+name = "custom_query_metric"
+path = "tests/custom_query_metric.rs"
+
+[[test]]
+name = "custom_leaf_strategy"
+path = "tests/custom_leaf_strategy.rs"
+[build-dependencies.yep-cache-line-size]
+version = "0.9"
+
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies.generator]
+version = "0.8.4"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = ["cfg(coverage_nightly)"]
+

@@ -172,13 +172,13 @@ mod tests {
         sg.layer_mut(l1).unwrap().add_child(l0).unwrap();
 
         let n0 = sg.new_coordinates(1.0, 2.0, 3.0, vec![]);
-        let n0id = sg.layer_mut(l0).unwrap().push_node(n0);
+        let n0id = sg.layer_mut(l0).unwrap().push_node(n0).unwrap();
 
         let n1 = sg.new_coordinates(3.0, 4.0, 5.0, vec![]);
-        let n1id = sg.layer_mut(l0).unwrap().push_node(n1);
+        let n1id = sg.layer_mut(l0).unwrap().push_node(n1).unwrap();
 
         let n2 = sg.new_coordinates(2.0, 3.0, 4.0, vec![]);
-        let n2id = sg.layer_mut(l1).unwrap().push_node(n2);
+        let n2id = sg.layer_mut(l1).unwrap().push_node(n2).unwrap();
 
         sg.nest(n0id).under(n2id).unwrap();
         sg.nest(n1id).under(n2id).unwrap();
@@ -216,14 +216,14 @@ mod tests {
 
         // Two children at (0,0,0) and (4,0,4)
         let c0 = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
-        let c0id = sg.layer_mut(l0).unwrap().push_node(c0);
+        let c0id = sg.layer_mut(l0).unwrap().push_node(c0).unwrap();
 
         let c1 = sg.new_coordinates(4.0, 0.0, 4.0, vec![]);
-        let c1id = sg.layer_mut(l0).unwrap().push_node(c1);
+        let c1id = sg.layer_mut(l0).unwrap().push_node(c1).unwrap();
 
         // Parent node has no coordinates
         let parent = sg.new_node(vec![Feature::new("type", "group")]);
-        let pid = sg.layer_mut(l1).unwrap().push_node(parent);
+        let pid = sg.layer_mut(l1).unwrap().push_node(parent).unwrap();
 
         sg.nest(c0id).under(pid).unwrap();
         sg.nest(c1id).under(pid).unwrap();
@@ -243,13 +243,13 @@ mod tests {
         let l0 = sg.new_layer().id;
         // Coordinate nodes to establish a bounding box
         let c = sg.new_coordinates(0.0, 0.0, 0.0, vec![]);
-        sg.layer_mut(l0).unwrap().push_node(c);
+        sg.layer_mut(l0).unwrap().push_node(c).unwrap();
         let c2 = sg.new_coordinates(10.0, 0.0, 10.0, vec![]);
-        sg.layer_mut(l0).unwrap().push_node(c2);
+        sg.layer_mut(l0).unwrap().push_node(c2).unwrap();
 
         // Isolated node with no coordinates and no children
         let isolated = sg.new_node(vec![Feature::new("type", "ghost")]);
-        let iid = sg.layer_mut(l0).unwrap().push_node(isolated);
+        let iid = sg.layer_mut(l0).unwrap().push_node(isolated).unwrap();
 
         let positions = compute_layout(&sg, 1.0);
         let pos = positions[&iid];

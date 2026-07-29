@@ -1,4 +1,3 @@
-use kiddo::float::kdtree::KdTree;
 use serde::{Deserialize, Serialize};
 
 use crate::Bounds;
@@ -6,6 +5,7 @@ use crate::Bounds;
 use super::NodeId;
 
 use super::error::{Result, SceneGraphError};
+use super::pos::PosIndex;
 
 /// A node in the scene graph.
 /// Each node is designated to a unique layer in the scene graph and within that layer, it can have
@@ -31,7 +31,7 @@ pub struct Node {
     /// Position index which keeps track of the coordinates of the sub tree of this node.
     /// This is used for efficient spatial queries.
     #[serde(skip)]
-    pub(crate) pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
+    pub(crate) pos_index: Option<PosIndex>,
     /// Optional bounds for the node and all the nodes nested in it's subtree.
     /// This can be used for spatial queries and optimizations.
     pub bounds: Option<Bounds>,
@@ -47,7 +47,7 @@ impl Node {
         bounds: Option<Bounds>,
     ) -> Self {
         let pos_index = if pos_index_enabled {
-            Some(KdTree::new())
+            Some(PosIndex::default())
         } else {
             None
         };
@@ -201,7 +201,7 @@ pub struct AnonNode {
     /// Position index which keeps track of the coordinates of the sub tree of this node.
     /// This is used for efficient spatial queries.
     #[serde(skip)]
-    pub(crate) pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
+    pub(crate) pos_index: Option<PosIndex>,
     /// Optional bounding box for the node, which can be used for spatial queries and optimizations.
     pub bounds: Option<Bounds>,
 }
@@ -216,7 +216,7 @@ impl AnonNode {
         bounds: Option<Bounds>,
     ) -> Self {
         let pos_index = if pos_index_enabled {
-            Some(KdTree::new())
+            Some(PosIndex::default())
         } else {
             None
         };

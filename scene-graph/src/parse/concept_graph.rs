@@ -66,7 +66,7 @@ impl TryFrom<ConceptGraph> for SceneGraph {
 
             let new_node = sg.new_node(features);
             // push to the semantic layer
-            let new_nod_id = sg.layer_mut(1)?.push_node(new_node);
+            let new_nod_id = sg.layer_mut(1)?.push_node(new_node)?;
             id_map.insert(node.node_id, new_nod_id);
 
             // pointcloud points as coordinates
@@ -74,7 +74,7 @@ impl TryFrom<ConceptGraph> for SceneGraph {
                 let features = vec![Feature::new("color", format!("{},{},{}", c[0], c[1], c[2]))];
                 let coord = sg.new_coordinates(p[0], p[1], p[2], features);
                 // push to the pointcloud layer
-                let coord_id = sg.layer_mut(0)?.push_node(coord);
+                let coord_id = sg.layer_mut(0)?.push_node(coord)?;
                 // nest the coordinate under its semantic node
                 sg.nest(coord_id).under(new_nod_id)?;
             }

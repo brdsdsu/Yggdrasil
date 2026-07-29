@@ -239,8 +239,8 @@ impl SceneGraph {
     /// let lid0 = sg.new_layer().id;
     /// let layer = sg.new_layer();
     /// layer.add_child(lid0)?;
-    /// let id1 = sg.layer_mut(0)?.push_node(node1);
-    /// let id2 = sg.layer_mut(1)?.push_node(node2);
+    /// let id1 = sg.layer_mut(0)?.push_node(node1)?;
+    /// let id2 = sg.layer_mut(1)?.push_node(node2)?;
     ///
     /// // Nest node1 under node2
     /// sg.nest(id1).under(id2)?;
@@ -279,8 +279,8 @@ impl SceneGraph {
     /// let lid0 = sg.new_layer().id;
     /// let layer = sg.new_layer();
     /// layer.add_child(lid0)?;
-    /// let id1 = sg.layer_mut(0)?.push_node(node1);
-    /// let id2 = sg.layer_mut(1)?.push_node(node2);
+    /// let id1 = sg.layer_mut(0)?.push_node(node1)?;
+    /// let id2 = sg.layer_mut(1)?.push_node(node2)?;
     ///
     /// // Nest node1 under node2
     /// sg.nest(id1).under(id2)?;
@@ -382,13 +382,13 @@ impl SceneGraph {
         for layer in &subgraph.layers {
             let observed = should_retain_nodes.remove(&layer.id).unwrap_or_default();
             let observed: Vec<_> = layer
-                .observable_nodes(observer)
+                .observable_nodes(observer)?
                 .nodes
                 .iter()
                 .map(|n| n.id)
                 .chain(observed)
                 .collect();
-            let l = layer.subset(&observed);
+            let l = layer.subset(&observed)?;
             for node in &l.nodes {
                 if let Some(pid) = node.pid {
                     let parent_layer_id = subgraph.layer_of(pid);
@@ -442,7 +442,7 @@ impl SceneGraph {
             }
             let layer = self.layer(lid)?;
             let nodes: Vec<_> = nodes.into_iter().collect();
-            let l = layer.subset(&nodes);
+            let l = layer.subset(&nodes)?;
             for nid in nodes {
                 for cid in l.node(nid)?.children() {
                     let clid = self.layer_of(*cid);
@@ -494,9 +494,9 @@ impl SceneGraph {
     ///
     /// // Create a layer and add nodes to it
     /// sg.new_indexed_layer();
-    /// sg.layer_mut(0).unwrap().push_node(n1);
-    /// sg.layer_mut(0).unwrap().push_node(n2);
-    /// sg.layer_mut(0).unwrap().push_node(n3);
+    /// sg.layer_mut(0).unwrap().push_node(n1).unwrap();
+    /// sg.layer_mut(0).unwrap().push_node(n2).unwrap();
+    /// sg.layer_mut(0).unwrap().push_node(n3).unwrap();
     ///
     /// let coord = Coordinate::new(0.6, 0.6, 0.6);
     /// let nearest_nodes = sg.nearest_nodes(&coord, PosQueryCount::Count(2))
@@ -514,9 +514,10 @@ impl SceneGraph {
             .flat_map(|l| l.nearest_nodes(coord, count))
             .collect::<Vec<_>>();
         distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let distances_max_len = distances.len();
         distances
             .into_iter()
-            .take(count.as_capped_usize())
+            .take(count.capped_with(distances_max_len))
             .collect()
     }
 
@@ -536,9 +537,9 @@ impl SceneGraph {
     ///
     /// // Create a layer and add nodes to it
     /// sg.new_indexed_layer();
-    /// sg.layer_mut(0).unwrap().push_node(n1);
-    /// sg.layer_mut(0).unwrap().push_node(n2);
-    /// sg.layer_mut(0).unwrap().push_node(n3);
+    /// sg.layer_mut(0).unwrap().push_node(n1).unwrap();
+    /// sg.layer_mut(0).unwrap().push_node(n2).unwrap();
+    /// sg.layer_mut(0).unwrap().push_node(n3).unwrap();
     ///
     /// let coord = Coordinate::new(0.3, 0.3, 0.3);
     /// let nodes_within_radius = sg.nodes_within(&coord, 2.0, PosQueryCount::All)
@@ -561,10 +562,8 @@ impl SceneGraph {
             .flat_map(|l| l.nodes_within(coord, radius, count))
             .collect::<Vec<_>>();
         distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        distances
-            .into_iter()
-            .take(count.as_capped_usize())
-            .collect()
+        let count = count.capped_with(distances.len());
+        distances.into_iter().take(count).collect()
     }
 
     /// Retrieve at most `count` nearest nodes to the given position within the sub-tree rooted at the specified node ID.
@@ -585,15 +584,15 @@ impl SceneGraph {
     ///
     /// // Create a layer and add nodes to it
     /// let first_layer_id = sg.new_indexed_layer().id;
-    /// let n1_id = sg.layer_mut(0)?.push_node(n1);
-    /// let n2_id = sg.layer_mut(0)?.push_node(n2);
-    /// let n3_id = sg.layer_mut(0)?.push_node(n3);
+    /// let n1_id = sg.layer_mut(0)?.push_node(n1)?;
+    /// let n2_id = sg.layer_mut(0)?.push_node(n2)?;
+    /// let n3_id = sg.layer_mut(0)?.push_node(n3)?;
     ///
     /// // create new semantic layer and nest all nodes under a new parent node
     /// let semantic_layer = sg.new_layer();
     /// semantic_layer.add_child(first_layer_id)?;
     /// let parent_node = sg.new_indexed_node(vec![]);
-    /// let pid = sg.top_layer_mut()?.push_node(parent_node);
+    /// let pid = sg.top_layer_mut()?.push_node(parent_node)?;
     /// sg.nest(n1_id).under(pid)?;
     /// sg.nest(n2_id).under(pid)?;
     /// sg.nest(n3_id).under(pid)?;
@@ -775,8 +774,11 @@ impl SceneGraph {
         // So no layer-level logic is violated
         let node = unsafe { self.node_mut_unsynced(parent)? };
         if let Some(pos_index) = node.pos_index.as_mut() {
-            pos.iter()
-                .for_each(|(coords, id)| pos_index.add(&(*coords).into(), *id));
+            for (coords, id) in pos.iter() {
+                pos_index
+                    .add_rebalancing(&(*coords).into(), *id)
+                    .map_err(|e| SceneGraphError::PosIndexInsertion(e.to_string()))?;
+            }
         }
 
         match node.pid {
@@ -958,13 +960,13 @@ mod test {
         let m1 = sg.new_node(vec![Feature::new("name", "m1")]);
         let m2 = sg.new_node(vec![Feature::new("name", "m2")]);
 
-        let n0 = sg.layer_mut(0)?.push_node(n0);
-        let n1 = sg.layer_mut(1)?.push_node(n1);
-        let n2 = sg.layer_mut(2)?.push_node(n2);
+        let n0 = sg.layer_mut(0)?.push_node(n0)?;
+        let n1 = sg.layer_mut(1)?.push_node(n1)?;
+        let n2 = sg.layer_mut(2)?.push_node(n2)?;
 
-        let m0 = sg.layer_mut(0)?.push_node(m0);
-        let m1 = sg.layer_mut(1)?.push_node(m1);
-        let m2 = sg.layer_mut(2)?.push_node(m2);
+        let m0 = sg.layer_mut(0)?.push_node(m0)?;
+        let m1 = sg.layer_mut(1)?.push_node(m1)?;
+        let m2 = sg.layer_mut(2)?.push_node(m2)?;
 
         sg.nest(n0).under(n2)?;
         sg.nest(n1).under(n2)?;
@@ -1019,11 +1021,11 @@ mod test {
         sg.new_layer();
         sg.layer_mut(1)?.add_child(0)?;
         let m0 = sg.new_indexed_node(vec![Feature::new("name", "m0")]);
-        let m0_id = sg.layer_mut(1)?.push_node(m0);
+        let m0_id = sg.layer_mut(1)?.push_node(m0)?;
         for i in 0..10 {
             let mut n = sg.new_indexed_node(vec![Feature::new("name", format!("n{i}"))]);
             n.coordinates = Some(Coordinate::new(i as f32, i as f32, i as f32));
-            let n_id = sg.layer_mut(0)?.push_node(n);
+            let n_id = sg.layer_mut(0)?.push_node(n)?;
             sg.nest(n_id).under(m0_id)?;
         }
 
@@ -1062,15 +1064,15 @@ mod test {
         sg.layer_mut(1)?.add_child(0)?;
 
         let indexed_root = sg.new_indexed_node(vec![Feature::new("name", "indexed")]);
-        let indexed_root = sg.layer_mut(1)?.push_node(indexed_root);
+        let indexed_root = sg.layer_mut(1)?.push_node(indexed_root)?;
         let plain_root = sg.new_node(vec![Feature::new("name", "plain")]);
-        let plain_root = sg.layer_mut(1)?.push_node(plain_root);
+        let plain_root = sg.layer_mut(1)?.push_node(plain_root)?;
 
         // A node may have only one parent, so each root gets its own copy of the points.
         for root in [indexed_root, plain_root] {
             for x in [3.0, 4.0] {
                 let p = sg.new_coordinates(x, 0.0, 0.0, vec![]);
-                let p = sg.layer_mut(0)?.push_node(p);
+                let p = sg.layer_mut(0)?.push_node(p)?;
                 sg.nest(p).under(root)?;
             }
         }
@@ -1125,11 +1127,11 @@ mod test {
         let mut built = Vec::new();
         for (name, objects, points) in [("a", objects_a, points_a), ("b", objects_b, points_b)] {
             let room = sg.new_node(vec![Feature::new("name", format!("room_{name}"))]);
-            let room = sg.layer_mut(rooms)?.push_node(room);
+            let room = sg.layer_mut(rooms)?.push_node(room)?;
             let object = sg.new_node(vec![Feature::new("name", format!("object_{name}"))]);
-            let object = sg.layer_mut(objects)?.push_node(object);
+            let object = sg.layer_mut(objects)?.push_node(object)?;
             let point = sg.new_coordinates(1.0, 2.0, 3.0, vec![]);
-            let point = sg.layer_mut(points)?.push_node(point);
+            let point = sg.layer_mut(points)?.push_node(point)?;
             sg.nest(point).under(object)?;
             sg.nest(object).under(room)?;
             built.push((room, object, point));

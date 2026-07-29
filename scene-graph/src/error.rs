@@ -25,6 +25,13 @@ pub enum SceneGraphError {
     #[error("coordinates are required for this layer")]
     CoordinatesRequired,
 
+    /// The position index refused a point.
+    ///
+    /// The kd-tree cannot split a full leaf whose points all share the same value on the
+    /// dimension it splits on, which is exactly what coplanar geometry produces once more
+    /// than a bucket's worth of points land on one plane.
+    #[error("failed to insert point into the position index: {0}")]
+    PosIndexInsertion(String),
 
     /// The observer was given a direction that is not a viewing axis.
     ///

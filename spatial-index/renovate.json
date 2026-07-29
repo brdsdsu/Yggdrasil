@@ -1,0 +1,20 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "packageRules": [
+    {
+      // Permit half <=2.4.1 which is required for the legacy `f16` feature
+      "matchPackageNames": ["half"],
+      "matchCurrentValue": "<=2.4.1",
+      "enabled": false
+    },
+    {
+      // Permit rkyv 0.7 which is required for the legacy `rkyv` feature
+      "matchPackageNames": ["rkyv"],
+      "matchCurrentValue": "0.7",
+      "enabled": false
+    }
+  ]
+}

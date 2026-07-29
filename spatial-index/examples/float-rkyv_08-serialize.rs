@@ -1,0 +1,56 @@
+use std::error::Error;
+use std::fs::File;
+use std::io::Write;
+use std::time::Instant;
+
+use elapsed::ElapsedDuration;
+use kiddo::kd_tree::KdTree;
+use kiddo::leaf_strategy::VecOfArenas;
+use kiddo::Eytzinger;
+use kiddo::SquaredEuclidean;
+use rand::{RngExt, SeedableRng};
+use rkyv_08::{rancor::Error as RkyvError, to_bytes};
+use tracing::Level;
+use tracing_subscriber::fmt;
+use ubyte::ToByteUnit;
+
+const NUM_ITEMS: usize = 50_000;
+
+type Tree = KdTree<f64, u32, Eytzinger, VecOfArenas<f64, u32, 3, 32>, 3, 32>;
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let subscriber = fmt().with_max_level(Level::TRACE).without_time().finish();
+    tracing::subscriber::set_global_default(subscriber)?;
+
+    let query = [0.123f64, 0.456f64, 0.789f64];
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1);
+    let points: Vec<[f64; 3]> = (0..NUM_ITEMS).map(|_| rng.random::<[f64; 3]>()).collect();
+
+    let start = Instant::now();
+    let tree: Tree = KdTree::new_from_slice(&points)?;
+    println!(
+        "Populated KdTree with {} items ({})",
+        tree.size(),
+        ElapsedDuration::new(start.elapsed())
+    );
+
+    let nearest_neighbour = tree
+        .query(&query)
+        .nearest_one::<SquaredEuclidean<f64>>()
+        .execute();
+    println!("Nearest item to query: {:?}", nearest_neighbour.item);
+
+    let start = Instant::now();
+    let buf = to_bytes::<RkyvError>(&tree)?;
+    let mut file = File::create("./examples/float-test-tree-rkyv_08.rkyv")?;
+    file.write_all(&buf)?;
+
+    let file_size = file.metadata()?.len().bytes();
+    println!(
+        "Serialized k-d tree to 'float-test-tree-rkyv_08.rkyv' ({}). File size: {:.2}",
+        ElapsedDuration::new(start.elapsed()),
+        file_size
+    );
+
+    Ok(())
+}

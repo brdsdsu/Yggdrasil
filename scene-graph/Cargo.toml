@@ -13,9 +13,12 @@ harness = false
 
 [dependencies]
 glam = { version = "0.30.9", features = ["serde"] }
-kiddo = "5.2.3"
-num-traits = "0.2.19"
 serde = { version = "1.0.228", features = ["derive"] }
+# Vendored fork of kiddo. Its lib keeps upstream's `kiddo` name so upstream's own tests and
+# doctests compile unmodified, so it is renamed here instead — code that reads
+# `spatial_index::` is code that gets this workspace's adaptive split policy, not crates.io
+# kiddo's depth-cycled one.
+spatial_index = { package = "spatial-index", path = "../spatial-index" }
 thiserror = "2.0.17"
 
 [dev-dependencies]

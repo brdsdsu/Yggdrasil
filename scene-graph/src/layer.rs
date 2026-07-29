@@ -3,13 +3,12 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use kiddo::float::kdtree::KdTree;
 use serde::{Deserialize, Serialize};
 
 use crate::IntoNode;
 
 use super::error::{Result, SceneGraphError};
-use super::pos::{PosQueryCount, PositionQuery};
+use super::pos::{PosIndex, PosQueryCount, PositionQuery};
 use super::{Edge, Node, NodeId, Observer};
 
 /// A Layer in the Scene Graph containing multiple Nodes and their Edges, as weel as the
@@ -26,7 +25,7 @@ pub struct Layer {
     pub(crate) children: Vec<u32>,
     /// Optional spatial index for node positions.
     #[serde(skip)]
-    pos_index: Option<KdTree<f32, NodeId, 3, 128, u32>>,
+    pos_index: Option<PosIndex>,
 }
 
 /// Node Access and Modification
@@ -57,13 +56,18 @@ impl Layer {
 
     /// Add a new node to the layer.
     /// Returns the ID of the newly added node.
-    pub fn push_node<N: IntoNode>(&mut self, node: N) -> NodeId {
+    ///
+    /// Fails without adding the node if this layer is indexed and the index refuses the
+    /// node's coordinates.
+    pub fn push_node<N: IntoNode>(&mut self, node: N) -> Result<NodeId> {
         let node_id = NodeId::new(node.nid(), self.id);
         let node = node.into_node(node_id);
         if let Some(pos_index) = &mut self.pos_index
             && let Some(coords) = node.coordinates
         {
-            pos_index.add(&coords.into(), node.id);
+            pos_index
+                .add_rebalancing(&coords.into(), node.id)
+                .map_err(|e| SceneGraphError::PosIndexInsertion(e.to_string()))?;
         }
         let ptr = match self.nodes.binary_search_by_key(&node.id, |n| n.id) {
             Ok(ptr) => ptr,
@@ -71,7 +75,7 @@ impl Layer {
         };
         let nid = node.id;
         self.nodes.insert(ptr, node);
-        nid
+        Ok(nid)
     }
 
     /// Add an edge from source node to destination node with a description.
@@ -165,7 +169,7 @@ impl Layer {
 
     /// Get a new Layer containing only nodes within the observer's field of view.
     /// The check is done using the nodes' coordinates and nodes without coordinates are ignored.
-    pub fn observable_nodes(&self, observer: &Observer) -> Self {
+    pub fn observable_nodes(&self, observer: &Observer) -> Result<Self> {
         let nodes = self
             .nodes
             .iter()
@@ -174,18 +178,7 @@ impl Layer {
             .cloned()
             .collect::<Vec<Node>>();
 
-        let pos_index = match self.pos_index {
-            Some(_) => {
-                let mut pos_index = KdTree::new();
-                for node in &nodes {
-                    if let Some(coords) = node.coordinates {
-                        pos_index.add(&coords.into(), node.id);
-                    }
-                }
-                Some(pos_index)
-            }
-            None => None,
-        };
+        let pos_index = self.clone_pos_index_for(&nodes)?;
 
         let mut l = Self {
             id: self.id,
@@ -196,7 +189,7 @@ impl Layer {
 
         // prune edges to out-of-view nodes
         l.prune();
-        l
+        Ok(l)
     }
 
     /// Retrieve at most `count` nearest nodes to the given position.
@@ -250,7 +243,7 @@ impl Layer {
                 }
                 Err(SceneGraphError::NodeNotFound) => {
                     drop(existing_node);
-                    self.push_node(node.clone());
+                    self.push_node(node.clone())?;
                 }
                 Err(e) => return Err(e),
             }
@@ -285,7 +278,7 @@ impl Layer {
             id,
             nodes: Vec::new(),
             children: Vec::new(),
-            pos_index: Some(KdTree::new()),
+            pos_index: Some(PosIndex::default()),
         }
     }
 
@@ -324,25 +317,14 @@ impl Layer {
     }
 
     /// Create a subset Layer containing only the specified nodes.
-    pub(crate) fn subset(&self, nodes: &[NodeId]) -> Self {
+    pub(crate) fn subset(&self, nodes: &[NodeId]) -> Result<Self> {
         let nodes: Vec<Node> = self
             .nodes
             .iter()
             .filter(|n| nodes.contains(&n.id))
             .cloned()
             .collect();
-        let pos_index = match self.pos_index {
-            Some(_) => {
-                let mut pos_index = KdTree::new();
-                for node in &nodes {
-                    if let Some(coords) = node.coordinates {
-                        pos_index.add(&coords.into(), node.id);
-                    }
-                }
-                Some(pos_index)
-            }
-            None => None,
-        };
+        let pos_index = self.clone_pos_index_for(&nodes)?;
         let mut l = Self {
             id: self.id,
             nodes,
@@ -350,7 +332,24 @@ impl Layer {
             children: self.children.clone(),
         };
         l.prune();
-        l
+        Ok(l)
+    }
+
+    /// Build a new position index holding the coordinates of `nodes`, mirroring whether this
+    /// layer is indexed: `None` if it is not, so derived layers keep the original's choice.
+    fn clone_pos_index_for(&self, nodes: &[Node]) -> Result<Option<PosIndex>> {
+        if self.pos_index.is_none() {
+            return Ok(None);
+        }
+        let mut pos_index = PosIndex::default();
+        for node in nodes {
+            if let Some(coords) = node.coordinates {
+                pos_index
+                    .add_rebalancing(&coords.into(), node.id)
+                    .map_err(|e| SceneGraphError::PosIndexInsertion(e.to_string()))?;
+            }
+        }
+        Ok(Some(pos_index))
     }
 }
 
@@ -414,7 +413,13 @@ impl Drop for NodeMut<'_> {
                 pos_index.remove(&pos.into(), node_id);
             }
             if let Some(pos) = new_coords {
-                pos_index.add(&pos.into(), node_id);
+                // A drop has nowhere to return an error to, and silently skipping the insert
+                // would leave the index disagreeing with the layer it indexes. The only
+                // reason this can fail is a leaf the tree cannot split, so it panics here
+                // for the same reason the index does elsewhere: a wrong answer is worse.
+                pos_index
+                    .add_rebalancing(&pos.into(), node_id)
+                    .expect("position index refused the new coordinates of a node");
             }
         }
     }
@@ -452,16 +457,20 @@ mod test {
         ];
         let mut layer = Layer::default();
         for (i, p) in pts.iter().enumerate() {
-            layer.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
+            layer
+                .push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None))
+                .unwrap();
         }
         // Node with no coordinates
-        layer.push_node(AnonNode::new(
-            pts.len() as u32,
-            Vec::new(),
-            None,
-            false,
-            None,
-        ));
+        layer
+            .push_node(AnonNode::new(
+                pts.len() as u32,
+                Vec::new(),
+                None,
+                false,
+                None,
+            ))
+            .unwrap();
 
         // fully connecting nodes to each other
         for src in 0..layer.nodes.len() {
@@ -473,7 +482,7 @@ mod test {
         }
 
         let cone = cone();
-        let observed_layer = layer.observable_nodes(&cone);
+        let observed_layer = layer.observable_nodes(&cone).unwrap();
         assert_eq!(observed_layer.nodes.len(), 3);
         for node in observed_layer.nodes {
             // all nodes should have coordinates to be observable
@@ -501,7 +510,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
+            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None))?;
         }
 
         let query_pos = Coordinate::new(0.6, 0.6, 0.6);
@@ -529,7 +538,8 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None));
+            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None))
+                .unwrap();
         }
 
         let query_pos = Coordinate::new(2.0, 2.0, 2.0);

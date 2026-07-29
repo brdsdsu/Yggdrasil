@@ -1,0 +1,294 @@
+#[cfg(feature = "serde")]
+pub(crate) mod array {
+    use core::option::Option::None;
+    use serde::{
+        de::{SeqAccess, Visitor},
+        ser::SerializeTuple,
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
+    use std::marker::PhantomData;
+
+    pub fn serialize<S: Serializer, T: Serialize, const N: usize>(
+        data: &[T; N],
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut s = ser.serialize_tuple(N)?;
+        for item in data {
+            s.serialize_element(item)?;
+        }
+        s.end()
+    }
+
+    struct ArrayVisitor<T, const N: usize>(PhantomData<T>);
+
+    impl<'de, T, const N: usize> Visitor<'de> for ArrayVisitor<T, N>
+    where
+        T: Copy + Default + Deserialize<'de>,
+    {
+        type Value = [T; N];
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str(&format!("an array of length {N}"))
+        }
+
+        #[inline]
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            // can be optimized using MaybeUninit
+            //let mut data = Vec::with_capacity(N);
+            let mut data = [T::default(); N];
+
+            for item in data.iter_mut().take(N) {
+                match (seq.next_element())? {
+                    Some(val) => {
+                        // data.push(val);
+                        *item = val;
+                    }
+                    None => return Err(serde::de::Error::invalid_length(N, &self)),
+                }
+            }
+
+            Ok(data)
+        }
+    }
+    pub fn deserialize<'de, D, T, const N: usize>(deserializer: D) -> Result<[T; N], D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Copy + Default + Deserialize<'de>,
+    {
+        deserializer.deserialize_tuple(N, ArrayVisitor::<T, N>(PhantomData))
+    }
+}
+
+/*#[cfg(feature = "serde")]
+pub(crate) mod array_of_2ples {
+    use core::option::Option::None;
+    use serde::{
+        de::{SeqAccess, Visitor},
+        ser::SerializeTuple,
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
+    use std::marker::PhantomData;
+
+    pub fn serialize<S: Serializer, T: Serialize, const N: usize>(
+        data: &[(T, T); N],
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut s = ser.serialize_tuple(N * 2)?;
+        for item in data {
+            s.serialize_element(&item.0)?;
+            s.serialize_element(&item.1)?;
+        }
+        s.end()
+    }
+
+    struct Array2PleVisitor<T, const N: usize>(PhantomData<T>);
+
+    impl<'de, T, const N: usize> Visitor<'de> for Array2PleVisitor<T, N>
+    where
+        T: Copy + Default + Deserialize<'de>,
+    {
+        type Value = [(T, T); N];
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str(&format!("an array of 2ples of length {}", N))
+        }
+
+        #[inline]
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            // can be optimized using MaybeUninit
+            // let mut data: Vec<(T, T)> = Vec::with_capacity(N);
+            let mut data = [(T::default(), T::default()); N];
+
+            for idx in 0..N {
+                match (seq.next_element::<T>())? {
+                    Some(val_0) => match (seq.next_element::<T>())? {
+                        Some(val_1) => {
+                            // data.push((val_0, val_1));
+                            data[idx].0 = val_0;
+                            data[idx].1 = val_1;
+                        }
+                        None => return Err(serde::de::Error::invalid_length(N, &self)),
+                    },
+                    None => return Err(serde::de::Error::invalid_length(N, &self)),
+                }
+            }
+            // match data.try_into() {
+            //     Ok(arr) => Ok(arr),
+            //     Err(_) => unreachable!(),
+            // }
+
+            Ok(data)
+        }
+    }
+    pub fn deserialize<'de, D, T, const N: usize>(deserializer: D) -> Result<[(T, T); N], D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Copy + Default + Deserialize<'de>,
+    {
+        deserializer.deserialize_tuple(N * 2, Array2PleVisitor::<T, N>(PhantomData))
+    }
+}*/
+
+#[cfg(feature = "serde")]
+pub(crate) mod array_of_arrays {
+    use core::option::Option::None;
+    use serde::{
+        de::{SeqAccess, Visitor},
+        ser::SerializeTuple,
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
+    use std::marker::PhantomData;
+
+    pub fn serialize<S: Serializer, T: Serialize, const N: usize, const K: usize>(
+        data: &[[T; K]; N],
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut s = ser.serialize_tuple(N * K)?;
+        for item in data {
+            for elem in item.iter().take(K) {
+                s.serialize_element(elem)?;
+            }
+        }
+        s.end()
+    }
+
+    struct ArrayArrayVisitor<T, const N: usize, const K: usize>(PhantomData<T>);
+
+    impl<'de, T, const N: usize, const K: usize> Visitor<'de> for ArrayArrayVisitor<T, N, K>
+    where
+        T: Copy + Default + Deserialize<'de>,
+    {
+        type Value = [[T; K]; N];
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str(&format!("an array of arrays, dimensions of {K}x{N}"))
+        }
+
+        #[inline]
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            // can be optimized using MaybeUninit
+            // let mut data: Vec<(T, T)> = Vec::with_capacity(N);
+            let mut data = [[T::default(); K]; N];
+
+            for item in data.iter_mut().take(N) {
+                for elem in item.iter_mut().take(K) {
+                    match (seq.next_element::<T>())? {
+                        Some(val) => {
+                            *elem = val;
+                        }
+                        None => return Err(serde::de::Error::invalid_length(N, &self)),
+                    }
+                }
+            }
+
+            Ok(data)
+        }
+    }
+    pub fn deserialize<'de, D, T, const N: usize, const K: usize>(
+        deserializer: D,
+    ) -> Result<[[T; K]; N], D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Copy + Default + Deserialize<'de>,
+    {
+        deserializer.deserialize_tuple(N * K, ArrayArrayVisitor::<T, N, K>(PhantomData))
+    }
+}
+
+#[cfg(feature = "serde")]
+pub(crate) mod array_of_vecs {
+    use core::option::Option::None;
+    use serde::{
+        de::{SeqAccess, Visitor},
+        ser::SerializeTuple,
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
+    use std::marker::PhantomData;
+
+    pub fn serialize<S: Serializer, T: Serialize, const N: usize>(
+        data: &[Vec<T>; N],
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut s = ser.serialize_tuple(N)?;
+        for item in data {
+            s.serialize_element(item)?;
+        }
+        s.end()
+    }
+
+    struct ArrayVecVisitor<T, const N: usize>(PhantomData<T>);
+
+    impl<'de, T, const N: usize> Visitor<'de> for ArrayVecVisitor<T, N>
+    where
+        T: Copy + Default + Deserialize<'de>,
+    {
+        type Value = [Vec<T>; N];
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str(&format!("an array of vecs, dimension of {N}"))
+        }
+
+        #[inline]
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            // can be optimized using MaybeUninit
+            let mut data = array_init::array_init(|_| Vec::new());
+
+            for item in data.iter_mut().take(N) {
+                match (seq.next_element::<Vec<T>>())? {
+                    Some(val) => {
+                        *item = val;
+                    }
+                    None => return Err(serde::de::Error::invalid_length(N, &self)),
+                }
+            }
+
+            Ok(data)
+        }
+    }
+    pub fn deserialize<'de, D, T, const N: usize>(deserializer: D) -> Result<[Vec<T>; N], D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Copy + Default + Deserialize<'de>,
+    {
+        deserializer.deserialize_tuple(N, ArrayVecVisitor::<T, N>(PhantomData))
+    }
+}
+
+#[cfg(feature = "serde")]
+pub(crate) mod option_nonmax_usize_vec {
+    use nonmax::NonMaxUsize;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        data: &[Option<NonMaxUsize>],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mapped: Vec<Option<usize>> = data
+            .iter()
+            .map(|item| item.map(|value| value.get()))
+            .collect();
+        mapped.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<Option<NonMaxUsize>>, D::Error> {
+        let mapped = Vec::<Option<usize>>::deserialize(deserializer)?;
+        Ok(mapped
+            .into_iter()
+            .map(|item| item.and_then(NonMaxUsize::new))
+            .collect())
+    }
+}

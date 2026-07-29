@@ -54,7 +54,7 @@ fn create_demo_graph() -> scene_graph::Result<SceneGraph> {
 
     // Root node — no coordinates, sits at the top of the hierarchy.
     let root = sg.new_node(vec![Feature::new("name", "root")]);
-    let root_id = sg.layer_mut(root_layer)?.push_node(root);
+    let root_id = sg.layer_mut(root_layer)?.push_node(root)?;
 
     // 100 point cloud nodes: first 70 in [0,10]³, next 30 in [10,20]³.
     let mut pc_ids = Vec::with_capacity(100);
@@ -63,21 +63,21 @@ fn create_demo_graph() -> scene_graph::Result<SceneGraph> {
         let y = rand::random::<f32>() * 10.0;
         let z = rand::random::<f32>() * 10.0;
         let node = sg.new_coordinates(x, y, z, vec![Feature::new("point_cloud_id", i)]);
-        pc_ids.push(sg.layer_mut(pc_layer)?.push_node(node));
+        pc_ids.push(sg.layer_mut(pc_layer)?.push_node(node)?);
     }
     for i in 0..30 {
         let x = rand::random::<f32>() * 10.0 + 10.0;
         let y = rand::random::<f32>() * 10.0 + 10.0;
         let z = rand::random::<f32>() * 10.0 + 10.0;
         let node = sg.new_coordinates(x, y, z, vec![Feature::new("point_cloud_id", 70 + i)]);
-        pc_ids.push(sg.layer_mut(pc_layer)?.push_node(node));
+        pc_ids.push(sg.layer_mut(pc_layer)?.push_node(node)?);
     }
 
     // 7 static object nodes, each owning 10 point cloud nodes.
     let static_types = ["car", "tree", "building", "bicycle", "bench", "sign", "lamp"];
     for (i, &obj_type) in static_types.iter().enumerate() {
         let node = sg.new_node(vec![Feature::new("type", obj_type)]);
-        let obj_id = sg.layer_mut(static_layer)?.push_node(node);
+        let obj_id = sg.layer_mut(static_layer)?.push_node(node)?;
         for &pc_id in &pc_ids[i * 10..(i + 1) * 10] {
             sg.nest(pc_id).under(obj_id)?;
         }
@@ -90,7 +90,7 @@ fn create_demo_graph() -> scene_graph::Result<SceneGraph> {
     let offset = static_types.len() * 10;
     for (i, &obj_type) in dynamic_types.iter().enumerate() {
         let node = sg.new_bounded_node(vec![Feature::new("type", obj_type)]);
-        let obj_id = sg.layer_mut(dynamic_layer)?.push_node(node);
+        let obj_id = sg.layer_mut(dynamic_layer)?.push_node(node)?;
         dyn_ids.push(obj_id);
         for &pc_id in &pc_ids[offset + i * 10..offset + (i + 1) * 10] {
             sg.nest(pc_id).under(obj_id)?;

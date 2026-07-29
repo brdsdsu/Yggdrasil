@@ -1,0 +1,665 @@
+[package]
+name = "kiddo"
+version = "6.0.0-alpha.3"
+edition = "2021"
+rust-version = "1.89.0"
+authors = ["Scott Donnelly <scott@donnel.ly>"]
+description = "A high-performance, flexible, ergonomic k-d tree library. Ideal for geo- and astro- nearest-neighbour and k-nearest-neighbor queries"
+keywords = ["kd-tree", "kdtree", "kd", "nearest-neighbor", "knn"]
+readme = "README.md"
+repository = "https://github.com/sdd/kiddo"
+documentation = "https://docs.rs/kiddo"
+license = "MIT OR Apache-2.0"
+autobenches = false
+autotests = false
+autoexamples = false
+resolver = "2"
+
+[package.metadata.cargo-machete]
+ignored = ["log"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+cargo_asm = ["dep:rand", "dep:rand_chacha"]
+csv = ["dep:csv"]
+default = ["fixed"]
+buffered_result_collection = ["dep:smallvec"]
+huge_pages = ["dep:libc"]
+leaf_view_chunked = []
+leaf_nta_prefetch = []
+modified_van_emde_boas = []
+f16 = ["dep:half"]
+fixed = ["dep:fixed"]
+fuzz = ["test_utils"]
+logging_off = [
+  "dep:log",
+  "tracing/max_level_off",
+  "tracing/release_max_level_off",
+  "log/max_level_off",
+  "log/release_max_level_off",
+]
+no_inline = []
+las = ["dep:las"]
+result_collection_stats = []
+serde = ["dep:serde", "serde/derive", "fixed/serde", "aligned-vec/serde"]
+simd = []
+simulator = []
+rkyv_08 = ["dep:rkyv_08", "dep:ptr_meta", "dep:bytecheck"]
+small_n_result_collectors = ["dep:smallvec"]
+test_utils = ["dep:rand", "dep:rand_chacha", "dep:rayon", "dep:fixed"]
+unreliable_select_nth_unstable = []
+
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
+generator = "0.8.4"
+
+[dependencies]
+aligned-vec = "0.6.1"
+array-init = "2.1.0"
+az = "1"
+cmov = "0.5"
+nonmax = "0.5.5"
+num-traits = "0.2"
+sorted-vec = "0.8"
+test-log = { version = "0.2.19", features = ["trace"] }
+
+[dependencies.bytecheck]
+version = "0.8"
+optional = true
+
+[dependencies.csv]
+version = "1"
+optional = true
+
+[dependencies.fixed]
+version = "1,<1.31.0"     # 1.31.0 requires rust-version 1.93.0
+features = ["num-traits"]
+optional = true
+
+# half 2.5.0 switched from rkyv 0.7 to rkyv 0.8.
+[dependencies.half]
+version = "2.5.0"
+optional = true
+features = ["num-traits"]
+
+[dependencies.las]
+version = "0.10"
+optional = true
+features = ["laz-parallel"]
+
+[dependencies.libc]
+version = "0.2"
+optional = true
+
+[dependencies.log]
+version = "0.4"
+optional = true
+
+[dependencies.ptr_meta]
+version = "0.3"
+optional = true
+
+[dependencies.rand]
+version = "0.10"
+optional = true
+
+[dependencies.rand_chacha]
+version = "0.10"
+optional = true
+
+[dependencies.rayon]
+version = "1"
+optional = true
+
+[dependencies.rkyv_08]
+package = "rkyv"
+version = "0.8.9"
+optional = true
+
+[dependencies.serde]
+version = "1"
+optional = true
+
+[dependencies.smallvec]
+version = "1"
+optional = true
+
+[dependencies.tracing]
+version = "0.1"
+
+[build-dependencies]
+yep-cache-line-size = "0.9"
+
+[dev-dependencies]
+assert_float_eq = "1.2"
+codspeed-criterion-compat = "5.0"
+criterion = "0.8"
+elapsed = "0.1.2"
+flate2 = { version = "1", features = [
+  "zlib-ng-compat",
+], default-features = false }
+itertools = "0.15"
+# required to be able to run tests without specifying --features=test_utils
+# see https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481
+kiddo = { path = ".", features = ["test_utils"] }
+las = { version = "0.10", features = ["laz-parallel"] }
+memmap = "0.7"
+postcard = { version = "1", features = ["alloc"] }
+proc-macro2 = { version = "1", features = ["default", "proc-macro"] }
+radians = "0.3"
+rand = "0.10"
+rand_distr = "0.6"
+rayon = "1"
+reqwest = { version = "0.13", default-features = false, features = [
+  "blocking",
+  "rustls",
+] }
+rstest = "0.26"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+tracing-subscriber = "0.3"
+trybuild = "1"
+ubyte = "0.10"
+zip = { version = "8", default-features = false, features = ["deflate"] }
+zzz = "0.3.2"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
+
+[profile.release]
+debug = true
+lto = true
+codegen-units = 1
+opt-level = 3
+
+[profile.bench]
+debug = true
+lto = true
+codegen-units = 1
+opt-level = 2
+
+# Fast iteration profile for test/dev loops that still want near-release perf.
+[profile.fast-tests]
+inherits = "release"
+debug = 1
+lto = "thin"
+codegen-units = 16
+incremental = true
+
+#[[bench]]
+#name = "add_points"
+#harness = false
+#required-features = ["test_utils"]
+#
+#[[bench]]
+#name = "nearest_one"
+#harness = false
+#required-features = ["test_utils"]
+
+#[[bench]]
+#name = "nearest_one_immutable"
+#harness = false
+#required-features = ["test_utils"]
+#
+#[[bench]]
+#name = "nearest_n"
+#harness = false
+#required-features = ["test_utils"]
+#
+#[[bench]]
+#name = "within"
+#harness = false
+#required-features = ["test_utils"]
+#
+#[[bench]]
+#name = "within_unsorted"
+#harness = false
+#required-features = ["test_utils"]
+#
+#[[bench]]
+#name = "best_n"
+#harness = false
+#required-features = ["test_utils"]
+#
+#[[bench]]
+#name = "approx_nearest_one_immutable"
+#harness = false
+#required-features = ["test_utils"]
+
+[[bench]]
+name = "v6_codspeed_queries"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "v6_periodic_queries"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "v6_scratch_strategies"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "profile_v6_nearest_one_eytzinger"
+path = "benches/profile_v6_nearest_one_eytzinger.rs"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "profile_v6_dist_metrics"
+path = "benches/profile_v6_dist_metrics.rs"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "profile_v6_nearest_n_eytzinger"
+path = "benches/profile_v6_nearest_n_eytzinger.rs"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "profile_v6_leaf_strategies"
+path = "benches/profile_v6_leaf_strategies.rs"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "profile_v6_leaf_strategies_criterion"
+path = "benches/profile_v6_leaf_strategies_criterion.rs"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "profile_v6_stem_exact_stats"
+path = "benches/profile_v6_stem_exact_stats.rs"
+harness = false
+required-features = ["simd", "test_utils"]
+
+[[bench]]
+name = "profile_v6_result_collection_stats"
+path = "benches/profile_v6_result_collection_stats.rs"
+harness = false
+required-features = ["rkyv_08", "simd", "test_utils", "result_collection_stats"]
+
+[[bench]]
+name = "profile_v6_archived_huge_pages"
+path = "benches/profile_v6_archived_huge_pages.rs"
+harness = false
+required-features = ["rkyv_08", "huge_pages"]
+
+[[bench]]
+name = "profile_v6_archived_query_focus"
+path = "benches/profile_v6_archived_query_focus.rs"
+harness = false
+required-features = ["rkyv_08", "huge_pages"]
+
+[[example]]
+name = "fuzz-case-repro"
+path = "examples/fuzz-case-repro.rs"
+required-features = ["fuzz"]
+
+[[example]]
+name = "repro_donnelly_block3_exact_divergence"
+path = "examples/repro_donnelly_block3_exact_divergence.rs"
+required-features = ["simd", "test_utils"]
+
+[[example]]
+name = "build_v6_profile_archives"
+path = "examples/build_v6_profile_archives.rs"
+required-features = ["rkyv_08", "simd", "test_utils"]
+
+[[example]]
+name = "build_v6_hugepage_archives"
+path = "examples/build_v6_hugepage_archives.rs"
+required-features = ["rkyv_08", "test_utils"]
+
+[[example]]
+name = "build_v6_query_focus_archives"
+path = "examples/build_v6_query_focus_archives.rs"
+required-features = ["rkyv_08", "test_utils"]
+
+#[[example]]
+#name = "avx2-check"
+#path = "examples/avx2-check.rs"
+#
+#[[example]]
+#name = "build-float-doctest-tree-rkyv_08"
+#path = "examples/build-float-doctest-tree-rkyv_08.rs"
+#required-features = ["rkyv_08"]
+#
+#[[example]]
+#name = "build-immutable-doctest-tree-rkyv_08"
+#path = "examples/build-immutable-doctest-tree-rkyv_08.rs"
+#required-features = ["rkyv_08"]
+#
+#[[example]]
+#name = "check-select-nth-unstable"
+#path = "examples/check-select-nth-unstable.rs"
+#
+#[[example]]
+#name = "cities"
+#path = "examples/cities.rs"
+#required-features = ["csv"]
+#
+#[[example]]
+#name = "float-rkyv_08-serialize"
+#path = "examples/float-rkyv_08-serialize.rs"
+#required-features = ["rkyv_08"]
+#
+#[[example]]
+#name = "float-rkyv_08-deserialize"
+#path = "examples/float-rkyv_08-deserialize.rs"
+#required-features = ["rkyv_08"]
+#
+#[[example]]
+#name = "half"
+#path = "examples/half.rs"
+#required-features = ["f16"]
+#
+#[[example]]
+#name = "immutable-large"
+#path = "examples/immutable-large.rs"
+#required-features = ["test_utils"]
+#
+#[[example]]
+#name = "immutable-large-ann-donnelly"
+#path = "examples/immutable-large-ann-donnelly.rs"
+#required-features = ["test_utils"]
+#
+#[[example]]
+#name = "immutable-large-ann-donnelly-deserialize-and-query"
+#path = "examples/immutable-large-ann-donnelly-deserialize-and-query.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-ann-donnelly-swpre-deserialize-and-query"
+#path = "examples/immutable-large-ann-donnelly-swpre-deserialize-and-query.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-ann-eytzinger-deserialize-and-query"
+#path = "examples/immutable-large-ann-eytzinger-deserialize-and-query.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-donnelly-simulate-traverse-f32"
+#path = "examples/immutable-large-donnelly-simulate-traverse-f32.rs"
+#required-features = ["test_utils", "rkyv_08", "simulator"]
+#
+#[[example]]
+#name = "immutable-large-donnelly-simulate-traverse-f64"
+#path = "examples/immutable-large-donnelly-simulate-traverse-f64.rs"
+#required-features = ["test_utils", "rkyv_08", "simulator"]
+#
+#[[example]]
+#name = "immutable-large-donnelly-swpre-simulate-traverse-f64"
+#path = "examples/immutable-large-donnelly-swpre-simulate-traverse-f64.rs"
+#required-features = ["test_utils", "rkyv_08", "simulator"]
+#
+#[[example]]
+#name = "immutable-large-ann-donnelly-build-and-serialize"
+#path = "examples/immutable-large-ann-donnelly-build-and-serialize.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-donnelly-build-and-serialize-d4-f32"
+#path = "examples/immutable-large-donnelly-build-and-serialize-d4-f32.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#
+#[[example]]
+#name = "immutable-large-donnelly-simulate-traverse-f32-unrolled"
+#path = "examples/immutable-large-donnelly-simulate-traverse-f32-unrolled.rs"
+#required-features = ["test_utils", "simulator", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-donnelly-deserialize-and-traverse-f32-rolled"
+#path = "examples/immutable-large-donnelly-deserialize-and-traverse-f32-rolled.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-donnelly-deserialize-and-traverse-f32-unrolled"
+#path = "examples/immutable-large-donnelly-deserialize-and-traverse-f32-unrolled.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-donnelly-deserialize-and-traverse-f32-unrolled-pf"
+#path = "examples/immutable-large-donnelly-deserialize-and-traverse-f32-unrolled-pf.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-eytz-build-and-serialize-f32"
+#path = "examples/immutable-large-eytz-build-and-serialize-f32.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-eytz-simulate-traverse-f32"
+#path = "examples/immutable-large-eytz-simulate-traverse-f32.rs"
+#required-features = ["test_utils", "simulator", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-eytz-deserialize-and-traverse-f32"
+#path = "examples/immutable-large-eytz-deserialize-and-traverse-f32.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-eytz-deserialize-and-traverse-f32-pf"
+#path = "examples/immutable-large-eytz-deserialize-and-traverse-f32-pf.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-eytz-deserialize-and-traverse-f32-pf-far"
+#path = "examples/immutable-large-eytz-deserialize-and-traverse-f32-pf-far.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-eytz-simulate-traverse-f64"
+#path = "examples/immutable-large-eytz-simulate-traverse-f64.rs"
+#required-features = ["test_utils", "rkyv_08", "simulator"]
+#
+#[[example]]
+#name = "immutable-large-ann-eytz-build-and-serialize"
+#path = "examples/immutable-large-ann-eytz-build-and-serialize.rs"
+#required-features = ["test_utils", "rkyv_08"]
+#
+#[[example]]
+#name = "immutable-large-ann-eytzinger"
+#path = "examples/immutable-large-ann-eytzinger.rs"
+#required-features = ["test_utils"]
+#
+#[[example]]
+#name = "immutable-rkyv_08-serialize"
+#path = "examples/immutable-rkyv_08-serialize.rs"
+#required-features = ["rkyv_08"]
+#
+#[[example]]
+#name = "immutable-rkyv_08-deserialize"
+#path = "examples/immutable-rkyv_08-deserialize.rs"
+#required-features = ["rkyv_08"]
+#
+#[[example]]
+#name = "pointcloud-las"
+#path = "examples/pointcloud-las.rs"
+#required-features = ["las", "rkyv_08"]
+#
+#[[example]]
+#name = "pointcloud-csv"
+#path = "examples/pointcloud-csv.rs"
+#required-features = ["csv", "rkyv_08"]
+#
+[[example]]
+name = "serde"
+path = "examples/serde.rs"
+required-features = ["csv", "serde"]
+
+[[example]]
+name = "build-float-doctest-tree-rkyv_08"
+path = "examples/build-float-doctest-tree-rkyv_08.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "build-immutable-doctest-tree-rkyv_08"
+path = "examples/build-immutable-doctest-tree-rkyv_08.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "float-rkyv_08-serialize"
+path = "examples/float-rkyv_08-serialize.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "float-rkyv_08-deserialize"
+path = "examples/float-rkyv_08-deserialize.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-rkyv_08-serialize"
+path = "examples/immutable-rkyv_08-serialize.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-rkyv_08-deserialize"
+path = "examples/immutable-rkyv_08-deserialize.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "embedded-rkyv_08-deserialize"
+path = "examples/embedded-rkyv_08-deserialize.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "download-geonames-data"
+path = "examples/download-geonames-data.rs"
+required-features = ["csv"]
+
+[[example]]
+name = "build-geonames-embedded-rkyv"
+path = "examples/build-geonames-embedded-rkyv.rs"
+required-features = ["csv", "rkyv_08"]
+
+[[example]]
+name = "immutable-large-eytz-build-and-serialize-f32"
+path = "examples/immutable-large-eytz-build-and-serialize-f32.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-donnelly-build-and-serialize-d4-f32"
+path = "examples/immutable-large-donnelly-build-and-serialize-d4-f32.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-ann-eytz-build-and-serialize"
+path = "examples/immutable-large-ann-eytz-build-and-serialize.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-ann-donnelly-build-and-serialize"
+path = "examples/immutable-large-ann-donnelly-build-and-serialize.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-eytz-deserialize-and-traverse-f32"
+path = "examples/immutable-large-eytz-deserialize-and-traverse-f32.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-eytz-deserialize-and-traverse-f32-pf"
+path = "examples/immutable-large-eytz-deserialize-and-traverse-f32-pf.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-eytz-deserialize-and-traverse-f32-pf-far"
+path = "examples/immutable-large-eytz-deserialize-and-traverse-f32-pf-far.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-eytz-simulate-traverse-f32"
+path = "examples/immutable-large-eytz-simulate-traverse-f32.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-eytz-simulate-traverse-f64"
+path = "examples/immutable-large-eytz-simulate-traverse-f64.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-ann-eytzinger-deserialize-and-query"
+path = "examples/immutable-large-ann-eytzinger-deserialize-and-query.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-donnelly-deserialize-and-traverse-f32-rolled"
+path = "examples/immutable-large-donnelly-deserialize-and-traverse-f32-rolled.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-donnelly-deserialize-and-traverse-f32-unrolled"
+path = "examples/immutable-large-donnelly-deserialize-and-traverse-f32-unrolled.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-donnelly-deserialize-and-traverse-f32-unrolled-pf"
+path = "examples/immutable-large-donnelly-deserialize-and-traverse-f32-unrolled-pf.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-donnelly-simulate-traverse-f32"
+path = "examples/immutable-large-donnelly-simulate-traverse-f32.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-donnelly-simulate-traverse-f32-unrolled"
+path = "examples/immutable-large-donnelly-simulate-traverse-f32-unrolled.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-donnelly-simulate-traverse-f64"
+path = "examples/immutable-large-donnelly-simulate-traverse-f64.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-donnelly-swpre-simulate-traverse-f64"
+path = "examples/immutable-large-donnelly-swpre-simulate-traverse-f64.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-ann-donnelly-deserialize-and-query"
+path = "examples/immutable-large-ann-donnelly-deserialize-and-query.rs"
+required-features = ["rkyv_08"]
+
+[[example]]
+name = "immutable-large-ann-donnelly-swpre-deserialize-and-query"
+path = "examples/immutable-large-ann-donnelly-swpre-deserialize-and-query.rs"
+required-features = ["rkyv_08"]
+
+[[test]]
+name = "donnelly_simd_regressions"
+path = "tests/donnelly_simd_regressions.rs"
+
+[[test]]
+name = "kd_tree_fuzz_v6"
+path = "tests/kd_tree_fuzz_v6.rs"
+required-features = ["fuzz"]
+
+[[test]]
+name = "string_data_test"
+path = "tests/string_data_test.rs"
+
+[[test]]
+name = "builder_ui"
+path = "tests/builder_ui.rs"
+
+[[test]]
+name = "custom_metric_block_fallback"
+path = "tests/custom_metric_block_fallback.rs"
+
+[[test]]
+name = "custom_query_metric"
+path = "tests/custom_query_metric.rs"
+
+[[test]]
+name = "custom_leaf_strategy"
+path = "tests/custom_leaf_strategy.rs"

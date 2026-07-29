@@ -37,11 +37,11 @@ mod test {
 
         // create a semantic layer and add nodes to layers
         let semantic_layer = sg.new_layer();
-        let id2 = semantic_layer.push_node(node2);
-        let id3 = semantic_layer.push_node(node3);
+        let id2 = semantic_layer.push_node(node2)?;
+        let id3 = semantic_layer.push_node(node3)?;
         // create the second semantic layer
         let semantic_layer = sg.new_layer();
-        let id1 = semantic_layer.push_node(node1);
+        let id1 = semantic_layer.push_node(node1)?;
         semantic_layer.add_child(0)?;
 
         // nesting
@@ -110,10 +110,10 @@ mod test {
 
         // create layers and add nodes to layers
         let l = sg.new_layer();
-        let table_id = l.push_node(table);
-        let wall_id = l.push_node(wall);
-        let chair_id = l.push_node(chair);
-        let clock_id = l.push_node(clock);
+        let table_id = l.push_node(table)?;
+        let wall_id = l.push_node(wall)?;
+        let chair_id = l.push_node(chair)?;
+        let clock_id = l.push_node(clock)?;
 
         l.add_edge(clock_id, wall_id, "supported by")?;
         l.add_edge(table_id, chair_id, "next to")?;
@@ -203,7 +203,7 @@ mod test {
         }
         let layer = sg.new_layer();
         for node in nodes {
-            layer.push_node(node);
+            layer.push_node(node)?;
         }
 
         for src in 0..NUM_COOR_NODES {
@@ -226,7 +226,7 @@ mod test {
         let layer = sg.new_layer();
         layer.add_child(0)?;
         for node in nodes {
-            layer.push_node(node);
+            layer.push_node(node)?;
         }
         for src in 0..NUM_SEMANTIC_NODES {
             for dst in 0..NUM_SEMANTIC_NODES {
@@ -247,7 +247,7 @@ mod test {
         let root_node = sg.new_node(vec![Feature::new("name", "root")]);
         let layer = sg.new_layer();
         layer.add_child(1)?;
-        let root_id = layer.push_node(root_node);
+        let root_id = layer.push_node(root_node)?;
         for id in 0..NUM_SEMANTIC_NODES {
             let nestee = sg.layer(1)?.node_id((NUM_COOR_NODES + id) as u32);
             assert!(sg.nest(nestee).under(root_id).is_ok());
@@ -319,9 +319,9 @@ mod test {
 
         // Create a layer and add nodes to it
         sg.new_indexed_layer();
-        let n1_id = sg.layer_mut(0).unwrap().push_node(n1);
-        let n2_id = sg.layer_mut(0).unwrap().push_node(n2);
-        let n3_id = sg.layer_mut(0).unwrap().push_node(n3);
+        let n1_id = sg.layer_mut(0).unwrap().push_node(n1).unwrap();
+        let n2_id = sg.layer_mut(0).unwrap().push_node(n2).unwrap();
+        let n3_id = sg.layer_mut(0).unwrap().push_node(n3).unwrap();
 
         // create new semantic layer and nest all nodes under a new parent node
         let layer = sg.new_layer();
@@ -329,7 +329,7 @@ mod test {
 
         // First test with indexing
         let parent_node = sg.new_indexed_node(vec![]);
-        let pid = sg.top_layer_mut().unwrap().push_node(parent_node);
+        let pid = sg.top_layer_mut().unwrap().push_node(parent_node).unwrap();
         sg.nest(n1_id).under(pid).unwrap();
         sg.nest(n2_id).under(pid).unwrap();
         sg.nest(n3_id).under(pid).unwrap();
@@ -350,7 +350,7 @@ mod test {
 
         // Now test without indexing
         let parent_node = sg.new_node(vec![]);
-        let pid = sg.top_layer_mut().unwrap().push_node(parent_node);
+        let pid = sg.top_layer_mut().unwrap().push_node(parent_node).unwrap();
         sg.nest(n1_id).under(pid).unwrap();
         sg.nest(n2_id).under(pid).unwrap();
         sg.nest(n3_id).under(pid).unwrap();
@@ -384,9 +384,9 @@ mod test {
         let mid_node = ygg.new_node(Vec::new());
         let top_node = ygg.new_coordinates(4_f32, 5_f32, 6_f32, Vec::new());
 
-        let btm_nid = ygg.layer_mut(btm_lid).unwrap().push_node(btm_node);
-        let mid_nid = ygg.layer_mut(mid_lid).unwrap().push_node(mid_node);
-        let top_nid = ygg.layer_mut(top_lid).unwrap().push_node(top_node);
+        let btm_nid = ygg.layer_mut(btm_lid).unwrap().push_node(btm_node).unwrap();
+        let mid_nid = ygg.layer_mut(mid_lid).unwrap().push_node(mid_node).unwrap();
+        let top_nid = ygg.layer_mut(top_lid).unwrap().push_node(top_node).unwrap();
 
         assert_eq!(
             ygg.node(btm_nid).unwrap().bounds,

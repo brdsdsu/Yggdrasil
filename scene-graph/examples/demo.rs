@@ -376,7 +376,7 @@ fn create_demo_graph() -> yggdrasil::Result<yggdrasil::SceneGraph> {
     // Create a root node with a name feature
     // This node will serve as the parent for all other nodes in the scene graph.
     let root_node = ygg.new_node(vec![Feature::new("name", "root")]);
-    let root_node_id = ygg.layer_mut(root_layer_id)?.push_node(root_node);
+    let root_node_id = ygg.layer_mut(root_layer_id)?.push_node(root_node)?;
 
     // Create 100 point cloud nodes with random coordinates. The first 70 nodes will have
     // coordinates between 0 and 10, and the next 30 will have coordinates between 10 and 20.
@@ -400,7 +400,7 @@ fn create_demo_graph() -> yggdrasil::Result<yggdrasil::SceneGraph> {
     let mut point_cluod_node_ids = Vec::new();
     for (i, (x, y, z)) in point_cloud.iter().enumerate() {
         let point = ygg.new_coordinates(*x, *y, *z, vec![Feature::new("point_cloud_id", i)]);
-        let point_cloud_node_id = ygg.layer_mut(point_cloud_layer_id)?.push_node(point);
+        let point_cloud_node_id = ygg.layer_mut(point_cloud_layer_id)?.push_node(point)?;
         point_cluod_node_ids.push(point_cloud_node_id);
     }
 
@@ -415,7 +415,7 @@ fn create_demo_graph() -> yggdrasil::Result<yggdrasil::SceneGraph> {
         let object_node = ygg.new_node(vec![Feature::new("type", static_object_types[i])]);
         let object_node_id = ygg
             .layer_mut(static_objects_layer_id)?
-            .push_node(object_node);
+            .push_node(object_node)?;
         static_object_node_ids.push(object_node_id);
 
         // Nest all the point cloud nodes under this object's semantic node.
@@ -436,7 +436,7 @@ fn create_demo_graph() -> yggdrasil::Result<yggdrasil::SceneGraph> {
         let dynamic_node = ygg.new_node(vec![Feature::new("type", dynamic_object_types[i])]);
         let dynamic_node_id = ygg
             .layer_mut(dynamic_objects_layer_id)?
-            .push_node(dynamic_node);
+            .push_node(dynamic_node)?;
         dynamic_node_ids.push(dynamic_node_id);
 
         // Nest all the point cloud nodes under this object's semantic node.
