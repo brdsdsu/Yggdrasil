@@ -318,10 +318,57 @@ impl SceneGraph {
             .collect()
     }
 
-    /// Get a subgraph containing nodes within the field of view of an observer and are descendants of the specified root node.
+    /// Get a list of all nodes in the subtree of the root node that are visible to the observer.
     /// The check is done using the nodes' coordinates and nodes without coordinates are pruned.
-    /// nodes from upper layers that have no descendants within the field of view are also pruned.
+    ///
+    /// Not to be confused with `visible_subgraph` which returns a sub-scenegraph containing the
+    /// entire visible scene from the observer's prespective, including nodes that nest and/or are
+    /// nested under the visible nodes.
+    ///
+    /// [`visible_subgraph`](SceneGraph::visible_subgraph)
+    pub fn visible_in_subtree(&self, observer: &Observer, root_node_id: NodeId) -> Vec<NodeId> {
+        self.pos_subtree(root_node_id)
+            .into_iter()
+            .filter(|(c, _)| observer.observers(c))
+            .map(|(_, nid)| nid)
+            .collect()
+    }
+
+    /// Get a sub-scenegraph of the visible scene from the observer's prespective. The
+    /// sub-scengraph will only contain nodes that are decendents of the root node.
+    ///
+    /// The Visibility is defined as weather the node nests or is nested under another node that
+    /// has a coordinate visible to the observer.
     pub fn visible_subgraph(&self, observer: &Observer, root_node_id: NodeId) -> Result<Self> {
+        // let coordinates = self.pos_subtree(root_node_id);
+        // let mut coordinates = coordinates
+        //     .iter()
+        //     .filter(|(c, _)| observer.observers(c))
+        //     .collect::<Vec<_>>();
+        //
+        // coordinates.sort_by_key(|(_, a)| a.layer_id());
+        //
+        // let mut queue = VecDeque::new();
+        // queue.extend(coordinates.iter().rev().map(|(_, nid)| *nid));
+        //
+        // let mut layers: HashMap<u32, Vec<NodeId>> = HashMap::new();
+        // while let Some(nid) = queue.pop_front() {
+        //     layers
+        //         .entry(nid.layer_id())
+        //         .and_modify(|v| v.push(nid))
+        //         .or_insert_with(|| vec![nid]);
+        //     if let Some(pnid) = self.node(nid)?.pid {
+        //         queue.push_back(pnid);
+        //     }
+        // }
+        // for (lid, nodes) in layers {}
+        //
+        // let mut subgraph = Self {
+        //     layers: todo!(),
+        //     node_counter: self.node_counter,
+        //     layer_counter: self.layer_counter,
+        // };
+
         let mut subgraph = self.subgraph(root_node_id)?;
         if subgraph.layers.is_empty() {
             return Ok(SceneGraph::default());
