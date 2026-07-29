@@ -1200,7 +1200,7 @@ mod test {
     /// Push a node carrying `at` onto layer `lid`.
     fn push_at(sg: &mut SceneGraph, lid: u32, at: Coordinate) -> Result<NodeId> {
         let node = sg.new_coordinates(at.x, at.y, at.z, vec![]);
-        Ok(sg.layer_mut(lid)?.push_node(node))
+        sg.layer_mut(lid)?.push_node(node)
     }
 
     /// `visible_in_subtree` yields ids in traversal order, and in kd-tree order for an
@@ -1278,7 +1278,7 @@ mod test {
         sg.layer_mut(1)?.add_child(0)?;
 
         let root = sg.new_node(vec![Feature::new("name", "semantic")]);
-        let root = sg.layer_mut(1)?.push_node(root);
+        let root = sg.layer_mut(1)?.push_node(root)?;
         let point = push_at(&mut sg, 0, IN_VIEW)?;
         sg.nest(point).under(root)?;
 
@@ -1308,7 +1308,7 @@ mod test {
         let mut branches = Vec::new();
         for _ in 0..2 {
             let object = sg.new_node(vec![]);
-            let object = sg.layer_mut(1)?.push_node(object);
+            let object = sg.layer_mut(1)?.push_node(object)?;
             let point = push_at(&mut sg, 0, IN_VIEW)?;
             sg.nest(point).under(object)?;
             branches.push((object, point));
@@ -1360,9 +1360,9 @@ mod test {
         sg.layer_mut(1)?.add_child(0)?;
 
         let indexed_root = sg.new_indexed_node(vec![Feature::new("name", "indexed")]);
-        let indexed_root = sg.layer_mut(1)?.push_node(indexed_root);
+        let indexed_root = sg.layer_mut(1)?.push_node(indexed_root)?;
         let plain_root = sg.new_node(vec![Feature::new("name", "plain")]);
-        let plain_root = sg.layer_mut(1)?.push_node(plain_root);
+        let plain_root = sg.layer_mut(1)?.push_node(plain_root)?;
 
         // A node may have only one parent, so each root gets its own copy of the points.
         let mut visible_under = Vec::new();
