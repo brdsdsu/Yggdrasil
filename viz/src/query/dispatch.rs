@@ -232,9 +232,7 @@ fn run_query(
 
         QueryType::VisibleSubgraph => {
             let pos = parse_coord_named(&qps.fov_pos, "position")?;
-            let yaw = parse_degrees(&qps.fov_yaw, "yaw")?;
-            let pitch = parse_degrees(&qps.fov_pitch, "pitch")?;
-            let roll = parse_degrees(&qps.fov_roll, "roll")?;
+            let direction = parse_coord_named(&qps.fov_dir, "direction")?;
             let half_angle = parse_degrees(&qps.fov_half_angle, "half-angle")?;
             let near: f32 = qps
                 .fov_near
@@ -248,7 +246,8 @@ fn run_query(
                 .map_err(|_| "Far must be a number".to_string())?;
             let root = parse_node_id(&qps.root_node)?;
 
-            let observer = Observer::from_ypr(pos, yaw, pitch, roll, half_angle, near, far);
+            let observer = Observer::new_looking_along(pos, direction, half_angle, near, far)
+                .map_err(|e| e.to_string())?;
             let subgraph = sg
                 .visible_subgraph(&observer, root)
                 .map_err(|e| e.to_string())?;

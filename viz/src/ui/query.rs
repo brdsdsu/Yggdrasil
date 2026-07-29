@@ -222,18 +222,21 @@ pub fn draw_query_panel(
                                 .desired_width(52.0),
                         );
                     });
-                    ui.label("Yaw / Pitch / Roll (degrees):");
+                    ui.label("Observer Direction:");
                     ui.horizontal(|ui| {
+                        ui.label("x");
                         ui.add(
-                            egui::TextEdit::singleline(&mut qps.fov_yaw)
+                            egui::TextEdit::singleline(&mut qps.fov_dir[0])
                                 .desired_width(52.0),
                         );
+                        ui.label("y");
                         ui.add(
-                            egui::TextEdit::singleline(&mut qps.fov_pitch)
+                            egui::TextEdit::singleline(&mut qps.fov_dir[1])
                                 .desired_width(52.0),
                         );
+                        ui.label("z");
                         ui.add(
-                            egui::TextEdit::singleline(&mut qps.fov_roll)
+                            egui::TextEdit::singleline(&mut qps.fov_dir[2])
                                 .desired_width(52.0),
                         );
                     });
@@ -258,11 +261,10 @@ pub fn draw_query_panel(
                             qps.fov_pos[0] = format!("{:.3}", p.x);
                             qps.fov_pos[1] = format!("{:.3}", p.y);
                             qps.fov_pos[2] = format!("{:.3}", p.z);
-                            let (yaw, pitch, roll) =
-                                transform.rotation.to_euler(EulerRot::YXZ);
-                            qps.fov_yaw = format!("{:.2}", yaw.to_degrees());
-                            qps.fov_pitch = format!("{:.2}", pitch.to_degrees());
-                            qps.fov_roll = format!("{:.2}", roll.to_degrees());
+                            let d = transform.forward();
+                            qps.fov_dir[0] = format!("{:.3}", d.x);
+                            qps.fov_dir[1] = format!("{:.3}", d.y);
+                            qps.fov_dir[2] = format!("{:.3}", d.z);
                         }
                 }
             }

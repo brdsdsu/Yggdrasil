@@ -213,14 +213,14 @@ impl From<PyPosQueryCount> for scene_graph::PosQueryCount {
 }
 
 /// Observer represent a Field-of-View cone frustum in 3D space.
-/// The cone is defined by a position, orientation (quaternion),
+/// The cone is defined by a position, a viewing direction,
 /// and a half-angle (in radians). The frustum is further limited
 /// by near and far distances.
 ///
 ///  ↑↑            O <---------- observer position
 ///  ||           /|\
-///  ||          / | \   
-///  ||near     /  |  \  
+///  ||          / | \
+///  ||near     /  |  \
 ///  ||        /   |-θ-\ <------ half_angle
 ///  ||       /         \
 ///  |↓      *-----------* <---- Chord with `near` radius
@@ -231,39 +231,45 @@ impl From<PyPosQueryCount> for scene_graph::PosQueryCount {
 #[derive(Clone, Copy, Debug)]
 #[pyclass(name = "Observer")]
 pub struct PyObserver {
-    /// Position of the observer/camera in world space.
-    position: Vec3,
+    /// The validated cone, built once at construction so a bad direction is
+    /// reported where Python can still point at the offending arguments.
+    inner: scene_graph::Observer,
+}
 
-    /// Orientation of the observer/camera as a function of yaw, pitch, roll (radians).
-    yaw: f32,
-    /// Orientation of the observer/camera as a function of yaw, pitch, roll (radians).
-    pitch: f32,
-    /// Orientation of the observer/camera as a function of yaw, pitch, roll (radians).
-    roll: f32,
-
-    /// `half_angle` represents the maximum angle (in radians) from the forward
-    /// direction that is still considered "inside" the field of view.
-    half_angle_cos: f32,
-
-    /// Near distance of the frustum. Points closer than this are not
-    /// observed by the observer.
-    near: f32,
-
-    /// Far distance of the frustum. Points farther than this are not
-    /// observed by the observer.
-    far: f32,
+#[pymethods]
+impl PyObserver {
+    /// Build an observer at `position` looking along `direction`.
+    ///
+    /// `direction` is an (x, y, z) vector in the same frame as the scene's own
+    /// coordinates; only its axis matters, so it need not be a unit vector. A
+    /// zero-length or non-finite direction raises `ValueError`, since neither gives
+    /// the cone an axis to point along.
+    ///
+    /// `half_angle` is in radians and measures from the direction outwards, so the
+    /// full opening of the cone is twice it.
+    #[new]
+    pub fn new(
+        position: (f32, f32, f32),
+        direction: (f32, f32, f32),
+        half_angle: f32,
+        near: f32,
+        far: f32,
+    ) -> Result<Self> {
+        let (px, py, pz) = position;
+        let (dx, dy, dz) = direction;
+        let inner = scene_graph::Observer::new_looking_along(
+            Vec3::new(px, py, pz),
+            Vec3::new(dx, dy, dz),
+            half_angle,
+            near,
+            far,
+        )?;
+        Ok(Self { inner })
+    }
 }
 
 impl From<PyObserver> for scene_graph::Observer {
     fn from(obs: PyObserver) -> Self {
-        scene_graph::Observer::from_ypr(
-            obs.position,
-            obs.yaw,
-            obs.pitch,
-            obs.roll,
-            obs.half_angle_cos,
-            obs.near,
-            obs.far,
-        )
+        obs.inner
     }
 }

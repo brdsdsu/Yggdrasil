@@ -79,15 +79,15 @@ fn run_field_of_view_queries(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result
     // towards the (1, 1, 1) direction, with a field of view of 90 degrees and a far reach of 6
     // units.
     let pos = Coordinate::ZERO;
-    let yaw = 45_f32.to_radians();
-    let pitch = -35.26439_f32.to_radians();
-    let roll = 0.0;
+    let direction = Coordinate::ONE;
+    // Widen the cone just past the angle from the (1, 1, 1) diagonal to each axis, so
+    // the whole positive octant falls inside it.
     let half_angle = (1.0 / 3.0_f32.sqrt()).acos() + 0.001;
 
     let near = 0.001;
     let far = 6_f32;
 
-    let observer = Observer::from_ypr(pos, yaw, pitch, roll, half_angle, near, far);
+    let observer = Observer::new_looking_along(pos, direction, half_angle, near, far)?;
 
     // Retrieve the root node of the scene graph.
     let root_node_id = ygg
@@ -133,7 +133,7 @@ fn run_field_of_view_queries(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result
     // Expanding the `far` reach of the observer to 35 should include all the dynamic objects as
     // well as the static ones, meaning that the subgraph should be the same as the original scene
     // graph.
-    let observer = Observer::from_ypr(pos, yaw, pitch, roll, half_angle, near, 35.0);
+    let observer = Observer::new_looking_along(pos, direction, half_angle, near, 35.0)?;
     let subgraph = ygg.visible_subgraph(&observer, root_node_id)?;
     assert_eq!(
         subgraph.layer(0)?.all_nodes().len(),
