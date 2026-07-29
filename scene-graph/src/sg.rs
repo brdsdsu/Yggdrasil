@@ -1166,4 +1166,285 @@ mod test {
 
         Ok(())
     }
+
+    /// An observer at the origin looking along `+Z`: half-angle 35°, near 0.6, far 6.0.
+    fn cone() -> Observer {
+        Observer::new_looking_along(
+            Coordinate::ZERO,
+            Coordinate::Z,
+            35_f32.to_radians(),
+            0.6,
+            6.0,
+        )
+        .unwrap()
+    }
+
+    /// On the viewing axis, between the near and far planes.
+    const IN_VIEW: Coordinate = Coordinate::new(0.0, 0.0, 1.0);
+
+    /// Off the axis but still inside the cone, so the two in-view constants are distinct
+    /// points rather than duplicates.
+    const ALSO_IN_VIEW: Coordinate = Coordinate::new(0.5, 0.2, 2.0);
+
+    /// Within near/far range, but 90° off the viewing axis: rejected on angle.
+    const OFF_AXIS: Coordinate = Coordinate::new(5.0, 0.0, 0.0);
+
+    /// On the axis, but nearer than the near plane: rejected on range.
+    const TOO_NEAR: Coordinate = Coordinate::new(0.0, 0.0, 0.3);
+
+    /// On the axis, but past the far plane: rejected on range.
+    const TOO_FAR: Coordinate = Coordinate::new(0.0, 0.0, 10.0);
+
+    /// Push a node carrying `at` onto layer `lid`.
+    fn push_at(sg: &mut SceneGraph, lid: u32, at: Coordinate) -> Result<NodeId> {
+        let node = sg.new_coordinates(at.x, at.y, at.z, vec![]);
+        Ok(sg.layer_mut(lid)?.push_node(node))
+    }
+
+    /// `visible_in_subtree` yields ids in traversal order, and in kd-tree order for an
+    /// indexed root, so every comparison against it has to be order-insensitive.
+    fn sorted(mut ids: Vec<NodeId>) -> Vec<NodeId> {
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn visible_in_subtree_collects_every_visible_node_in_the_subtree() -> Result<()> {
+        // Layer 2 (rooms) ── Layer 1 (objects) ── Layer 0 (points)
+        //
+        // root (in view)
+        // ├── near_object (in view)
+        // │   ├── (in view)
+        // │   └── (too far)
+        // └── far_object (off axis)
+        //     ├── (in view)
+        //     └── (too near)
+        //
+        // Visibility is judged per node: an invisible parent does not hide a visible
+        // child, and a visible parent does not drag an invisible child along with it.
+        let mut sg = SceneGraph::default();
+        for _ in 0..3 {
+            sg.new_layer();
+        }
+        sg.layer_mut(1)?.add_child(0)?;
+        sg.layer_mut(2)?.add_child(1)?;
+
+        let root = push_at(&mut sg, 2, IN_VIEW)?;
+        let mut expected = vec![root];
+
+        for (object_at, points) in [
+            (IN_VIEW, [ALSO_IN_VIEW, TOO_FAR]),
+            (OFF_AXIS, [ALSO_IN_VIEW, TOO_NEAR]),
+        ] {
+            let object = push_at(&mut sg, 1, object_at)?;
+            sg.nest(object).under(root)?;
+            if object_at == IN_VIEW {
+                expected.push(object);
+            }
+
+            for point_at in points {
+                let point = push_at(&mut sg, 0, point_at)?;
+                sg.nest(point).under(object)?;
+                if point_at == ALSO_IN_VIEW {
+                    expected.push(point);
+                }
+            }
+        }
+
+        assert_eq!(
+            sorted(sg.visible_in_subtree(&cone(), root)),
+            sorted(expected),
+            "expected the root, the in-view object, and the in-view point under each \
+             object regardless of whether that object was itself visible"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn visible_in_subtree_skips_nodes_without_coordinates() -> Result<()> {
+        // Layer 1 (semantic) ── Layer 0 (points)
+        //
+        // semantic_root (no coordinates)
+        // └── point (in view)
+        //
+        // A node with no coordinate can never be visible, but it must not hide the
+        // visible points nested beneath it either.
+        let mut sg = SceneGraph::default();
+        sg.new_layer();
+        sg.new_layer();
+        sg.layer_mut(1)?.add_child(0)?;
+
+        let root = sg.new_node(vec![Feature::new("name", "semantic")]);
+        let root = sg.layer_mut(1)?.push_node(root);
+        let point = push_at(&mut sg, 0, IN_VIEW)?;
+        sg.nest(point).under(root)?;
+
+        assert_eq!(
+            sg.visible_in_subtree(&cone(), root),
+            vec![point],
+            "the coordinate-less root should be pruned but its visible child kept"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn visible_in_subtree_ignores_nodes_outside_the_subtree() -> Result<()> {
+        // Layer 1 (objects) ── Layer 0 (points)
+        //
+        // object_a            object_b
+        // └── a (in view)     └── b (in view)
+        //
+        // Both points are visible, but a query rooted at one object must not report the
+        // other's, however visible it is.
+        let mut sg = SceneGraph::default();
+        sg.new_layer();
+        sg.new_layer();
+        sg.layer_mut(1)?.add_child(0)?;
+
+        let mut branches = Vec::new();
+        for _ in 0..2 {
+            let object = sg.new_node(vec![]);
+            let object = sg.layer_mut(1)?.push_node(object);
+            let point = push_at(&mut sg, 0, IN_VIEW)?;
+            sg.nest(point).under(object)?;
+            branches.push((object, point));
+        }
+        let [(object_a, point_a), (object_b, point_b)] = branches[..] else {
+            unreachable!("two branches were just built")
+        };
+
+        assert_eq!(sg.visible_in_subtree(&cone(), object_a), vec![point_a]);
+        assert_eq!(sg.visible_in_subtree(&cone(), object_b), vec![point_b]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn visible_in_subtree_of_an_unknown_node_is_empty() -> Result<()> {
+        // The query hands back a plain Vec rather than a Result, so a root it cannot
+        // resolve has to come back empty instead of panicking.
+        let mut sg = SceneGraph::default();
+        sg.new_layer();
+        let point = push_at(&mut sg, 0, IN_VIEW)?;
+
+        // A leaf is a valid subtree root, and reports itself.
+        assert_eq!(sg.visible_in_subtree(&cone(), point), vec![point]);
+        // An id on a real layer that was never pushed.
+        assert!(
+            sg.visible_in_subtree(&cone(), NodeId::new(999, 0))
+                .is_empty()
+        );
+        // An id on a layer that does not exist at all.
+        assert!(sg.visible_in_subtree(&cone(), NodeId::new(0, 7)).is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn visible_in_subtree_agrees_between_indexed_and_plain_roots() -> Result<()> {
+        // Layer 1 (semantic)  ── Layer 0 (points)
+        //
+        // indexed_root  ├── (in view) ├── (also in view) ├── (off axis) └── (too far)
+        // plain_root    ├── (in view) ├── (also in view) ├── (off axis) └── (too far)
+        //
+        // `pos_subtree` reads an indexed node's kd-tree and returns instead of walking
+        // that node's children, so the indexed and non-indexed roots reach the coordinates
+        // through entirely separate code and have to agree on the answer.
+        let mut sg = SceneGraph::default();
+        sg.new_layer();
+        sg.new_layer();
+        sg.layer_mut(1)?.add_child(0)?;
+
+        let indexed_root = sg.new_indexed_node(vec![Feature::new("name", "indexed")]);
+        let indexed_root = sg.layer_mut(1)?.push_node(indexed_root);
+        let plain_root = sg.new_node(vec![Feature::new("name", "plain")]);
+        let plain_root = sg.layer_mut(1)?.push_node(plain_root);
+
+        // A node may have only one parent, so each root gets its own copy of the points.
+        let mut visible_under = Vec::new();
+        for root in [indexed_root, plain_root] {
+            let mut visible = Vec::new();
+            for at in [IN_VIEW, ALSO_IN_VIEW, OFF_AXIS, TOO_FAR] {
+                let point = push_at(&mut sg, 0, at)?;
+                sg.nest(point).under(root)?;
+                if at == IN_VIEW || at == ALSO_IN_VIEW {
+                    visible.push(point);
+                }
+            }
+            visible_under.push(sorted(visible));
+        }
+
+        let from_indexed = sorted(sg.visible_in_subtree(&cone(), indexed_root));
+        let from_plain = sorted(sg.visible_in_subtree(&cone(), plain_root));
+
+        assert_eq!(
+            from_indexed, visible_under[0],
+            "the indexed root's kd-tree path missed or invented a visible point"
+        );
+        assert_eq!(
+            from_plain, visible_under[1],
+            "the plain root's recursive path missed or invented a visible point"
+        );
+        assert_eq!(
+            from_indexed.len(),
+            from_plain.len(),
+            "the indexed and plain paths disagree on how many nodes are visible: \
+             {from_indexed:?} vs {from_plain:?}"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn visible_in_subtree_reports_only_visible_nodes_unlike_visible_subgraph() -> Result<()> {
+        // Layer 1 (objects) ── Layer 0 (points)
+        //
+        // root (off axis)
+        // └── point (in view)
+        //
+        // The split between the two queries is the point of having both:
+        // `visible_in_subtree` lists the nodes that are themselves in view, while
+        // `visible_subgraph` additionally keeps the invisible ancestors needed to reach
+        // them.
+        let mut sg = SceneGraph::default();
+        sg.new_layer();
+        sg.new_layer();
+        sg.layer_mut(1)?.add_child(0)?;
+
+        let root = push_at(&mut sg, 1, OFF_AXIS)?;
+        let point = push_at(&mut sg, 0, IN_VIEW)?;
+        sg.nest(point).under(root)?;
+
+        let observer = cone();
+        assert_eq!(
+            sg.visible_in_subtree(&observer, root),
+            vec![point],
+            "the off-axis root is not itself visible, so it is not reported"
+        );
+
+        let subgraph = sg.visible_subgraph(&observer, root)?;
+        assert_eq!(
+            subgraph
+                .layer(0)?
+                .nodes
+                .iter()
+                .map(|n| n.id)
+                .collect::<Vec<_>>(),
+            vec![point]
+        );
+        assert_eq!(
+            subgraph
+                .layer(1)?
+                .nodes
+                .iter()
+                .map(|n| n.id)
+                .collect::<Vec<_>>(),
+            vec![root],
+            "visible_subgraph keeps the invisible root so the visible point stays reachable"
+        );
+
+        Ok(())
+    }
 }
