@@ -66,7 +66,7 @@ impl Layer {
             && let Some(coords) = node.coordinates
         {
             pos_index
-                .add(&coords.into(), node.id)
+                .add_rebalancing(&coords.into(), node.id)
                 .map_err(|e| SceneGraphError::PosIndexInsertion(e.to_string()))?;
         }
         let ptr = match self.nodes.binary_search_by_key(&node.id, |n| n.id) {
@@ -345,7 +345,7 @@ impl Layer {
         for node in nodes {
             if let Some(coords) = node.coordinates {
                 pos_index
-                    .add(&coords.into(), node.id)
+                    .add_rebalancing(&coords.into(), node.id)
                     .map_err(|e| SceneGraphError::PosIndexInsertion(e.to_string()))?;
             }
         }
@@ -418,7 +418,7 @@ impl Drop for NodeMut<'_> {
                 // reason this can fail is a leaf the tree cannot split, so it panics here
                 // for the same reason the index does elsewhere: a wrong answer is worse.
                 pos_index
-                    .add(&pos.into(), node_id)
+                    .add_rebalancing(&pos.into(), node_id)
                     .expect("position index refused the new coordinates of a node");
             }
         }

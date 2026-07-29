@@ -161,6 +161,7 @@ where
     fn get_leaf_idx_mapped(&self, query: &[A; K]) -> usize {
         let stems_ptr = NonNull::new(self.stems().as_ptr() as *mut u8).unwrap();
         let mut stem_strat: SS = SS::new(stems_ptr);
+        stem_strat.bind_stems::<A>(self.stems());
 
         while stem_strat.level() <= self.max_stem_level() {
             if let Some(leaf_idx) = self.resolve_terminal_stem(stem_strat.stem_idx()) {
@@ -276,6 +277,7 @@ where
     {
         let stems_ptr = NonNull::new(self.stems().as_ptr() as *mut u8).unwrap();
         let mut stem_strat: SS = SS::new(stems_ptr);
+        stem_strat.bind_stems::<A>(self.stems());
 
         let query: [A; K] = *query_ctx.query();
         let mut query_wide: [O; K] = [O::zero(); K];
@@ -402,6 +404,7 @@ where
 
         let stems_ptr = NonNull::new(self.stems().as_ptr() as *mut u8).unwrap();
         let mut stem_strat: SS = SS::new(stems_ptr);
+        stem_strat.bind_stems::<A>(self.stems());
 
         let query: [A; K] = *query_ctx.query();
         let mut query_wide: [O; K] = [O::zero(); K];
@@ -693,7 +696,8 @@ where
         };
 
         let stems_ptr = NonNull::new(self.stems().as_ptr() as *mut u8).unwrap();
-        let stem_strat: SS = SS::new(stems_ptr);
+        let mut stem_strat: SS = SS::new(stems_ptr);
+        stem_strat.bind_stems::<A>(self.stems());
 
         let query: [A; K] = *query_ctx.query();
         let mut query_wide: [O; K] = [O::zero(); K];
@@ -1060,7 +1064,8 @@ where
         use crate::kd_tree::query_stack_simd::SimdQueryStackContext;
 
         let stems_ptr = NonNull::new(self.stems().as_ptr() as *mut u8).unwrap();
-        let stem_strat: SS = SS::new(stems_ptr);
+        let mut stem_strat: SS = SS::new(stems_ptr);
+        stem_strat.bind_stems::<A>(self.stems());
 
         let query: [A; K] = *query_ctx.query();
         let mut query_wide: [O; K] = [O::zero(); K];

@@ -13,6 +13,15 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     /// The stem index of the root node of the tree
     const ROOT_IDX: usize = 0;
 
+    /// FORK DEVIATION (see ADAPTIVE_SPLIT.md): whether a full leaf should pick its split axis
+    /// from the data (widest spread) rather than from the depth-cycling convention.
+    ///
+    /// Opting in requires [`Self::encode_split`] and [`Self::dim`] to round-trip the chosen axis,
+    /// since nothing else records it. Strategies that derive the axis from depth must leave this
+    /// false, or construction and queries would disagree about which coordinate a stem splits on.
+    #[doc(hidden)]
+    const ADAPTIVE_SPLIT_DIM: bool = false;
+
     /// The block size of this strategy
     ///
     /// The default is 1, which means that the strategy is not block-based.
@@ -79,6 +88,35 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     fn construction_dim<const K: usize>(&self) -> usize {
         self.dim::<K>()
     }
+
+    /// FORK DEVIATION (see ADAPTIVE_SPLIT.md): fold a split dimension into the value stored for
+    /// a stem, so a strategy that does not derive the dimension from depth can recover it.
+    ///
+    /// The default stores the value unchanged, which is correct for every strategy that cycles
+    /// the dimension with depth. Construction is shared code, generic over the strategy, so
+    /// dispatching through here is what keeps those strategies bit-for-bit unaffected.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn encode_split<A: Axis, const K: usize>(value: A, _dim: usize) -> A
+    where
+        Self: Sized,
+    {
+        value
+    }
+
+    /// FORK DEVIATION (see ADAPTIVE_SPLIT.md): hand the strategy the stem array it is about to
+    /// walk, before the first call to [`Self::dim`].
+    ///
+    /// Strategies that derive the dimension from depth ignore this. One that reads it back out
+    /// of the stored split value needs the width of the axis type to locate the bits, and the
+    /// length to know which slots exist — and neither [`Self::new`] nor [`Self::dim`] is generic
+    /// over the axis type, so this is the only place either can be supplied.
+    ///
+    /// Only call this where `stems` is the tree's live allocation; cursors from
+    /// [`Self::new_no_ptr`] hold a dangling pointer and must not be bound.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn bind_stems<A: Axis>(&mut self, _stems: &[A]) {}
 
     /// Get the current level
     fn level(&self) -> i32;
@@ -189,6 +227,7 @@ pub trait StemStrategy: Clone + Sync + Send + 'static {
     {
         let stems_ptr = NonNull::new(stems.as_ptr() as *mut u8).unwrap();
         let mut stem_strat = Self::new(stems_ptr);
+        stem_strat.bind_stems::<A>(stems);
 
         while stem_strat.level() <= max_stem_level {
             let pivot = unsafe { stems.get_unchecked(stem_strat.stem_idx()) };

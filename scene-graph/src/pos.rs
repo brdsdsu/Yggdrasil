@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use spatial_index::{Eytzinger, KdTree, SquaredEuclidean, VecOfArrays, dist::DistanceMetricScalar};
+use spatial_index::{EytzingerAdaptive, KdTree, SquaredEuclidean, VecOfArrays, dist::DistanceMetricScalar};
 
 use crate::NodeId;
 
@@ -17,13 +17,13 @@ pub(crate) const POS_INDEX_BUCKET_SIZE: usize = 128;
 
 /// The kd-tree configuration backing every position index in this crate.
 ///
-/// `Eytzinger` is the breadth-first stem layout, and `VecOfArrays` is the mutable leaf
+/// `EytzingerAdaptive` is the breadth-first stem layout, splitting on the widest axis, and `VecOfArrays` is the mutable leaf
 /// strategy, which is what makes incremental `add`/`remove` available — the position
 /// indexes are maintained point by point as the graph changes, never rebuilt in bulk.
 pub(crate) type PosIndex = KdTree<
     f32,
     NodeId,
-    Eytzinger,
+    EytzingerAdaptive,
     VecOfArrays<f32, NodeId, 3, POS_INDEX_BUCKET_SIZE>,
     3,
     POS_INDEX_BUCKET_SIZE,
@@ -235,127 +235,309 @@ impl PositionQuery for Vec<(Coordinate, NodeId)> {
     }
 }
 
-/// Characterization tests for the coplanar-split defect.
+/// Tests for coplanar and lattice-quantised geometry — the input that upstream kiddo cannot
+/// insert at all.
 ///
-/// The kd-tree picks the axis it splits a full leaf on by cycling with tree depth. When a
-/// leaf fills up with points that all share one value on the cycled axis, there is no pivot
-/// to split at and the insert is refused. Coplanarity is not an exotic input for this crate:
-/// reconstructed indoor geometry snapped to a voxel lattice puts thousands of points on a
-/// single floor, wall, or ceiling plane, far past a 128-point bucket.
+/// The kd-tree picks the axis it splits a full leaf on. Upstream derives it from tree depth, so a
+/// leaf that fills with points sharing one value on the cycled axis has no plane to cut at and the
+/// insert is refused. That is not an exotic input for this crate: reconstructed indoor geometry
+/// snapped to a voxel lattice puts thousands of points on a single floor, wall or ceiling plane,
+/// far past a 128-point bucket. `spatial-index` chooses the axis by widest spread instead, and
+/// records it in the split value so queries agree.
 ///
-/// These tests assert the behaviour as it stands today, so they are a record of the defect
-/// rather than a statement of intent. **They are expected to fail once the split axis is
-/// chosen adaptively**, which is the point: that is when they get rewritten into the
-/// acceptance tests that assert the inserts succeed and the queries agree with brute force.
+/// These began as characterization tests asserting the refusal, and were rewritten when the
+/// adaptive split landed. What they now pin is that the geometry inserts *and* that queries over
+/// it match a brute-force scan — the failure mode a mis-recorded axis would produce is silently
+/// wrong neighbours, not an error.
 #[cfg(test)]
-mod coplanar_defect {
+mod coplanar_geometry {
     use super::*;
     use crate::layer::Layer;
     use crate::node::AnonNode;
 
-    /// Feed `points` into a fresh index one at a time, reporting how many landed before the
-    /// tree refused one, and the axis it gave up on.
-    fn insert_until_refused(points: &[[f32; 3]]) -> (usize, Option<usize>) {
+    /// Insert every point into a fresh index, reporting the first refusal.
+    fn insert_all(points: &[[f32; 3]]) -> Result<PosIndex, (usize, usize)> {
         let mut tree = PosIndex::default();
         for (i, p) in points.iter().enumerate() {
-            if let Err(spatial_index::kd_tree::ConstructionError::UnsplittableBucket { split_dim }) =
-                tree.add(p, NodeId::new(i as u32, 0))
+            if let Err(spatial_index::kd_tree::ConstructionError::UnsplittableBucket {
+                split_dim,
+            }) = tree.add(p, NodeId::new(i as u32, 0))
             {
-                return (i, Some(split_dim));
+                return Err((i, split_dim));
             }
         }
-        (points.len(), None)
+        Ok(tree)
     }
 
-    /// Points spread over x and y but sharing one z: the shape of a single ceiling plane.
-    /// Splits on x and y succeed, so the tree absorbs well over a bucket's worth before the
-    /// cycle reaches z and finds nothing to split on.
+    /// The `count` nearest points to `query` by exhaustive scan, as `(index, distance)`.
+    fn brute_force(points: &[[f32; 3]], query: [f32; 3], count: usize) -> Vec<(u32, f32)> {
+        let mut d: Vec<(u32, f32)> = points
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let s: f32 = (0..3).map(|k| (p[k] - query[k]).powi(2)).sum();
+                (i as u32, s)
+            })
+            .collect();
+        d.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.0.cmp(&b.0)));
+        d.truncate(count);
+        d
+    }
+
+    /// Every query must agree with brute force on distances. Ids are compared only where the
+    /// distance is unambiguous, since ties may be broken either way.
+    #[track_caller]
+    fn assert_matches_brute_force(tree: &PosIndex, points: &[[f32; 3]], query: [f32; 3]) {
+        for count in [1usize, 5, 40, 200] {
+            let count = count.min(points.len());
+            let want = brute_force(points, query, count);
+            let got = tree
+                .query(&query)
+                .nearest_n::<SquaredEuclidean<f32>>(NonZero::new(count).unwrap())
+                .execute();
+            assert_eq!(got.len(), want.len(), "count {count}: wrong result length");
+            for (g, w) in got.iter().zip(want.iter()) {
+                assert!(
+                    (g.distance - w.1).abs() <= 1e-6 * w.1.max(1.0),
+                    "count {count}: got distance {} want {}",
+                    g.distance,
+                    w.1
+                );
+            }
+        }
+    }
+
+    /// 500 points spread over x and y but sharing one z: a single ceiling plane. Upstream refuses
+    /// insert #348 of these, on the shared axis.
     #[test]
-    fn coplanar_plane_is_refused_on_the_shared_axis() {
+    fn coplanar_plane_inserts_and_answers_queries() {
         let plane: Vec<[f32; 3]> = (0..500)
             .map(|i| [(i % 25) as f32 * 0.05, (i / 25) as f32 * 0.05, 3.85])
             .collect();
 
-        let (accepted, split_dim) = insert_until_refused(&plane);
+        let tree = match insert_all(&plane) {
+            Ok(t) => t,
+            Err((i, d)) => panic!("refused point {i} on axis {d}"),
+        };
+        assert_eq!(tree.size(), plane.len());
 
-        assert_eq!(split_dim, Some(2), "must give up on z, the shared axis");
-        assert_eq!(accepted, 348, "insert #348 of 500 is refused");
+        for query in [[0.0, 0.0, 3.85], [0.6, 0.4, 3.85], [10.0, -10.0, 0.0]] {
+            assert_matches_brute_force(&tree, &plane, query);
+        }
     }
 
-    /// Fully degenerate input: no axis has any spread, so the refusal lands exactly at
-    /// bucket capacity — the first insert that would require a split.
+    /// The realistic shape: a room on a 0.05 m lattice, floor plus two walls, each surface one
+    /// plane holding thousands of points. Upstream stops 208 points into 12,800.
     #[test]
-    fn identical_points_are_refused_at_bucket_capacity() {
-        let (accepted, split_dim) = insert_until_refused(&[[1.0, 2.0, 3.0]; 300]);
-
-        assert_eq!(split_dim, Some(0));
-        assert_eq!(
-            accepted, POS_INDEX_BUCKET_SIZE,
-            "the bucket fills, then the very next insert has nowhere to go"
-        );
-    }
-
-    /// The realistic shape: a room on a 0.05 m lattice, floor plus two walls. Each surface
-    /// is one plane holding thousands of points, and the tree stops 208 points into 12,800.
-    #[test]
-    fn quantized_lattice_room_is_refused() {
+    fn quantized_lattice_room_inserts_and_answers_queries() {
+        const GRID: usize = 80;
         let mut room: Vec<[f32; 3]> = Vec::new();
-        for i in 0..80 {
-            for j in 0..80 {
+        for i in 0..GRID {
+            for j in 0..GRID {
                 room.push([i as f32 * 0.05, 0.0, j as f32 * 0.05]);
             }
         }
-        for i in 0..80 {
-            for k in 0..40 {
+        for i in 0..GRID {
+            for k in 0..GRID / 2 {
                 room.push([i as f32 * 0.05, k as f32 * 0.05, 0.0]);
                 room.push([0.0, k as f32 * 0.05, i as f32 * 0.05]);
             }
         }
 
-        let (accepted, split_dim) = insert_until_refused(&room);
+        let tree = match insert_all(&room) {
+            Ok(t) => t,
+            Err((i, d)) => panic!("refused point {i} of {} on axis {d}", room.len()),
+        };
+        assert_eq!(tree.size(), room.len());
 
-        assert_eq!(split_dim, Some(1), "the floor plane's constant axis");
-        assert_eq!(accepted, 208, "208 of {} points accepted", room.len());
+        for query in [[1.0, 1.0, 1.0], [0.0, 0.0, 0.0], [2.0, 0.05, 3.9]] {
+            assert_matches_brute_force(&tree, &room, query);
+        }
     }
 
-    /// The same defect as the caller sees it: an indexed layer cannot hold a coplanar patch,
-    /// and reports it as a failed insert rather than silently dropping the node.
+    /// Removal over coplanar data: removed points must stop being returned, and the tree must stay
+    /// queryable afterwards. Exercises the paths that locate a leaf by descent, which is where a
+    /// mis-recorded split axis would send the walk down the wrong subtree.
     #[test]
-    fn indexed_layer_refuses_coplanar_geometry() {
-        let mut layer = Layer::with_pos_index(0);
+    fn removing_coplanar_points_keeps_the_tree_queryable() {
+        let plane: Vec<[f32; 3]> = (0..500)
+            .map(|i| [(i % 25) as f32 * 0.05, (i / 25) as f32 * 0.05, 3.85])
+            .collect();
+        let mut tree = insert_all(&plane).expect("coplanar insert must succeed");
 
-        let outcome = (0..500).try_for_each(|i| {
+        let removed: Vec<usize> = (0..plane.len()).step_by(3).collect();
+        for &i in &removed {
+            tree.remove(&plane[i], NodeId::new(i as u32, 0));
+        }
+        assert_eq!(tree.size(), plane.len() - removed.len());
+
+        let survivors: Vec<[f32; 3]> = plane
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !removed.contains(i))
+            .map(|(_, p)| *p)
+            .collect();
+
+        // No removed id may come back, at any radius.
+        let gone: Vec<NodeId> = removed.iter().map(|&i| NodeId::new(i as u32, 0)).collect();
+        let found = tree
+            .query(&[0.6, 0.4, 3.85])
+            .within::<SquaredEuclidean<f32>>(100.0)
+            .execute();
+        assert_eq!(found.len(), survivors.len(), "radius query lost survivors");
+        for r in &found {
+            assert!(!gone.contains(&r.item), "removed {} came back", r.item);
+        }
+
+        // And the tree still answers correctly over what is left.
+        let want = brute_force(&survivors, [0.6, 0.4, 3.85], 10);
+        let got = tree
+            .query(&[0.6, 0.4, 3.85])
+            .nearest_n::<SquaredEuclidean<f32>>(NonZero::new(10).unwrap())
+            .execute();
+        for (g, w) in got.iter().zip(want.iter()) {
+            assert!((g.distance - w.1).abs() <= 1e-6 * w.1.max(1.0));
+        }
+    }
+
+    /// An indexed layer holds the same geometry through the public API.
+    #[test]
+    fn indexed_layer_accepts_coplanar_geometry() {
+        let mut layer = Layer::with_pos_index(0);
+        for i in 0..500u32 {
             let pos = Coordinate::new((i % 25) as f32 * 0.05, (i / 25) as f32 * 0.05, 3.85);
             layer
-                .push_node(AnonNode::new(i as u32, Vec::new(), Some(pos), false, None))
-                .map(|_| ())
-        });
+                .push_node(AnonNode::new(i, Vec::new(), Some(pos), false, None))
+                .expect("an indexed layer must accept coplanar geometry");
+        }
+        assert_eq!(layer.all_nodes().len(), 500);
 
-        assert!(matches!(
-            outcome,
-            Err(crate::error::SceneGraphError::PosIndexInsertion(_))
-        ));
-        // The refused node is not left half-inserted: the layer holds exactly what the
-        // index accepted.
-        assert_eq!(layer.all_nodes().len(), 348);
+        let found = layer.nearest_nodes(&Coordinate::new(0.0, 0.0, 3.85), PosQueryCount::Count(4));
+        assert_eq!(found.len(), 4);
+        // Nearest to the corner is the corner itself.
+        assert!(found[0].1 <= 1e-6);
     }
 
-    /// The unindexed backends handle the same geometry without complaint, which is what
-    /// makes this specifically a defect in the feature meant to make large graphs fast.
+    /// The one case a better axis choice cannot fix: points identical on *every* axis have no
+    /// separating plane at all, so the bucket is refused once full. Storing them needs an overflow
+    /// representation rather than a different split — deliberately still outstanding, and pinned
+    /// here so that work has a failing test to turn green.
+    #[test]
+    fn identical_points_are_still_refused_at_bucket_capacity() {
+        match insert_all(&[[1.0, 2.0, 3.0]; 300]) {
+            Ok(_) => panic!("expected refusal: no plane separates identical points"),
+            Err((accepted, _)) => assert_eq!(
+                accepted, POS_INDEX_BUCKET_SIZE,
+                "the bucket fills, then the next insert has nowhere to go"
+            ),
+        }
+    }
+
+    /// The unindexed backends handle the same geometry, as they always did.
     #[test]
     fn unindexed_backends_accept_the_same_geometry() {
         let mut layer = Layer::new(0);
-
-        for i in 0..500 {
+        for i in 0..500u32 {
             let pos = Coordinate::new((i % 25) as f32 * 0.05, (i / 25) as f32 * 0.05, 3.85);
             layer
-                .push_node(AnonNode::new(i as u32, Vec::new(), Some(pos), false, None))
+                .push_node(AnonNode::new(i, Vec::new(), Some(pos), false, None))
                 .expect("an unindexed layer has no bucket to split");
         }
-
         assert_eq!(layer.all_nodes().len(), 500);
         let found = layer.nearest_nodes(&Coordinate::new(0.0, 0.0, 3.85), PosQueryCount::Count(4));
         assert_eq!(found.len(), 4);
+    }
+
+    /// The bucket size is a deliberate memory-versus-latency choice by this crate, not something
+    /// the tree may adjust for itself. Degenerate data must not change it — increasing it is the
+    /// fix upstream suggests for the coplanar refusal, and the one this crate does not take.
+    #[test]
+    fn bucket_size_is_fixed_at_128_through_degenerate_data() {
+        assert_eq!(POS_INDEX_BUCKET_SIZE, 128);
+
+        let mut tree = PosIndex::default();
+        for i in 0..400u32 {
+            let _ = tree.add(&[0.0, 0.0, 3.85], NodeId::new(i, 0));
+        }
+        // Whatever the tree did with that input, its configuration is a compile-time constant and
+        // its live count can never exceed what it accepted.
+        assert_eq!(POS_INDEX_BUCKET_SIZE, 128);
+        assert!(tree.size() <= 400);
+    }
+}
+
+/// Scale test for the position index, at the size real scenes reach.
+///
+/// Nothing else in this crate builds an index this large: `parse/concept_graph.rs` puts its point
+/// cloud in an *unindexed* layer and `examples/demo.rs` uses 100 points, which is why the coplanar
+/// defect went unnoticed for so long. This is the test that would have caught it.
+#[cfg(test)]
+mod scale {
+    use super::*;
+    use crate::layer::Layer;
+    use crate::node::AnonNode;
+
+    /// Points on a 0.05 m lattice filling a room-sized volume, emitted in a scattered order.
+    ///
+    /// The order matters and is not incidental. Lattice points in scan order arrive spatially
+    /// clustered, which drives tree depth rather than breadth — and stems are addressed by
+    /// breadth-first position, so that costs `2^depth` slots and exhausts memory well before
+    /// 350,000 points. That is a separate, unfixed defect (see `bench/BASELINE.md`), so this test
+    /// deliberately interleaves the points instead of pretending it does not exist.
+    fn scattered_lattice(count: usize) -> Vec<Coordinate> {
+        // A stride coprime with the span walks every cell exactly once in a scattered order,
+        // which is deterministic without needing a PRNG.
+        const SPAN: usize = 71;
+        let cells = SPAN * SPAN * SPAN;
+        let stride = 47_351usize;
+        assert!(count <= cells);
+        (0..count)
+            .map(|i| {
+                let c = (i.wrapping_mul(stride)) % cells;
+                Coordinate::new(
+                    (c % SPAN) as f32 * 0.05,
+                    ((c / SPAN) % SPAN) as f32 * 0.05,
+                    ((c / SPAN / SPAN) % SPAN) as f32 * 0.05,
+                )
+            })
+            .collect()
+    }
+
+    /// Build an indexed layer of ~350,000 lattice points and query it.
+    ///
+    /// Slow in a debug build, so it is ignored by default:
+    /// `cargo test -p scene-graph --release -- --ignored`
+    #[test]
+    #[ignore = "350k inserts; run explicitly, ideally in release"]
+    fn indexed_layer_holds_350k_lattice_points() {
+        let points = scattered_lattice(350_000);
+        let mut layer = Layer::with_pos_index(0);
+
+        for (i, p) in points.iter().enumerate() {
+            layer
+                .push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None))
+                .unwrap_or_else(|e| panic!("insert {i} of {} refused: {e}", points.len()));
+        }
+        assert_eq!(layer.all_nodes().len(), points.len());
+
+        // A query at a lattice site must find that site at distance zero, and return neighbours in
+        // nondecreasing order of distance.
+        let probe = points[points.len() / 2];
+        let found = layer.nearest_nodes(&probe, PosQueryCount::Count(16));
+        assert_eq!(found.len(), 16);
+        assert!(found[0].1 <= 1e-6, "nearest to a lattice site is itself");
+        for w in found.windows(2) {
+            assert!(w[0].1 <= w[1].1 + 1e-6, "results not ordered by distance");
+        }
+
+        // And a radius query must agree with the same radius measured by brute force.
+        let radius = 0.12f32;
+        let within = layer.nodes_within(&probe, radius, PosQueryCount::All);
+        let expected = points
+            .iter()
+            .filter(|q| q.distance(probe) <= radius + 1e-6)
+            .count();
+        assert_eq!(within.len(), expected, "radius query lost or gained points");
     }
 }
 

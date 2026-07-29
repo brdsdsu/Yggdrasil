@@ -83,13 +83,59 @@ as an omission, not a decision, and is the third thing worth reporting upstream.
 Without it `scene-graph` cannot derive `Clone`/`Debug` on `Layer` or `Node`, which
 `SceneGraph: Clone` depends on.
 
+### 4. Adaptive split-dimension selection
+
+The substantive change, documented in [`ADAPTIVE_SPLIT.md`](ADAPTIVE_SPLIT.md): a new
+`EytzingerAdaptive` stem strategy that picks a full leaf's split axis by widest spread and records
+it in the low bits of the split value, rather than deriving it from tree depth. Existing
+strategies are unaffected — the two trait hooks it needs default to current behaviour, and the
+policy is gated behind an opt-in associated const.
+
+### 5. Adaptive bulk construction
+
+Bulk construction was originally refused for adaptive strategies with
+`ConstructionError::AdaptiveSplitBulkBuildUnsupported`, because the builder partitioned around a
+pivot *before* writing it and so could not record a dimension in that value without moving the
+plane off its own partition. `KdTree::choose_split` now picks a grid-aligned separator before the
+value is stored — so plane and partition agree — and selects the axis by widest spread, falling
+through to another axis when one admits no separator. Cycling strategies take an early return that
+is upstream's behaviour verbatim. The error variant is retained for compatibility but is no longer
+produced. See [`ADAPTIVE_SPLIT.md`](ADAPTIVE_SPLIT.md), "Bulk construction, adapted".
+
+This matters because bulk construction is immune to the insertion-order defect below: it partitions
+from the whole point set rather than one point at a time.
+
+### 6. Rebalancing a degenerate tree
+
+`add_rebalancing` is `add` preceded by a shape test: if the pending split would demand more than
+`REBALANCE_SLOT_RATIO` stem slots per split performed, the tree is bulk-rebuilt from the points it
+already holds. The test is on the slots the split *would* need, before they are allocated, so the
+pathological array is never created rather than created and discarded.
+
+Two things worth knowing before changing the threshold or the failure handling:
+
+* **It is set from incremental measurements, not bulk ones.** A bulk-built tree sits at ratio
+  2.4-3.9, but an incrementally built one is legitimately less balanced and gets relatively deeper
+  as it grows — on well-spread input the ratio peaks at 3.2 / 4.7 / 5.9 / 9.4 for 2k / 6k / 20k /
+  60k points. A threshold of 8, which the bulk figures suggest, rebuilds healthy trees past ~50k
+  points. 64 is used: degenerate trees reach 304 at 2,000 points and 8,101 by 20,000, so there is
+  several times' margin on each side.
+* **A rebuild that cannot be performed is not an insertion failure.** Bulk construction may
+  legitimately refuse a point set, and `rebalance` leaves the tree untouched when it does.
+  Propagating that refusal made the benchmark corpus fail to build at all, because an index that
+  merely wanted reshaping became less usable than one that never tried. `add_rebalancing` therefore
+  skips the optimisation and proceeds with the plain insert.
+
+`scene-graph` routes all four of its index insertions through it, so its position indexes self-heal.
+
 ## Baseline
 
 Upstream's suite passes unmodified in this fork, and is the reference to re-run after every
-change to the split policy:
+change to the split policy. The lib count is above upstream's 397 because the fork's own
+deviations carry tests; nothing upstream was removed or skipped, and no test is `#[ignore]`d:
 
 ```
-cargo test -p spatial-index                     # 397 lib + 13 integration + 7 doctests
+cargo test -p spatial-index                     # 420 lib + 13 integration + 7 doctests
 cargo test -p spatial-index --features fuzz     # adds the randomised kd_tree_fuzz_v6 target
 ```
 
@@ -99,10 +145,39 @@ cargo test -p spatial-index --features fuzz     # adds the randomised kd_tree_fu
    whose points all share one value on the cycled axis has no pivot and the insert is refused
    with `ConstructionError::UnsplittableBucket`. Voxel-quantized indoor geometry puts thousands
    of points on one plane, far past a 128-point bucket. Characterized by
-   `scene-graph/src/pos.rs::coplanar_defect`.
+   `scene-graph/src/pos.rs::coplanar_geometry`.
+   **Fixed** by deviation 4 below; verified in `bench/BASELINE.md`.
 2. **Ordered incremental inserts consume exponential memory.** Stems live in a flat array
    addressed by breadth-first position, so `stems.resize(stem_idx + 1, ..)` and
    `leaf_idx_map.resize(right_child_idx + 1, ..)` cost `~2^depth` slots. Spatially clustered
    insertion order deepens one path instead of broadening the tree: 528,826 real points in file
    order exceed 6 GB and get OOM-killed, while the *same* points shuffled build in 157 MB and
-   291 ms. Whether adaptive split selection bounds this is an open question, not an assumption.
+   291 ms. Adaptive split selection alone does **not** bound it — measured after that patch the
+   fork still exceeded a 1 GiB budget on clustered order, marginally sooner than upstream.
+
+   **Bounded, as of deviations 5 and 6.** Bulk construction works for adaptive strategies and is
+   immune to insertion order, and `add_rebalancing` uses it to rebuild a tree whose stem array has
+   run away — detecting the runaway from the *prospective* `stem_idx` before the allocation, so the
+   pathological array is never created. Any caller going through `add_rebalancing`, which is all of
+   `scene-graph`, cannot hit this. What remains unchanged is the `2^depth` addressing itself, so a
+   caller using plain `add` is still exposed; that is a reason to prefer `add_rebalancing`, not an
+   open defect. Measured on the benchmark corpus, building the whole indexed scene graph
+   (354,885 points, mesh order for the unindexed target and a decorrelated order for the indexed
+   one) went from **6.04 s and 7.4 GB peak RSS to 1.98 s and 839 MB** — the same as the unindexed
+   target's 837 MB, so position indexes stopped dominating memory. Build time also became
+   near-linear: 202k to 358k points was 6.3x the time before and is 2.0x now.
+
+   Note that the timing cost of the defect has the same single cause as the memory cost —
+   `A::max_value()` is infinity for `f32`, so the resize fill is non-zero and every new slot is
+   physically written rather than served as a zero page, which is why wall-clock and RSS move in
+   lockstep, and why fixing the memory fixed the time.
+
+   A separate defect surfaced and was fixed alongside this: bulk construction tripped a
+   `left_capacity is zero` debug assertion whenever the leaf count was not a power of two
+   (16/32/64/128 built; 54 and 94 panicked). It reproduced with cycling strategies, so it predated
+   the adaptive work, and being a `debug_assert` it let release builds through — which is why bulk
+   builds over the office corpus looked healthy. `calc_pivot` deliberately overrides the capacity
+   budget to force a split, and the pivot moves again to avoid straddling equal values, so a child
+   could receive more items than it was allotted; each child's capacity is now widened to the
+   partition it actually receives. Covered by
+   `construction::tests::bulk_build_handles_non_power_of_two_leaf_counts`.

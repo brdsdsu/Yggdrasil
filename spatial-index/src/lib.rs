@@ -246,6 +246,9 @@ pub type DonnellyUnrolledBlockDim<const BH: usize> =
     stem_strategies::donnelly::DonnellyUnrolledBlockDim<BH>;
 #[doc(hidden)]
 pub type Eytzinger = stem_strategies::eytzinger::Eytzinger;
+/// FORK DEVIATION (see ADAPTIVE_SPLIT.md): Eytzinger layout, split dimension read from the stem
+/// rather than derived from tree depth.
+pub type EytzingerAdaptive = stem_strategies::eytzinger_adaptive::EytzingerAdaptive;
 #[doc(hidden)]
 pub type EytzingerFlexPf<const PF1: isize = 0, const PF2: isize = 1> =
     stem_strategies::eytzinger::EytzingerFlexPf<PF1, PF2>;

@@ -729,7 +729,7 @@ impl SceneGraph {
         if let Some(pos_index) = node.pos_index.as_mut() {
             for (coords, id) in pos.iter() {
                 pos_index
-                    .add(&(*coords).into(), *id)
+                    .add_rebalancing(&(*coords).into(), *id)
                     .map_err(|e| SceneGraphError::PosIndexInsertion(e.to_string()))?;
             }
         }
