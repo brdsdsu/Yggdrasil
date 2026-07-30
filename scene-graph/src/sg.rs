@@ -329,29 +329,55 @@ impl SceneGraph {
     ///
     /// [`visible_subgraph`](SceneGraph::visible_subgraph)
     pub fn visible_in_subtree(&self, observer: &Observer, root_node_id: NodeId) -> Vec<NodeId> {
-        // Reject the whole subtree on the root's bounds before enumerating anything under it.
-        //
-        // `pos_subtree` reads every coordinate the subtree holds, so on a large indexed root
-        // that is the entire cost of the query. A node whose box the frustum cannot reach
-        // contributes nothing, and one classification replaces the whole walk.
-        //
-        // `Bounds::Unbounded` means "has bounds, not yet computable" rather than "empty", so it
-        // is not grounds to reject; likewise a node with no bounds at all. Both fall through.
-        if let Ok(node) = self.node(root_node_id)
-            && let Some(Bounds::Bounded(bbox)) = node.bounds {
-                let (lo, hi) = (bbox.min(), bbox.max());
-                if observer.classify(&lo.into(), &hi.into())
-                    == RegionMembershipStatus::Reject
-                {
-                    return Vec::new();
-                }
-            }
+        let mut visible = Vec::new();
+        self.collect_visible(observer, root_node_id, &mut visible);
+        visible
+    }
 
-        self.pos_subtree(root_node_id)
-            .into_iter()
-            .filter(|(c, _)| observer.observers(c))
-            .map(|(_, nid)| nid)
-            .collect()
+    /// Walk the subtree, never opening what the frustum cannot reach.
+    ///
+    /// Two levels of rejection, and they compose:
+    ///
+    /// * **Per node, on its bounds.** A node whose box the observer classifies as
+    ///   [`RegionMembershipStatus::Reject`] contributes nothing, so a single classification
+    ///   replaces the entire walk beneath it. `Bounds::Unbounded` means "has bounds, not yet
+    ///   computable" rather than "empty", so it is not grounds to reject; nor is having no
+    ///   bounds at all. Both fall through.
+    /// * **Inside a position index, per cell.** Where a node carries one, the observer is handed
+    ///   to the kd-tree as a region predicate and pruning happens cell by cell — at bucket
+    ///   granularity rather than all-or-nothing for the subtree.
+    ///
+    /// The alternative is `pos_subtree`, which reads *every* coordinate an indexed node holds
+    /// and leaves the caller to filter. A frustum typically admits a small fraction of a room,
+    /// so that spends nearly all of its time on points it then discards.
+    fn collect_visible(&self, observer: &Observer, nid: NodeId, out: &mut Vec<NodeId>) {
+        let Ok(node) = self.node(nid) else {
+            return;
+        };
+
+        if let Some(Bounds::Bounded(bbox)) = node.bounds {
+            let (lo, hi) = (bbox.min(), bbox.max());
+            if observer.classify(&lo.into(), &hi.into()) == RegionMembershipStatus::Reject {
+                return;
+            }
+        }
+
+        // A node's own coordinate is its own, not the index's: an index holds what was nested
+        // *under* the node. `pos_subtree` draws the same distinction.
+        if let Some(coordinates) = &node.coordinates
+            && observer.observers(coordinates)
+        {
+            out.push(node.id);
+        }
+
+        if let Some(pos_index) = &node.pos_index {
+            out.extend(pos_index.members(*observer).map(|(_, id)| id));
+            return;
+        }
+
+        for child in node.children() {
+            self.collect_visible(observer, *child, out);
+        }
     }
 
     /// Get a sub-scenegraph of the visible scene from the observer's prespective. The
