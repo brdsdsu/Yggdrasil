@@ -108,7 +108,7 @@ struct TraversalFrame<SS, O, const K: usize> {
     rd: O,
 }
 
-struct InlineStack<T, const N: usize> {
+pub(crate) struct InlineStack<T, const N: usize> {
     inline: [MaybeUninit<T>; N],
     inline_len: usize,
     spill: Vec<T>,
@@ -116,7 +116,7 @@ struct InlineStack<T, const N: usize> {
 
 impl<T, const N: usize> InlineStack<T, N> {
     #[inline]
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             inline: [const { MaybeUninit::uninit() }; N],
             inline_len: 0,
@@ -125,7 +125,7 @@ impl<T, const N: usize> InlineStack<T, N> {
     }
 
     #[inline]
-    fn push(&mut self, value: T) {
+    pub(crate) fn push(&mut self, value: T) {
         if self.spill.is_empty() && self.inline_len < N {
             unsafe { self.inline.get_unchecked_mut(self.inline_len) }.write(value);
             self.inline_len += 1;
@@ -135,7 +135,7 @@ impl<T, const N: usize> InlineStack<T, N> {
     }
 
     #[inline]
-    fn pop(&mut self) -> Option<T> {
+    pub(crate) fn pop(&mut self) -> Option<T> {
         if let Some(value) = self.spill.pop() {
             return Some(value);
         }
@@ -174,7 +174,7 @@ struct InlineResultBuffer<E, const N: usize> {
 
 impl<E, const N: usize> InlineResultBuffer<E, N> {
     #[inline]
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             inline: [const { MaybeUninit::uninit() }; N],
             inline_len: 0,
@@ -345,8 +345,15 @@ where
         let mut stack = InlineStack::new();
         if tree.size() != 0 {
             let stems_ptr = NonNull::new(tree.stems().as_ptr() as *mut u8).unwrap();
+            // `bind_stems` before the traversal reads a split. `EytzingerAdaptive` decodes the
+            // split dimension out of the stem itself, and an unbound strategy reports dimension
+            // 0 at every node — so `off` and the query are indexed on the wrong axis, `rd` is
+            // computed against it, and subtrees get pruned that hold results. The orchestrator
+            // binds in all five of its entry points; this one was missed.
+            let mut root = SS::new(stems_ptr);
+            root.bind_stems::<A>(tree.stems());
             stack.push(TraversalFrame {
-                stem_strat: SS::new(stems_ptr),
+                stem_strat: root,
                 off: [D::Output::zero(); K],
                 rd: D::Output::zero(),
             });
@@ -517,5 +524,47 @@ where
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         (0, None)
+    }
+}
+
+#[cfg(test)]
+mod within_iter_bind_stems_bug {
+    use crate::{EytzingerAdaptive, KdTree, SquaredEuclidean, VecOfArrays};
+
+    type Tree = KdTree<f32, u32, EytzingerAdaptive, VecOfArrays<f32, u32, 3, 32>, 3, 32>;
+
+    /// `within(..).iter()` must agree with `within(..).execute()`; they are two engines for one
+    /// question. On an adaptive-split tree the iterator never calls `bind_stems`, so `dim()`
+    /// reports axis 0 at every stem and its pruning is computed against the wrong axis.
+    #[test]
+    fn within_iter_agrees_with_within_execute() {
+        let mut state: u64 = 0x9e37_79b9;
+        let mut next = || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 40) as f32 / (1u64 << 24) as f32) * 20.0 - 10.0
+        };
+        let points: Vec<([f32; 3], u32)> =
+            (0..4_000).map(|i| ([next(), next(), next()], i)).collect();
+        let mut tree = Tree::default();
+        for (p, i) in &points { tree.add(p, *i); }
+
+        for radius in [1.0f32, 4.0, 9.0] {
+            let query = [0.5f32, -1.5, 2.0];
+            let mut brute: Vec<u32> = points.iter()
+                .filter(|(p, _)| {
+                    let d = (0..3).map(|a| (p[a]-query[a])*(p[a]-query[a])).sum::<f32>();
+                    d <= radius * radius
+                })
+                .map(|(_, i)| *i).collect();
+            brute.sort_unstable();
+
+            let mut via_iter: Vec<u32> = tree.query(&query)
+                .within::<SquaredEuclidean<f32>>(radius * radius)
+                .unsorted()
+                .iter().map(|r| r.item).collect();
+            via_iter.sort_unstable();
+
+            assert_eq!(via_iter, brute, "within(..).iter() disagrees at radius {radius}");
+        }
     }
 }

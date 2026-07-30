@@ -16,7 +16,8 @@
 //!   soon as they are found.
 //!
 mod construction;
-mod iter;
+pub(crate) mod iter;
+mod membership_iter;
 pub(crate) mod orchestrator;
 mod query;
 pub(crate) mod query_context;
@@ -30,6 +31,7 @@ use nonmax::NonMaxUsize;
 #[doc(hidden)]
 pub use crate::traits::kd_tree::{KdTreeAccessor, StemLeafResolution};
 pub use iter::{KdTreeIter, WithinUnsortedIter};
+pub use membership_iter::MembershipIter;
 #[doc(hidden)]
 pub use orchestrator::KdTreeQueryOps;
 pub use query::QueryBuilder;
@@ -489,6 +491,47 @@ where
     /// Returns the configured maximum leaf size heuristic used to size hot-path scratch buffers.
     pub fn max_leaf_len(&self) -> usize {
         self.max_leaf_len
+    }
+
+    /// Returns a lazy iterator over the `(point, item)` pairs a region predicate admits.
+    ///
+    /// Subtrees whose cell the predicate rejects are never opened, so cost scales with the
+    /// region rather than with the tree. Results are unordered — there is no query point to
+    /// order them against — and the iterator is lazy, so `take`, `find` and an early `break`
+    /// stop the traversal rather than filtering a finished result.
+    ///
+    /// ```
+    /// # use spatial_index::{KdTree, EytzingerAdaptive, VecOfArrays};
+    /// # use spatial_index::region::{RegionMembershipPredicate, RegionMembershipStatus};
+    /// /// Everything with a non-negative first coordinate.
+    /// struct Upper;
+    /// impl RegionMembershipPredicate<f32, 3> for Upper {
+    ///     fn classify(&self, lo: &[f32; 3], hi: &[f32; 3]) -> RegionMembershipStatus {
+    ///         if hi[0] < 0.0 {
+    ///             RegionMembershipStatus::Reject
+    ///         } else {
+    ///             RegionMembershipStatus::Undecided
+    ///         }
+    ///     }
+    ///     fn contains(&self, p: &[f32; 3]) -> bool {
+    ///         p[0] >= 0.0
+    ///     }
+    /// }
+    ///
+    /// let mut tree: KdTree<f32, u32, EytzingerAdaptive, VecOfArrays<f32, u32, 3, 32>, 3, 32> =
+    ///     KdTree::default();
+    /// tree.add(&[1.0, 0.0, 0.0], 1);
+    /// tree.add(&[-1.0, 0.0, 0.0], 2);
+    ///
+    /// let found: Vec<_> = tree.members(Upper).map(|(_, item)| item).collect();
+    /// assert_eq!(found, vec![1]);
+    /// ```
+    #[inline]
+    pub fn members<P>(&self, predicate: P) -> MembershipIter<'_, Self, A, T, SS, LS, P, K, B>
+    where
+        P: crate::region::RegionMembershipPredicate<A, K>,
+    {
+        MembershipIter::new(self, predicate)
     }
 
     /// Returns an iterator over all item/point pairs in the tree.
