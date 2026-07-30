@@ -1,6 +1,8 @@
 use std::num::NonZero;
 
-use spatial_index::{EytzingerAdaptive, KdTree, SquaredEuclidean, VecOfArrays, dist::DistanceMetricScalar};
+use spatial_index::{
+    EytzingerAdaptive, KdTree, SquaredEuclidean, VecOfArrays, dist::DistanceMetricScalar,
+};
 
 use crate::NodeId;
 
@@ -137,31 +139,15 @@ impl PositionQuery for Vec<Node> {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)> {
+        let mut distances: Vec<_> = self
+            .iter()
+            .flat_map(|n| n.coordinates.iter().map(|c| (n.id, c)))
+            .map(|(id, c)| (id, c.distance_squared(*pos).sqrt()))
+            .collect();
+        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         match count {
-            PosQueryCount::All => {
-                let mut distances: Vec<_> = self
-                    .iter()
-                    .filter(|n| n.coordinates.is_some())
-                    .map(|n| (n.id, n.coordinates.unwrap().distance_squared(*pos)))
-                    .map(|(id, d)| (id, d.sqrt()))
-                    .collect();
-                distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-                distances
-            }
-            PosQueryCount::Count(c) => {
-                let mut distances = self
-                    .iter()
-                    .filter(|n| n.coordinates.is_some())
-                    .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
-                    .map(|(id, d)| (id, d.sqrt()))
-                    .collect::<Vec<(&Node, f32)>>();
-                distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-                distances
-                    .into_iter()
-                    .map(|(node, dist)| (node.id, dist))
-                    .take(c)
-                    .collect()
-            }
+            PosQueryCount::All => distances,
+            PosQueryCount::Count(c) => distances.into_iter().take(c).collect(),
         }
     }
 
@@ -173,21 +159,20 @@ impl PositionQuery for Vec<Node> {
         radius: f32,
         count: PosQueryCount,
     ) -> Vec<(NodeId, f32)> {
-        let count = count.capped_with(self.len());
         let mut distances = self
             .iter()
-            .filter(|n| n.coordinates.is_some())
-            .map(|n| (n, n.coordinates.unwrap().distance_squared(*pos)))
+            .flat_map(|n| n.coordinates.iter().map(|c| (n.id, c)))
+            .map(|(id, c)| (id, c.distance_squared(*pos)))
             .filter(|(_, d)| *d <= radius * radius)
-            .map(|(node, dist)| (node.id, dist))
+            .map(|(id, d)| (id, d.sqrt()))
             .collect::<Vec<(NodeId, f32)>>();
 
         distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        distances
-            .into_iter()
-            .take(count)
-            .map(|(id, d)| (id, d.sqrt()))
-            .collect::<Vec<_>>()
+
+        match count {
+            PosQueryCount::All => distances,
+            PosQueryCount::Count(c) => distances.into_iter().take(c).collect::<Vec<_>>(),
+        }
     }
 }
 
@@ -195,24 +180,14 @@ impl PositionQuery for Vec<(Coordinate, NodeId)> {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)> {
+        let mut distances: Vec<(NodeId, f32)> = self
+            .iter()
+            .map(|(c, id)| (*id, c.distance_squared(*pos).sqrt()))
+            .collect();
+        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         match count {
-            PosQueryCount::All => {
-                let mut distances: Vec<(NodeId, f32)> = self
-                    .iter()
-                    .map(|(c, id)| (*id, c.distance_squared(*pos).sqrt()))
-                    .collect();
-                distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-                distances
-            }
-            PosQueryCount::Count(c) => {
-                let mut distances = self
-                    .iter()
-                    .map(|(c, id)| (*id, c.distance_squared(*pos)))
-                    .map(|(id, d)| (id, d.sqrt()))
-                    .collect::<Vec<_>>();
-                distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-                distances.into_iter().take(c).collect()
-            }
+            PosQueryCount::All => distances,
+            PosQueryCount::Count(c) => distances.into_iter().take(c).collect(),
         }
     }
 
@@ -224,14 +199,16 @@ impl PositionQuery for Vec<(Coordinate, NodeId)> {
         radius: f32,
         count: PosQueryCount,
     ) -> Vec<(NodeId, f32)> {
-        let count = count.capped_with(self.len());
         let mut distances = self
             .iter()
             .map(|(c, id)| (*id, c.distance(*pos)))
             .filter(|(_, d)| *d <= radius)
             .collect::<Vec<_>>();
         distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        distances.into_iter().take(count).collect::<Vec<_>>()
+        match count {
+            PosQueryCount::All => distances,
+            PosQueryCount::Count(c) => distances.into_iter().take(c).collect(),
+        }
     }
 }
 
@@ -407,7 +384,7 @@ mod coplanar_geometry {
         for i in 0..500u32 {
             let pos = Coordinate::new((i % 25) as f32 * 0.05, (i / 25) as f32 * 0.05, 3.85);
             layer
-                .push_node(AnonNode::new(i, Vec::new(), Some(pos), false, None))
+                .push_node(AnonNode::new(i, Vec::new(), vec![pos], false, None))
                 .expect("an indexed layer must accept coplanar geometry");
         }
         assert_eq!(layer.all_nodes().len(), 500);
@@ -440,7 +417,7 @@ mod coplanar_geometry {
         for i in 0..500u32 {
             let pos = Coordinate::new((i % 25) as f32 * 0.05, (i / 25) as f32 * 0.05, 3.85);
             layer
-                .push_node(AnonNode::new(i, Vec::new(), Some(pos), false, None))
+                .push_node(AnonNode::new(i, Vec::new(), vec![pos], false, None))
                 .expect("an unindexed layer has no bucket to split");
         }
         assert_eq!(layer.all_nodes().len(), 500);
@@ -515,7 +492,7 @@ mod scale {
 
         for (i, p) in points.iter().enumerate() {
             layer
-                .push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None))
+                .push_node(AnonNode::new(i as u32, Vec::new(), vec![*p], false, None))
                 .unwrap_or_else(|e| panic!("insert {i} of {} refused: {e}", points.len()));
         }
         assert_eq!(layer.all_nodes().len(), points.len());
@@ -560,7 +537,7 @@ mod test {
     fn as_nodes(xs: &[f32]) -> Vec<Node> {
         xs.iter()
             .enumerate()
-            .map(|(i, x)| Node::new(nid(i), Vec::new(), Some(pt(*x)), false, None))
+            .map(|(i, x)| Node::new(nid(i), Vec::new(), vec![pt(*x)], false, None))
             .collect()
     }
 

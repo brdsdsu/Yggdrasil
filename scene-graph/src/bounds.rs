@@ -54,7 +54,7 @@ impl BoundingBox {
         )
     }
     /// Create a BoundingBox that encompasses all the given coordinates.
-    fn of(coordinates: Vec<Coordinate>) -> Option<Self> {
+    fn of(coordinates: &[Coordinate]) -> Option<Self> {
         if coordinates.is_empty() {
             return None;
         }
@@ -126,7 +126,7 @@ impl Bounds {
         Self::Bounded(BoundingBox::point(coordinate))
     }
     /// Create a BoundingBox that encompasses all the given coordinates.
-    pub fn of(coordinates: Vec<Coordinate>) -> Self {
+    pub fn of(coordinates: &[Coordinate]) -> Self {
         match BoundingBox::of(coordinates) {
             Some(bb) => Self::Bounded(bb),
             None => Self::Unbounded,

@@ -340,11 +340,11 @@ mod test {
             .unwrap();
         assert_eq!(nearest_in_subtree.len(), 2);
         assert_eq!(
-            sg.node(nearest_in_subtree[0].0)?.coordinates.unwrap(),
+            sg.node(nearest_in_subtree[0].0)?.coordinates[0],
             Coordinate::new(1.0, 1.0, 1.0)
         );
         assert_eq!(
-            sg.node(nearest_in_subtree[1].0)?.coordinates.unwrap(),
+            sg.node(nearest_in_subtree[1].0)?.coordinates[0],
             Coordinate::new(0.0, 0.0, 0.0)
         );
 
@@ -361,11 +361,11 @@ mod test {
             .unwrap();
         assert_eq!(nearest_in_subtree.len(), 2);
         assert_eq!(
-            sg.node(nearest_in_subtree[0].0)?.coordinates.unwrap(),
+            sg.node(nearest_in_subtree[0].0)?.coordinates[0],
             Coordinate::new(1.0, 1.0, 1.0)
         );
         assert_eq!(
-            sg.node(nearest_in_subtree[1].0)?.coordinates.unwrap(),
+            sg.node(nearest_in_subtree[1].0)?.coordinates[0],
             Coordinate::new(0.0, 0.0, 0.0)
         );
         Ok(())

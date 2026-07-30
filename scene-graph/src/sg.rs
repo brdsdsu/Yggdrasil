@@ -150,7 +150,7 @@ impl SceneGraph {
         let node = AnonNode::new(
             self.node_counter,
             features,
-            Some(Coordinate::new(x, y, z)),
+            vec![Coordinate::new(x, y, z)],
             false,
             Some(Bounds::point(Coordinate::new(x, y, z))),
         );
@@ -160,7 +160,7 @@ impl SceneGraph {
 
     /// Create a new Semantic Node with specified features.
     pub fn new_node(&mut self, features: Vec<Feature>) -> AnonNode {
-        let node = AnonNode::new(self.node_counter, features, None, false, None);
+        let node = AnonNode::new(self.node_counter, features, Vec::new(), false, None);
         self.node_counter += 1;
         node
     }
@@ -170,7 +170,7 @@ impl SceneGraph {
         let node = AnonNode::new(
             self.node_counter,
             features,
-            None,
+            Vec::new(),
             false,
             Some(Bounds::Unbounded),
         );
@@ -185,7 +185,7 @@ impl SceneGraph {
         let node = AnonNode::new(
             self.node_counter,
             features,
-            None,
+            Vec::new(),
             true,
             Some(Default::default()),
         );
@@ -504,8 +504,8 @@ impl SceneGraph {
     ///     .map(|(n, d)| (sg.node(n).unwrap(), d))
     ///     .collect::<Vec<_>>();
     /// assert_eq!(nearest_nodes.len(), 2);
-    /// assert_eq!(nearest_nodes[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
-    /// assert_eq!(nearest_nodes[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
+    /// assert_eq!(nearest_nodes[0].0.coordinates[0], Coordinate::new(1.0, 1.0, 1.0));
+    /// assert_eq!(nearest_nodes[1].0.coordinates[0], Coordinate::new(0.0, 0.0, 0.0));
     /// ```
     pub fn nearest_nodes(&self, coord: &Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)> {
         let mut distances = self
@@ -547,8 +547,8 @@ impl SceneGraph {
     ///     .map(|(n, d)| (sg.node(n).unwrap(), d))
     ///     .collect::<Vec<_>>();
     /// assert_eq!(nodes_within_radius.len(), 2);
-    /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates.unwrap() == Coordinate::new(0.0, 0.0, 0.0)));
-    /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates.unwrap() == Coordinate::new(1.0, 1.0, 1.0)));
+    /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates[0] == Coordinate::new(0.0, 0.0, 0.0)));
+    /// assert!(nodes_within_radius.iter().any(|n| n.0.coordinates[0] == Coordinate::new(1.0, 1.0, 1.0)));
     /// ```
     pub fn nodes_within(
         &self,
@@ -603,8 +603,8 @@ impl SceneGraph {
     ///     .map(|(n, d)| (sg.node(n).unwrap(), d))
     ///     .collect::<Vec<_>>();
     /// assert_eq!(nearest_in_subtree.len(), 2);
-    /// assert_eq!(nearest_in_subtree[0].0.coordinates.unwrap(), Coordinate::new(1.0, 1.0, 1.0));
-    /// assert_eq!(nearest_in_subtree[1].0.coordinates.unwrap(), Coordinate::new(0.0, 0.0, 0.0));
+    /// assert_eq!(nearest_in_subtree[0].0.coordinates[0], Coordinate::new(1.0, 1.0, 1.0));
+    /// assert_eq!(nearest_in_subtree[1].0.coordinates[0], Coordinate::new(0.0, 0.0, 0.0));
     ///
     /// # Ok(())
     /// # }
@@ -648,7 +648,7 @@ impl SceneGraph {
             Ok(n) => n,
             Err(_) => return coords,
         };
-        if let Some(c) = &node.coordinates {
+        for c in &node.coordinates {
             coords.push((*c, node.id));
         }
         if let Some(pos_index) = &node.pos_index {
@@ -687,7 +687,7 @@ impl SceneGraph {
 
     fn build_bounds(&self, nid: NodeId) -> Result<Bounds> {
         let node = self.node(nid)?;
-        let coordinate_bounds = node.coordinates.map(Bounds::point).unwrap_or_default();
+        let coordinate_bounds = Bounds::of(&node.coordinates);
         let bounds = node
             .children()
             .iter()
@@ -1024,7 +1024,7 @@ mod test {
         let m0_id = sg.layer_mut(1)?.push_node(m0)?;
         for i in 0..10 {
             let mut n = sg.new_indexed_node(vec![Feature::new("name", format!("n{i}"))]);
-            n.coordinates = Some(Coordinate::new(i as f32, i as f32, i as f32));
+            n.coordinates = vec![Coordinate::new(i as f32, i as f32, i as f32)];
             let n_id = sg.layer_mut(0)?.push_node(n)?;
             sg.nest(n_id).under(m0_id)?;
         }
@@ -1034,7 +1034,7 @@ mod test {
         let nearest = sg.nearest_in_subtree(&query_coord, m0_id, PosQueryCount::Count(1))?;
         assert_eq!(nearest.len(), 1);
         assert_eq!(
-            sg.node(nearest[0].0)?.coordinates.unwrap(),
+            sg.node(nearest[0].0)?.coordinates[0],
             Coordinate::new(0.0, 0.0, 0.0)
         );
 
@@ -1045,7 +1045,7 @@ mod test {
             sg.nearest_in_subtree(&query_coord, m0_id, PosQueryCount::Count(1))?;
         assert_eq!(nearest_after_deletion.len(), 1);
         assert_ne!(
-            sg.node(nearest_after_deletion[0].0)?.coordinates.unwrap(),
+            sg.node(nearest_after_deletion[0].0)?.coordinates[0],
             Coordinate::new(0.0, 0.0, 0.0)
         );
 

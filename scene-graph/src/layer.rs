@@ -48,7 +48,7 @@ impl Layer {
             .binary_search_by_key(&id, |node| node.id)
             .map_err(|_| SceneGraphError::NodeNotFound)?;
         Ok(NodeMut {
-            prev_coords: self.nodes[ptr].coordinates,
+            prev_coords: self.nodes[ptr].coordinates.clone(),
             layer: self,
             node_ptr: ptr,
         })
@@ -62,12 +62,12 @@ impl Layer {
     pub fn push_node<N: IntoNode>(&mut self, node: N) -> Result<NodeId> {
         let node_id = NodeId::new(node.nid(), self.id);
         let node = node.into_node(node_id);
-        if let Some(pos_index) = &mut self.pos_index
-            && let Some(coords) = node.coordinates
-        {
-            pos_index
-                .add_rebalancing(&coords.into(), node.id)
-                .map_err(|e| SceneGraphError::PosIndexInsertion(e.to_string()))?;
+        if let Some(pos_index) = &mut self.pos_index {
+            for coord in &node.coordinates {
+                pos_index
+                    .add_rebalancing(&(*coord).into(), node.id)
+                    .map_err(|e| SceneGraphError::PosIndexInsertion(e.to_string()))?;
+            }
         }
         let ptr = match self.nodes.binary_search_by_key(&node.id, |n| n.id) {
             Ok(ptr) => ptr,
@@ -173,8 +173,8 @@ impl Layer {
         let nodes = self
             .nodes
             .iter()
-            .filter(|n| n.coordinates.is_some())
-            .filter(|n| observer.observers(&n.coordinates.unwrap()))
+            .filter(|n| !n.coordinates.is_empty())
+            .filter(|n| n.coordinates.iter().any(|c| observer.observers(c)))
             .cloned()
             .collect::<Vec<Node>>();
 
@@ -290,10 +290,10 @@ impl Layer {
             .position(|node| node.id == id)
             .ok_or(SceneGraphError::NodeNotFound)?;
         let node = self.nodes.remove(index);
-        if let Some(pos_index) = &mut self.pos_index
-            && let Some(coords) = node.coordinates
-        {
-            pos_index.remove(&coords.into(), node.id);
+        if let Some(pos_index) = &mut self.pos_index {
+            for coord in &node.coordinates {
+                pos_index.remove(&(*coord).into(), node.id);
+            }
         }
         self.nodes
             .iter_mut()
@@ -343,9 +343,9 @@ impl Layer {
         }
         let mut pos_index = PosIndex::default();
         for node in nodes {
-            if let Some(coords) = node.coordinates {
+            for coord in &node.coordinates {
                 pos_index
-                    .add_rebalancing(&coords.into(), node.id)
+                    .add_rebalancing(&(*coord).into(), node.id)
                     .map_err(|e| SceneGraphError::PosIndexInsertion(e.to_string()))?;
             }
         }
@@ -380,7 +380,7 @@ impl Layer {
 /// A mutable reference to a Node within a Layer.
 /// Tracks previous coordinates to update the position index on drop.
 pub struct NodeMut<'a> {
-    prev_coords: Option<super::Coordinate>,
+    prev_coords: Vec<super::Coordinate>,
     layer: &'a mut Layer,
     node_ptr: usize,
 }
@@ -401,24 +401,58 @@ impl DerefMut for NodeMut<'_> {
 
 impl Drop for NodeMut<'_> {
     fn drop(&mut self) {
-        let node = &**self;
-        let new_coords = node.coordinates;
-        let node_id = node.id;
-
-        if self.prev_coords == new_coords {
+        // Logic for updating the position index when a Node's coordinates are modified:
+        // 1. If the layer does not have a position index, do nothing.
+        // 2. If the Node's coordinates have not changed, do nothing.
+        // 3. Calculate the difference between the previous coordinates and the new coordinates.
+        //    - For each previous coordinate that is no longer in the new coordinates, remove it from the position index.
+        //    - For each new coordinate that was not in the previous coordinates, add it to the position index.
+        if self.layer.pos_index.is_none() {
             return;
         }
-        if let Some(pos_index) = &mut self.layer.pos_index {
-            if let Some(pos) = self.prev_coords {
-                pos_index.remove(&pos.into(), node_id);
+
+        let node = &**self;
+        let new_coords = &node.coordinates;
+        let node_id = node.id;
+
+        if self.prev_coords == *new_coords {
+            return;
+        }
+        // calculate diff between prev_coords and new_coords, and update the pos_index accordingly
+        let mut new_coords_ptr = 0;
+        let mut to_be_removed_coords = Vec::new();
+        for prev_coord in &self.prev_coords {
+            // A prev_coord that lines up with the coordinate under the pointer is already in the
+            // pos_index and is left alone. Anything else the node no longer holds, so it is
+            // removed — including every leftover prev_coord once `new_coords` is exhausted, which
+            // is what shortening the list looks like from here.
+            if new_coords_ptr < new_coords.len() && *prev_coord == new_coords[new_coords_ptr] {
+                // found prev_coord in new_coords, advancing the pointer
+                new_coords_ptr += 1;
+            } else {
+                // prev_coord is no longer in the new_coords, so it should be removed from the pos_index
+                to_be_removed_coords.push(*prev_coord);
             }
-            if let Some(pos) = new_coords {
+        }
+        // what remains in the `new_coords` is new and must be added to the `pos_index`
+        let to_be_added_coords = new_coords
+            .iter()
+            .skip(new_coords_ptr)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if let Some(pos_index) = &mut self.layer.pos_index {
+            for c in to_be_removed_coords.iter() {
+                pos_index.remove(&(*c).into(), node_id);
+            }
+
+            for c in to_be_added_coords {
                 // A drop has nowhere to return an error to, and silently skipping the insert
                 // would leave the index disagreeing with the layer it indexes. The only
                 // reason this can fail is a leaf the tree cannot split, so it panics here
                 // for the same reason the index does elsewhere: a wrong answer is worse.
                 pos_index
-                    .add_rebalancing(&pos.into(), node_id)
+                    .add_rebalancing(&c.into(), node_id)
                     .expect("position index refused the new coordinates of a node");
             }
         }
@@ -458,7 +492,7 @@ mod test {
         let mut layer = Layer::default();
         for (i, p) in pts.iter().enumerate() {
             layer
-                .push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None))
+                .push_node(AnonNode::new(i as u32, Vec::new(), vec![*p], false, None))
                 .unwrap();
         }
         // Node with no coordinates
@@ -466,7 +500,7 @@ mod test {
             .push_node(AnonNode::new(
                 pts.len() as u32,
                 Vec::new(),
-                None,
+                Vec::new(),
                 false,
                 None,
             ))
@@ -486,9 +520,11 @@ mod test {
         assert_eq!(observed_layer.nodes.len(), 3);
         for node in observed_layer.nodes {
             // all nodes should have coordinates to be observable
-            assert!(node.coordinates.is_some());
+            assert!(!node.coordinates.is_empty());
             // all nodes should be within the cone frustum
-            assert!(cone.observers(&node.coordinates.unwrap()));
+            node.coordinates
+                .iter()
+                .for_each(|c| assert!(cone.observers(c)));
             // nodes 0,1,2 are inside, rest are outside, so only edges to 0,1,2 should remain
             assert_eq!(
                 node.edges.iter().map(|e| e.dst).collect::<Vec<_>>(),
@@ -510,7 +546,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None))?;
+            l.push_node(AnonNode::new(i as u32, Vec::new(), vec![*p], false, None))?;
         }
 
         let query_pos = Coordinate::new(0.6, 0.6, 0.6);
@@ -518,9 +554,9 @@ mod test {
         let nearest_nodes = l.nearest_nodes(&query_pos, PosQueryCount::Count(3));
         assert_eq!(nearest_nodes.len(), 3);
         // first 3 nearest nodes should be [1.0,1.0,1.0], [0.0,0.0,0.0], [2.0,2.0,2.0]
-        assert_eq!(l.node(nearest_nodes[0].0)?.coordinates.unwrap(), pts[1]);
-        assert_eq!(l.node(nearest_nodes[1].0)?.coordinates.unwrap(), pts[0]);
-        assert_eq!(l.node(nearest_nodes[2].0)?.coordinates.unwrap(), pts[2]);
+        assert_eq!(l.node(nearest_nodes[0].0)?.coordinates[0], pts[1]);
+        assert_eq!(l.node(nearest_nodes[1].0)?.coordinates[0], pts[0]);
+        assert_eq!(l.node(nearest_nodes[2].0)?.coordinates[0], pts[2]);
 
         Ok(())
     }
@@ -538,7 +574,7 @@ mod test {
             Coordinate::new(4.0, 4.0, 4.0),
         ];
         for (i, p) in pts.iter().enumerate() {
-            l.push_node(AnonNode::new(i as u32, Vec::new(), Some(*p), false, None))
+            l.push_node(AnonNode::new(i as u32, Vec::new(), vec![*p], false, None))
                 .unwrap();
         }
 
@@ -555,5 +591,64 @@ mod test {
         // radius large enough to include all nodes
         let nodes_within_none = l.nodes_within(&query_pos, 4.0, PosQueryCount::All);
         assert_eq!(nodes_within_none.len(), 5);
+    }
+
+    /// A node holds a list of coordinates, so a coordinate edit is not only a move: the list
+    /// can also grow and shrink. The index has one entry per coordinate, so every one the node
+    /// gave up has to be dropped from it — a shortened list is the case that leaves stale
+    /// entries behind if only the coordinates that line up are compared.
+    #[test]
+    fn coordinate_edits_leave_no_stale_index_entries() -> Result<()> {
+        let a = Coordinate::new(0.0, 0.0, 0.0);
+        let b = Coordinate::new(1.0, 1.0, 1.0);
+        let c = Coordinate::new(2.0, 2.0, 2.0);
+
+        // `entries_at` counts index entries at a coordinate, which is what a stale entry shows
+        // up as: a hit at a coordinate the node no longer holds.
+        let entries_at = |l: &Layer, at: &Coordinate| l.nodes_within(at, 1e-6, PosQueryCount::All).len();
+
+        let mut l = Layer::with_pos_index(0);
+        let nid = l.push_node(AnonNode::new(0, Vec::new(), vec![a, b, c], false, None))?;
+        assert_eq!(entries_at(&l, &c), 1);
+
+        // dropping the tail of the list
+        l.node_mut(nid)?.coordinates = vec![a, b];
+        assert_eq!(entries_at(&l, &c), 0);
+        assert_eq!(entries_at(&l, &a), 1);
+        assert_eq!(entries_at(&l, &b), 1);
+
+        // growing the list again
+        l.node_mut(nid)?.coordinates = vec![a, b, c];
+        assert_eq!(entries_at(&l, &c), 1);
+
+        // dropping from the middle
+        l.node_mut(nid)?.coordinates = vec![a, c];
+        assert_eq!(entries_at(&l, &b), 0);
+        assert_eq!(entries_at(&l, &a), 1);
+        assert_eq!(entries_at(&l, &c), 1);
+
+        // clearing the list entirely
+        l.node_mut(nid)?.coordinates = Vec::new();
+        assert_eq!(entries_at(&l, &a), 0);
+        assert_eq!(entries_at(&l, &c), 0);
+
+        Ok(())
+    }
+
+    /// Reordering the list is not a change to the point set the index holds, however the diff
+    /// chooses to reach that state.
+    #[test]
+    fn reordering_coordinates_preserves_the_indexed_point_set() -> Result<()> {
+        let a = Coordinate::new(0.0, 0.0, 0.0);
+        let b = Coordinate::new(1.0, 1.0, 1.0);
+
+        let mut l = Layer::with_pos_index(0);
+        let nid = l.push_node(AnonNode::new(0, Vec::new(), vec![a, b], false, None))?;
+
+        l.node_mut(nid)?.coordinates = vec![b, a];
+        assert_eq!(l.nodes_within(&a, 1e-6, PosQueryCount::All).len(), 1);
+        assert_eq!(l.nodes_within(&b, 1e-6, PosQueryCount::All).len(), 1);
+
+        Ok(())
     }
 }

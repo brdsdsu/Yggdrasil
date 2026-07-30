@@ -26,8 +26,8 @@ pub struct Node {
     pub edges: Vec<Edge>,
     /// Features associated with the node.
     pub features: Vec<Feature>,
-    /// Optional 3D coordinates of the node.
-    pub coordinates: Option<Coordinate>,
+    /// List of 3D coordinates of the node.
+    pub coordinates: Vec<Coordinate>,
     /// Position index which keeps track of the coordinates of the sub tree of this node.
     /// This is used for efficient spatial queries.
     #[serde(skip)]
@@ -42,7 +42,7 @@ impl Node {
     pub fn new(
         id: NodeId,
         features: Vec<Feature>,
-        coordinates: Option<Coordinate>,
+        coordinates: Vec<Coordinate>,
         pos_index_enabled: bool,
         bounds: Option<Bounds>,
     ) -> Self {
@@ -196,8 +196,8 @@ pub struct AnonNode {
     pub pid: Option<NodeId>,
     /// Features associated with the node.
     pub features: Vec<Feature>,
-    /// Optional 3D coordinates of the node.
-    pub coordinates: Option<Coordinate>,
+    /// List of 3D coordinates of the node.
+    pub coordinates: Vec<Coordinate>,
     /// Position index which keeps track of the coordinates of the sub tree of this node.
     /// This is used for efficient spatial queries.
     #[serde(skip)]
@@ -211,7 +211,7 @@ impl AnonNode {
     pub fn new(
         id: u32,
         features: Vec<Feature>,
-        coordinates: Option<Coordinate>,
+        coordinates: Vec<Coordinate>,
         pos_index_enabled: bool,
         bounds: Option<Bounds>,
     ) -> Self {
