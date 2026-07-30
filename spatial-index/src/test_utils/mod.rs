@@ -2,6 +2,7 @@
 #[cfg(feature = "simulator")]
 pub mod cache_simulator;
 pub mod exact_query_stats;
+pub mod region;
 pub mod exact_query_trace;
 
 #[doc(hidden)]

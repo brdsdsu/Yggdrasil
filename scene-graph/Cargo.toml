@@ -23,4 +23,6 @@ thiserror = "2.0.17"
 
 [dev-dependencies]
 criterion = "0.8.2"
+# `test_utils` carries the RegionMembershipPredicate conformance harness.
+spatial_index = { package = "spatial-index", path = "../spatial-index", features = ["test_utils"] }
 rand = "0.10.1"

@@ -299,6 +299,9 @@ pub use results::{
 mod rkyv;
 
 #[doc(hidden)]
+pub mod region;
+pub use region::{RegionMembershipPredicate, RegionMembershipStatus};
+
 #[cfg(feature = "test_utils")]
 pub mod test_utils;
 

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use spatial_index::{RegionMembershipPredicate, RegionMembershipStatus};
+
 use crate::{
     AnonNode, Bounds, NodeId, NodeMut,
     error::{Result, SceneGraphError},
@@ -327,6 +329,24 @@ impl SceneGraph {
     ///
     /// [`visible_subgraph`](SceneGraph::visible_subgraph)
     pub fn visible_in_subtree(&self, observer: &Observer, root_node_id: NodeId) -> Vec<NodeId> {
+        // Reject the whole subtree on the root's bounds before enumerating anything under it.
+        //
+        // `pos_subtree` reads every coordinate the subtree holds, so on a large indexed root
+        // that is the entire cost of the query. A node whose box the frustum cannot reach
+        // contributes nothing, and one classification replaces the whole walk.
+        //
+        // `Bounds::Unbounded` means "has bounds, not yet computable" rather than "empty", so it
+        // is not grounds to reject; likewise a node with no bounds at all. Both fall through.
+        if let Ok(node) = self.node(root_node_id)
+            && let Some(Bounds::Bounded(bbox)) = node.bounds {
+                let (lo, hi) = (bbox.min(), bbox.max());
+                if observer.classify(&lo.into(), &hi.into())
+                    == RegionMembershipStatus::Reject
+                {
+                    return Vec::new();
+                }
+            }
+
         self.pos_subtree(root_node_id)
             .into_iter()
             .filter(|(c, _)| observer.observers(c))
@@ -1340,6 +1360,75 @@ mod test {
         );
         // An id on a layer that does not exist at all.
         assert!(sg.visible_in_subtree(&cone(), NodeId::new(0, 7)).is_empty());
+
+        Ok(())
+    }
+
+    /// Rejecting a subtree on its root's bounds must not change the answer, only the work.
+    ///
+    /// The bounds test is conservative, so the only failure it can produce is *dropping*
+    /// visible nodes — and a query that silently returns fewer results is exactly what nothing
+    /// downstream would catch. So this compares against the answer computed without any
+    /// pruning, over enough poses that a cone has to sweep across the subtree's box: some
+    /// wholly outside it, some wholly inside, and many crossing its faces and corners.
+    #[test]
+    fn bounds_rejection_does_agrees_with_visible_in_subtree() -> Result<()> {
+
+        let mut sg = SceneGraph::default();
+        sg.new_layer();
+        sg.new_layer();
+        sg.layer_mut(1)?.add_child(0)?;
+
+        // Indexed, so the root carries maintained bounds and `pos_subtree` takes the kd-tree
+        // path — the combination the pruning is actually for.
+        let root = sg.new_indexed_node(vec![Feature::new("name", "room")]);
+        let root = sg.layer_mut(1)?.push_node(root)?;
+
+        let mut points = Vec::new();
+        let mut state: u64 = 0x1234_5678;
+        let mut next = |lo: f32, hi: f32| {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            lo + (hi - lo) * ((state >> 40) as f32 / (1u64 << 24) as f32)
+        };
+        for _ in 0..400 {
+            let at = Coordinate::new(next(-5.0, 5.0), next(-5.0, 5.0), next(-5.0, 5.0));
+            let point = push_at(&mut sg, 0, at)?;
+            sg.nest(point).under(root)?;
+            points.push((point, at));
+        }
+
+        let half_angle = 35_f32.to_radians();
+        let mut ever_rejected = false;
+        let mut ever_returned = false;
+        for _ in 0..300 {
+            // Apexes range well outside the point cloud as well as inside it, so the box is
+            // sometimes unreachable, sometimes enclosing the observer.
+            let apex = Coordinate::new(next(-14.0, 14.0), next(-14.0, 14.0), next(-14.0, 14.0));
+            let dir = Coordinate::new(next(-1.0, 1.0), next(-1.0, 1.0), next(-1.0, 1.0));
+            let Ok(observer) = Observer::new_looking_along(apex, dir, half_angle, 0.3, 8.0) else {
+                continue;
+            };
+
+            // The unpruned answer, straight from the predicate.
+            let mut expected: Vec<NodeId> = points
+                .iter()
+                .filter(|(_, at)| observer.observers(&Coordinate::new(at.x, at.y, at.z)))
+                .map(|(nid, _)| *nid)
+                .collect();
+            expected.sort();
+
+            let got = sorted(sg.visible_in_subtree(&observer, root));
+            assert_eq!(got, expected, "pruning changed the answer for apex {apex:?}");
+
+            ever_rejected |= expected.is_empty();
+            ever_returned |= !expected.is_empty();
+        }
+        assert!(
+            ever_rejected && ever_returned,
+            "poses covered only one outcome, so the comparison proves little"
+        );
 
         Ok(())
     }

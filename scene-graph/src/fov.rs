@@ -1,5 +1,7 @@
 use glam::Vec3;
 
+use spatial_index::{RegionMembershipPredicate, RegionMembershipStatus};
+
 use crate::error::{Result, SceneGraphError};
 
 /// Observer represent a Field-of-View cone frustum in 3D space.
@@ -97,10 +99,178 @@ impl Observer {
     }
 }
 
+/// The observer *is* the region predicate — there is no separate cone type, so a caller passes
+/// `&observer` wherever a [`RegionMembershipPredicate`] is wanted.
+///
+/// [`Self::contains`] delegates to [`Observer::observers`] rather than restating it, which makes
+/// the two agree by construction instead of by test. That matters: a query pruned by `classify`
+/// and filtered by `contains` must answer exactly the question `observers` defines, or it is a
+/// different query that happens to be fast.
+impl RegionMembershipPredicate<f32, 3> for Observer {
+    /// Reject a box only when the whole of it lies outside the frustum.
+    ///
+    /// Two independent rejections, either sufficient:
+    ///
+    /// * **Range.** The box's nearest point to the apex is beyond `far`, or its farthest point is
+    ///   nearer than `near`. Both are exact for a box.
+    /// * **Angle.** In the (axial, perpendicular) cross-section the cone's lateral surface is the
+    ///   ray from the apex along `(cos θ, sin θ)`, whose outward normal is `(-sin θ, cos θ)`. So
+    ///   `perp · cos θ - axial · sin θ` is the signed distance from the box's centre to that
+    ///   surface, positive outside. Exceeding the box's bounding-sphere radius puts the whole
+    ///   sphere, and therefore the whole box, beyond it.
+    ///
+    /// The angular form is exact for a sphere and conservative for a box — a long thin cell is
+    /// bounded by a sphere much larger than itself, so some rejectable cells come back
+    /// `Undecided`. That direction is safe. It is also correct behind the apex, where a negative
+    /// `axial` only makes the term larger, and for a half-angle past 90 degrees, where `cos θ`
+    /// goes negative and the boundary tilts backwards without changing the sign convention.
+    fn classify(&self, lo: &[f32; 3], hi: &[f32; 3]) -> RegionMembershipStatus {
+        let apex = self.position;
+
+        // Nearest and farthest squared distances from the apex to the box. The nearest is the
+        // usual per-axis clamp; the farthest takes whichever side of each axis is further away.
+        let (mut nearest_sq, mut farthest_sq) = (0.0f32, 0.0f32);
+        for axis in 0..3 {
+            let below = lo[axis] - apex[axis];
+            let above = apex[axis] - hi[axis];
+            let outside = below.max(above).max(0.0);
+            nearest_sq += outside * outside;
+            let farthest = below.abs().max(above.abs());
+            farthest_sq += farthest * farthest;
+        }
+        if nearest_sq > self.far * self.far || farthest_sq < self.near * self.near {
+            return RegionMembershipStatus::Reject;
+        }
+
+        let centre = Vec3::new(
+            0.5 * (lo[0] + hi[0]),
+            0.5 * (lo[1] + hi[1]),
+            0.5 * (lo[2] + hi[2]),
+        );
+        let half = Vec3::new(
+            0.5 * (hi[0] - lo[0]),
+            0.5 * (hi[1] - lo[1]),
+            0.5 * (hi[2] - lo[2]),
+        );
+        let radius = half.length();
+
+        let v = centre - apex;
+        let axial = v.dot(self.direction);
+        // Clamped because catastrophic cancellation can push this a hair below zero for a point
+        // on the axis, and `sqrt` of a negative is NaN — which would compare false and silently
+        // turn a rejection into `Undecided`.
+        let perp = (v.length_squared() - axial * axial).max(0.0).sqrt();
+
+        // `sin θ` from the stored cosine. Exact for any half-angle in `[0, π]`, where sine is
+        // non-negative, so the observer needs no extra field and nothing is recovered via `acos`.
+        let sin_theta = (1.0 - self.half_angle_cos * self.half_angle_cos)
+            .max(0.0)
+            .sqrt();
+
+        if perp * self.half_angle_cos - axial * sin_theta > radius {
+            return RegionMembershipStatus::Reject;
+        }
+
+        RegionMembershipStatus::Undecided
+    }
+
+    #[inline]
+    fn contains(&self, point: &[f32; 3]) -> bool {
+        self.observers(&(*point).into())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use glam::Vec3;
+
+    /// The conservative-rejection contract, checked with the harness that ships beside the
+    /// trait rather than a bespoke test — the point of putting it in `spatial-index` is that
+    /// every implementor gets checked the same way.
+    ///
+    /// A wrong `Reject` is invisible downstream: the query simply returns fewer results. So
+    /// this is the only thing standing between a subtly wrong cone and silently missing
+    /// geometry.
+    #[test]
+    fn classify_never_rejects_a_box_holding_a_visible_point() {
+        let observer =
+            Observer::new_looking_along(Vec3::ZERO, Vec3::X, 35_f32.to_radians(), 0.3, 8.0)
+                .unwrap();
+        let with_members = spatial_index::test_utils::region::assert_conservative(
+            &observer,
+            [-12.0, 12.0],
+            0.05..=3.0,
+            20_000,
+            0x5eed_1234,
+        );
+        assert!(
+            with_members > 100,
+            "only {with_members} boxes held a visible point, so the run barely exercised the \
+             property it exists to check"
+        );
+    }
+
+    /// Wide cones are the case the sign convention could plausibly get wrong: past 90 degrees
+    /// `cos` goes negative and the lateral surface tilts backwards. The volume also stops being
+    /// convex there, which does not affect rejection but would affect an `Inside` verdict if one
+    /// were ever added.
+    #[test]
+    fn classify_stays_conservative_for_a_cone_wider_than_a_hemisphere() {
+        let observer =
+            Observer::new_looking_along(Vec3::ZERO, Vec3::X, 120_f32.to_radians(), 0.3, 8.0)
+                .unwrap();
+        let with_members = spatial_index::test_utils::region::assert_conservative(
+            &observer,
+            [-12.0, 12.0],
+            0.05..=3.0,
+            20_000,
+            0xfeed_4321,
+        );
+        assert!(with_members > 100, "cone too wide to be exercised: {with_members}");
+    }
+
+    /// `contains` delegates to `observers`, so this guards the delegation rather than the maths.
+    #[test]
+    fn contains_agrees_with_observers() {
+        let observer =
+            Observer::new_looking_along(Vec3::ZERO, Vec3::X, 35_f32.to_radians(), 0.3, 8.0)
+                .unwrap();
+        spatial_index::test_utils::region::assert_contains_matches(
+            &observer,
+            |p| observer.observers(&Vec3::from_array(*p)),
+            [-12.0, 12.0],
+            50_000,
+            0xabcd_ef01,
+        );
+    }
+
+    #[test]
+    fn classify_rejects_boxes_outside_the_frustum() {
+        use spatial_index::RegionMembershipStatus::*;
+        let observer =
+            Observer::new_looking_along(Vec3::ZERO, Vec3::X, 35_f32.to_radians(), 0.3, 8.0)
+                .unwrap();
+        let cube = |c: [f32; 3], h: f32| {
+            (
+                [c[0] - h, c[1] - h, c[2] - h],
+                [c[0] + h, c[1] + h, c[2] + h],
+            )
+        };
+
+        for (name, centre, half) in [
+            ("beyond the far plane", [40.0, 0.0, 0.0], 1.0),
+            ("off the viewing axis", [0.0, 5.0, 0.0], 0.5),
+            ("behind the apex", [-5.0, 0.0, 0.0], 1.0),
+        ] {
+            let (lo, hi) = cube(centre, half);
+            assert_eq!(observer.classify(&lo, &hi), Reject, "should reject: {name}");
+        }
+
+        // Sitting on the axis inside the range: cannot be ruled out.
+        let (lo, hi) = cube([4.0, 0.0, 0.0], 1.0);
+        assert_eq!(observer.classify(&lo, &hi), Undecided);
+    }
     /// A Z-up scene, panning horizontally.+X is a pan here and the cone follows it as a given.
     #[test]
     fn looking_along_is_frame_agnostic() {
