@@ -31,7 +31,7 @@ pub struct Node {
     /// Position index which keeps track of the coordinates of the sub tree of this node.
     /// This is used for efficient spatial queries.
     #[serde(skip)]
-    pub(crate) pos_index: Option<PosIndex>,
+    pub(crate) pos_index: Option<Box<PosIndex>>,
     /// Optional bounds for the node and all the nodes nested in it's subtree.
     /// This can be used for spatial queries and optimizations.
     pub bounds: Option<Bounds>,
@@ -47,7 +47,7 @@ impl Node {
         bounds: Option<Bounds>,
     ) -> Self {
         let pos_index = if pos_index_enabled {
-            Some(PosIndex::default())
+            Some(Box::new(PosIndex::default()))
         } else {
             None
         };
@@ -201,7 +201,7 @@ pub struct AnonNode {
     /// Position index which keeps track of the coordinates of the sub tree of this node.
     /// This is used for efficient spatial queries.
     #[serde(skip)]
-    pub(crate) pos_index: Option<PosIndex>,
+    pub(crate) pos_index: Option<Box<PosIndex>>,
     /// Optional bounding box for the node, which can be used for spatial queries and optimizations.
     pub bounds: Option<Bounds>,
 }
@@ -216,7 +216,7 @@ impl AnonNode {
         bounds: Option<Bounds>,
     ) -> Self {
         let pos_index = if pos_index_enabled {
-            Some(PosIndex::default())
+            Some(Box::new(PosIndex::default()))
         } else {
             None
         };
@@ -296,3 +296,4 @@ impl IntoNode for Node {
         self.id.node_id()
     }
 }
+

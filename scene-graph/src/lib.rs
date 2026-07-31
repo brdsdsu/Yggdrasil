@@ -11,6 +11,9 @@ mod sg;
 pub use bounds::{BoundingBox, Bounds};
 pub use error::{Result, SceneGraphError};
 pub use fov::Observer;
+// Re-exported so a caller can classify regions with an `Observer` without taking a direct
+// dependency on `spatial-index` for the trait that makes it possible.
+pub use spatial_index::{RegionMembershipPredicate, RegionMembershipStatus};
 pub use layer::{Layer, NodeMut};
 pub use node::{AnonNode, Coordinate, Edge, Feature, Node};
 pub use node_id::NodeId;
