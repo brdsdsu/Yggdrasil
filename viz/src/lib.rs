@@ -28,6 +28,7 @@ use resources::{
 pub fn run(sg: SceneGraph) {
     let z_sep = layout::compute_z_separation(&sg);
     let positions = layout::compute_layout(&sg, z_sep);
+    let node_radius = layout::suggest_node_radius(&positions, (z_sep * 0.05).max(0.1));
 
     // Initialize all layers as visible.
     let layer_visible: HashMap<u32, bool> = sg.layers().map(|l| (l.id, true)).collect();
@@ -52,8 +53,9 @@ pub fn run(sg: SceneGraph) {
             layer_visible,
             show_aabbs: false,
             z_separation: z_sep,
-            node_radius: (z_sep * 0.05).max(0.1),
+            node_radius,
             show_nesting: true,
+            show_coord_groups: true,
         })
         .insert_resource(HoverState::default())
         .insert_resource(SelectionState::default())
@@ -66,6 +68,7 @@ pub fn run(sg: SceneGraph) {
                 spawn::spawn_node_spheres,
                 render::edges::build_edge_meshes,
                 render::edges::build_nesting_mesh,
+                render::coord_groups::build_coord_group_meshes,
             )
                 .chain(),
         )
@@ -76,6 +79,10 @@ pub fn run(sg: SceneGraph) {
                 render::edges::rebuild_edge_highlight,
                 render::edges::rebuild_nesting_highlight,
                 render::edges::rebuild_meshes_on_layout_change
+                    .after(ui::panels::draw_layer_panel),
+                // Coordinate-group spokes — like the meshes above, must run after the
+                // layer panel because the z-separation slider mutates the layout mid-frame.
+                render::coord_groups::rebuild_coord_groups
                     .after(ui::panels::draw_layer_panel),
                 render::bounds::draw_aabb_wireframes,
                 // Hover detection.

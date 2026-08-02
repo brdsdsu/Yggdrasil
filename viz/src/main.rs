@@ -18,6 +18,13 @@ struct Cli {
     /// std::fs::write("scene.json", serde_json::to_string(&scene_graph)?)?;
     /// ```
     file: Option<PathBuf>,
+
+    /// Use the multi-coordinate variant of the demo scene.
+    ///
+    /// Same layer topology as the default demo, but each object's 10 point cloud points
+    /// are held by a single multi-coordinate node instead of 10 separate nodes.
+    #[arg(long, conflicts_with = "file")]
+    demo_multi: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let input = match args.file {
         Some(path) => SceneInput::File(path),
+        None if args.demo_multi => SceneInput::DemoMulti,
         None => SceneInput::Demo,
     };
 

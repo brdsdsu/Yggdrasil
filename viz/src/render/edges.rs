@@ -13,13 +13,16 @@ use crate::resources::{
 
 // ── geometry helpers ─────────────────────────────────────────────────────────
 
-fn line_list_mesh(positions: Vec<[f32; 3]>) -> Mesh {
+/// Builds a `LineList` mesh from a flat vertex list, where each consecutive pair of
+/// entries forms one line segment.
+pub(crate) fn line_list_mesh(positions: Vec<[f32; 3]>) -> Mesh {
     let mut mesh = Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::default());
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh
 }
 
-fn v3(v: Vec3) -> [f32; 3] {
+/// Converts a `Vec3` into the raw array form the mesh position attribute expects.
+pub(crate) fn v3(v: Vec3) -> [f32; 3] {
     [v.x, v.y, v.z]
 }
 
@@ -28,7 +31,7 @@ fn build_edge_positions(layer: &scene_graph::Layer, layout: &LayoutPositions) ->
     let offset = Vec3::Y * 0.02;
     for node in layer.all_nodes() {
         for edge in &node.edges {
-            if let (Some(&s), Some(&d)) = (layout.0.get(&edge.src), layout.0.get(&edge.dst)) {
+            if let (Some(s), Some(d)) = (layout.anchor(edge.src), layout.anchor(edge.dst)) {
                 positions.push(v3(s + offset));
                 positions.push(v3(d + offset));
             }
@@ -53,7 +56,7 @@ fn build_nesting_positions(
             if !layer_visible.get(&parent_layer).copied().unwrap_or(true) {
                 continue;
             }
-            if let (Some(&c), Some(&p)) = (layout.0.get(&node.id), layout.0.get(&pid)) {
+            if let (Some(c), Some(p)) = (layout.anchor(node.id), layout.anchor(pid)) {
                 positions.push(v3(c));
                 positions.push(v3(p));
             }
@@ -62,7 +65,12 @@ fn build_nesting_positions(
     positions
 }
 
-fn active_node_set<'a>(
+/// The set of node IDs that should stay fully drawn, or `None` when no hover,
+/// selection or query state is active and everything is drawn.
+///
+/// Priority matches `update_node_visibility`: query results, then hover subtree,
+/// then selection subtree.
+pub(crate) fn active_node_set<'a>(
     hover: &'a HoverState,
     selection: &'a SelectionState,
     qps: &'a QueryPanelState,
@@ -268,8 +276,8 @@ pub fn rebuild_edge_highlight(
                 for node in layer.all_nodes() {
                     for edge in &node.edges {
                         if set.contains(&edge.src) && set.contains(&edge.dst) {
-                            if let (Some(&s), Some(&d)) =
-                                (layout.0.get(&edge.src), layout.0.get(&edge.dst))
+                            if let (Some(s), Some(d)) =
+                                (layout.anchor(edge.src), layout.anchor(edge.dst))
                             {
                                 pts.push(v3(s + offset));
                                 pts.push(v3(d + offset));
@@ -311,9 +319,9 @@ pub fn rebuild_nesting_highlight(
                     for node in layer.all_nodes() {
                         let Some(pid) = node.pid else { continue };
                         if set.contains(&node.id) && set.contains(&pid) {
-                            if let (Some(&c), Some(&p)) =
-                                (layout.0.get(&node.id), layout.0.get(&pid))
-                        {
+                            if let (Some(c), Some(p)) =
+                                (layout.anchor(node.id), layout.anchor(pid))
+                            {
                                 pts.push(v3(c));
                                 pts.push(v3(p));
                             }

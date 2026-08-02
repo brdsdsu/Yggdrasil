@@ -164,7 +164,10 @@ pub fn draw_query_panel(
                                 .desired_width(52.0),
                         );
                     });
-                    ui.label("Count:");
+                    ui.label("Count:").on_hover_text(
+                        "Counts nearest coordinates, not nodes. A node holds a list of \
+                         coordinates, so the results may contain fewer distinct nodes.",
+                    );
                     ui.horizontal(|ui| {
                         ui.add_enabled(
                             !qps.use_all,
@@ -194,7 +197,10 @@ pub fn draw_query_panel(
                     });
                     ui.label("Radius:");
                     ui.text_edit_singleline(&mut qps.radius);
-                    ui.label("Count:");
+                    ui.label("Count:").on_hover_text(
+                        "Counts nearest coordinates, not nodes. A node holds a list of \
+                         coordinates, so the results may contain fewer distinct nodes.",
+                    );
                     ui.horizontal(|ui| {
                         ui.add_enabled(
                             !qps.use_all,

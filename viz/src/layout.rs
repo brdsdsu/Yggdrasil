@@ -2,7 +2,23 @@ use std::collections::HashMap;
 
 use bevy::math::Vec3;
 use rand::{Rng, RngExt};
-use scene_graph::{Bounds, NodeId, SceneGraph};
+use scene_graph::{Bounds, Coordinate, NodeId, SceneGraph};
+
+/// The visual positions assigned to a single node.
+///
+/// A node holds a list of coordinates rather than a single one, so it renders as
+/// one sphere per coordinate. `anchor` designates which single point the graph
+/// edges, nesting lines and the selection ring attach to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NodeLayout {
+    /// One visual position per entry in `Node::coordinates`, in the same order.
+    /// Empty for nodes that carry no coordinates at all.
+    pub coords: Vec<Vec3>,
+    /// The single point that graph edges, nesting lines and the selection ring
+    /// attach to. When `coords` is non-empty this is its medoid, so the anchor
+    /// always coincides with a rendered sphere.
+    pub anchor: Vec3,
+}
 
 /// Computes the default layer separation (applied to the Y axis).
 ///
@@ -18,7 +34,7 @@ pub fn compute_z_separation(sg: &SceneGraph) -> f32 {
     y_range * 1.5 + 1.0
 }
 
-/// Assigns a 3D visual position to every node in the scene graph.
+/// Assigns visual positions to every node in the scene graph.
 ///
 /// Layer hierarchy is encoded on the Y axis so that higher-layer nodes appear
 /// above lower-layer nodes when viewed with a standard Y-up camera:
@@ -31,15 +47,16 @@ pub fn compute_z_separation(sg: &SceneGraph) -> f32 {
 ///
 /// ## Node placement rules
 ///
-/// 1. **Has coordinate** — use the node's XZ directly; shift Y by the layer offset.
-/// 2. **No coordinate, has children** — place at the mean XZ of already-positioned
-///    children (which are in lower-numbered layers, processed first).
-/// 3. **No coordinate, no children** — place randomly within the global XZ footprint,
-///    retrying up to 10 times to avoid overlapping with nearby nodes.
+/// 1. **Has coordinates** — one position per coordinate, using its XZ directly and
+///    shifting Y by the layer offset. The anchor is the medoid of those positions.
+/// 2. **No coordinates, has children** — anchor at the mean XZ of already-positioned
+///    children's anchors (children are in lower-numbered layers, processed first).
+/// 3. **No coordinates, no children** — anchor placed randomly within the global XZ
+///    footprint, retrying up to 10 times to avoid overlapping with nearby nodes.
 ///
 /// Layers are processed in ascending ID order so that children are always positioned
 /// before their parents, making rule 2 reliable.
-pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, Vec3> {
+pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, NodeLayout> {
     let (global_min, global_max) = global_bounds(sg);
     // Minimum XZ distance between randomly placed nodes to reduce visual overlap.
     let min_spacing = {
@@ -48,7 +65,7 @@ pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, Vec
         (dx.hypot(dz) * 0.05).max(0.5)
     };
 
-    let mut positions: HashMap<NodeId, Vec3> = HashMap::new();
+    let mut positions: HashMap<NodeId, NodeLayout> = HashMap::new();
     let mut rng = rand::rng();
 
     // Sort by layer ID to guarantee child-before-parent processing order.
@@ -59,44 +76,99 @@ pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, Vec
         let layer_y = layer.id as f32 * z_separation;
 
         for node in layer.all_nodes() {
-            let vis_pos = if let Some(coord) = node.coordinates {
-                // Rule 1: coordinate node — XZ from scene, Y offset by layer.
-                Vec3::new(coord.x, coord.y + layer_y, coord.z)
-            } else {
-                let child_positions: Vec<Vec3> = node
-                    .children()
-                    .iter()
-                    .filter_map(|cid| positions.get(cid))
-                    .copied()
-                    .collect();
+            // Rule 1: coordinate node — XZ from scene, Y offset by layer.
+            let coords: Vec<Vec3> = node
+                .coordinates
+                .iter()
+                .map(|c| Vec3::new(c.x, c.y + layer_y, c.z))
+                .collect();
 
-                if !child_positions.is_empty() {
-                    // Rule 2: no coordinate, but children are already positioned.
-                    let n = child_positions.len() as f32;
-                    let mean_x = child_positions.iter().map(|p| p.x).sum::<f32>() / n;
-                    let mean_z = child_positions.iter().map(|p| p.z).sum::<f32>() / n;
-                    Vec3::new(mean_x, layer_y, mean_z)
-                } else {
-                    // Rule 3: no coordinate, no children — random with overlap avoidance.
-                    place_randomly(
-                        &mut rng,
-                        &positions,
-                        global_min,
-                        global_max,
-                        layer_y,
-                        min_spacing,
-                    )
+            let anchor = match medoid(&coords) {
+                Some(anchor) => anchor,
+                None => {
+                    let child_anchors: Vec<Vec3> = node
+                        .children()
+                        .iter()
+                        .filter_map(|cid| positions.get(cid))
+                        .map(|l| l.anchor)
+                        .collect();
+
+                    if !child_anchors.is_empty() {
+                        // Rule 2: no coordinates, but children are already positioned.
+                        let n = child_anchors.len() as f32;
+                        let mean_x = child_anchors.iter().map(|p| p.x).sum::<f32>() / n;
+                        let mean_z = child_anchors.iter().map(|p| p.z).sum::<f32>() / n;
+                        Vec3::new(mean_x, layer_y, mean_z)
+                    } else {
+                        // Rule 3: no coordinates, no children — random with overlap avoidance.
+                        place_randomly(
+                            &mut rng,
+                            &positions,
+                            global_min,
+                            global_max,
+                            layer_y,
+                            min_spacing,
+                        )
+                    }
                 }
             };
 
-            positions.insert(node.id, vis_pos);
+            positions.insert(node.id, NodeLayout { coords, anchor });
         }
     }
 
     positions
 }
 
-/// Computes the global axis-aligned bounding box over all coordinate nodes.
+/// Picks the initial node sphere radius.
+///
+/// `fallback` is the layer-separation-derived default, which sizes spheres against the
+/// whole scene's height. That cannot resolve the coordinates *inside* a single node: at
+/// that size a multi-coordinate node renders as one blob of overlapping spheres with its
+/// grouping spokes buried inside. When any node holds several coordinates, shrink the
+/// radius to a fraction of the typical spread of a node's coordinates about its anchor.
+///
+/// Returns `fallback` untouched when every node has at most one coordinate, so
+/// single-coordinate scenes keep the sizing they have always had.
+pub fn suggest_node_radius(layout: &HashMap<NodeId, NodeLayout>, fallback: f32) -> f32 {
+    let mut spreads: Vec<f32> = layout
+        .values()
+        .filter(|l| l.coords.len() > 1)
+        .map(|l| {
+            let total: f32 = l.coords.iter().map(|c| c.distance(l.anchor)).sum();
+            total / l.coords.len() as f32
+        })
+        .filter(|spread| *spread > 0.0)
+        .collect();
+
+    if spreads.is_empty() {
+        return fallback;
+    }
+
+    spreads.sort_by(f32::total_cmp);
+    let median = spreads[spreads.len() / 2];
+    // A fifth of the mean coordinate-to-anchor distance leaves visible space between the
+    // spheres of one node, so the spokes joining them are not swallowed. Never grow the
+    // radius — only pull it down from `fallback`.
+    fallback.min(median * 0.2).max(0.01)
+}
+
+/// Returns the element of `coords` closest to their arithmetic mean, or `None`
+/// when `coords` is empty.
+///
+/// The medoid is used rather than the mean itself so that a node's anchor is always
+/// one of its own coordinates. The mean of a node whose coordinates form two distant
+/// clusters lands in the empty space between them, which would leave every edge
+/// endpoint and the selection ring detached from any visible sphere.
+fn medoid(coords: &[Vec3]) -> Option<Vec3> {
+    let mean = coords.iter().copied().sum::<Vec3>() / coords.len().max(1) as f32;
+    coords
+        .iter()
+        .copied()
+        .min_by(|a, b| a.distance_squared(mean).total_cmp(&b.distance_squared(mean)))
+}
+
+/// Computes the global axis-aligned bounding box over every coordinate in the scene.
 ///
 /// Returns `(Vec3::ZERO, Vec3::ONE)` as a unit fallback when no coordinate
 /// nodes exist, ensuring downstream calculations always have a valid range.
@@ -104,9 +176,9 @@ fn global_bounds(sg: &SceneGraph) -> (Vec3, Vec3) {
     let coordinates = sg
         .layers()
         .flat_map(|l| l.all_nodes())
-        .filter_map(|n| n.coordinates)
-        .collect::<Vec<_>>();
-    let bounds = Bounds::of(coordinates);
+        .flat_map(|n| n.coordinates.iter().copied())
+        .collect::<Vec<Coordinate>>();
+    let bounds = Bounds::of(&coordinates);
     match bounds {
         Bounds::Unbounded => (Vec3::ZERO, Vec3::ONE),
         Bounds::Bounded(bounding_box) => {
@@ -124,11 +196,11 @@ fn global_bounds(sg: &SceneGraph) -> (Vec3, Vec3) {
 /// Picks a random XZ position within `[global_min, global_max]` at the given `y`.
 ///
 /// Retries up to 10 times to find a spot that is at least `min_spacing` away from
-/// all already-placed nodes. Returns the best candidate found regardless of overlap
+/// all already-placed anchors. Returns the best candidate found regardless of overlap
 /// after the retry budget is exhausted.
 fn place_randomly(
     rng: &mut impl Rng,
-    positions: &HashMap<NodeId, Vec3>,
+    positions: &HashMap<NodeId, NodeLayout>,
     global_min: Vec3,
     global_max: Vec3,
     y: f32,
@@ -138,7 +210,7 @@ fn place_randomly(
     for _ in 0..10 {
         let too_close = positions
             .values()
-            .any(|p| (p.x - candidate.x).hypot(p.z - candidate.z) < min_spacing);
+            .any(|l| (l.anchor.x - candidate.x).hypot(l.anchor.z - candidate.z) < min_spacing);
         if !too_close {
             break;
         }
@@ -186,6 +258,17 @@ mod tests {
         sg
     }
 
+    /// Pushes a node holding every coordinate in `coords` into `layer`.
+    ///
+    /// `new_coordinates` only ever produces a single-coordinate node, so multi-coordinate
+    /// nodes have to be assembled from `new_node` directly.
+    fn push_multi_coord(sg: &mut SceneGraph, layer: u32, coords: Vec<Coordinate>) -> NodeId {
+        let mut node = sg.new_node(vec![]);
+        node.bounds = Some(Bounds::of(&coords));
+        node.coordinates = coords;
+        sg.layer_mut(layer).unwrap().push_node(node).unwrap()
+    }
+
     #[test]
     fn test_coord_node_y_includes_layer_offset() {
         let sg = two_layer_graph();
@@ -195,16 +278,17 @@ mod tests {
         // Layer 0 node at (1,2,3): vis_y = 2 + 0*10 = 2, vis_x = 1, vis_z = 3
         let layer0_nodes: Vec<_> = sg.layer(0).unwrap().all_nodes().collect();
         let n0 = &layer0_nodes[0];
-        let pos = positions[&n0.id];
-        assert!((pos.y - (n0.coordinates.unwrap().y + 0.0 * y_sep)).abs() < 1e-5);
-        assert!((pos.x - n0.coordinates.unwrap().x).abs() < 1e-5);
-        assert!((pos.z - n0.coordinates.unwrap().z).abs() < 1e-5);
+        let c0 = n0.coordinates[0];
+        let pos = positions[&n0.id].anchor;
+        assert!((pos.y - (c0.y + 0.0 * y_sep)).abs() < 1e-5);
+        assert!((pos.x - c0.x).abs() < 1e-5);
+        assert!((pos.z - c0.z).abs() < 1e-5);
 
         // Layer 1 node at (2,3,4): vis_y = 3 + 1*10 = 13
         let layer1_nodes: Vec<_> = sg.layer(1).unwrap().all_nodes().collect();
         let n2 = &layer1_nodes[0];
-        let pos2 = positions[&n2.id];
-        assert!((pos2.y - (n2.coordinates.unwrap().y + 1.0 * y_sep)).abs() < 1e-5);
+        let pos2 = positions[&n2.id].anchor;
+        assert!((pos2.y - (n2.coordinates[0].y + 1.0 * y_sep)).abs() < 1e-5);
     }
 
     #[test]
@@ -230,11 +314,12 @@ mod tests {
 
         let positions = compute_layout(&sg, 10.0);
 
-        let parent_pos = positions[&pid];
+        let parent_layout = &positions[&pid];
         // Expected mean XZ = (0+4)/2=2, (0+4)/2=2; y = layer 1 offset = 1*10 = 10
-        assert!((parent_pos.x - 2.0).abs() < 1e-5);
-        assert!((parent_pos.z - 2.0).abs() < 1e-5);
-        assert!((parent_pos.y - 10.0).abs() < 1e-5);
+        assert!(parent_layout.coords.is_empty());
+        assert!((parent_layout.anchor.x - 2.0).abs() < 1e-5);
+        assert!((parent_layout.anchor.z - 2.0).abs() < 1e-5);
+        assert!((parent_layout.anchor.y - 10.0).abs() < 1e-5);
     }
 
     #[test]
@@ -252,11 +337,105 @@ mod tests {
         let iid = sg.layer_mut(l0).unwrap().push_node(isolated).unwrap();
 
         let positions = compute_layout(&sg, 1.0);
-        let pos = positions[&iid];
+        let pos = positions[&iid].anchor;
 
         // Must be within the global XZ footprint; y = layer 0 offset = 0
         assert!(pos.x >= 0.0 && pos.x <= 10.0);
         assert!(pos.z >= 0.0 && pos.z <= 10.0);
         assert!((pos.y - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn multi_coord_node_gets_one_position_per_coordinate() {
+        let mut sg = SceneGraph::default();
+        let l0 = sg.new_layer().id;
+        let l1 = sg.new_layer().id;
+        sg.layer_mut(l1).unwrap().add_child(l0).unwrap();
+
+        let coords = vec![
+            Coordinate::new(0.0, 1.0, 2.0),
+            Coordinate::new(3.0, 4.0, 5.0),
+            Coordinate::new(6.0, 7.0, 8.0),
+        ];
+        // Pushed into layer 1 so the layer offset is non-zero and actually observable.
+        let nid = push_multi_coord(&mut sg, l1, coords.clone());
+
+        let y_sep = 10.0;
+        let layout = &compute_layout(&sg, y_sep)[&nid];
+
+        assert_eq!(layout.coords.len(), coords.len());
+        for (vis, raw) in layout.coords.iter().zip(&coords) {
+            assert!((vis.x - raw.x).abs() < 1e-5);
+            assert!((vis.y - (raw.y + y_sep)).abs() < 1e-5);
+            assert!((vis.z - raw.z).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn multi_coord_anchor_is_one_of_the_nodes_own_coordinates() {
+        let mut sg = SceneGraph::default();
+        let l0 = sg.new_layer().id;
+
+        // Two tight clusters far apart: the mean lands in the empty gap between them,
+        // so an anchor equal to the mean would not coincide with any rendered sphere.
+        let coords = vec![
+            Coordinate::new(0.0, 0.0, 0.0),
+            Coordinate::new(0.5, 0.0, 0.0),
+            Coordinate::new(100.0, 0.0, 0.0),
+            Coordinate::new(100.5, 0.0, 0.0),
+        ];
+        let nid = push_multi_coord(&mut sg, l0, coords);
+
+        let layout = &compute_layout(&sg, 1.0)[&nid];
+        assert!(
+            layout.coords.contains(&layout.anchor),
+            "anchor {:?} is not one of the node's own coordinates {:?}",
+            layout.anchor,
+            layout.coords,
+        );
+    }
+
+    #[test]
+    fn single_coordinate_scenes_keep_the_fallback_node_radius() {
+        let sg = two_layer_graph();
+        let layout = compute_layout(&sg, 10.0);
+
+        assert_eq!(suggest_node_radius(&layout, 1.5), 1.5);
+    }
+
+    #[test]
+    fn multi_coordinate_scenes_shrink_the_node_radius_below_the_cluster_spread() {
+        let mut sg = SceneGraph::default();
+        let l0 = sg.new_layer().id;
+        push_multi_coord(
+            &mut sg,
+            l0,
+            vec![
+                Coordinate::new(-1.0, 0.0, 0.0),
+                Coordinate::new(1.0, 0.0, 0.0),
+                Coordinate::new(0.0, 0.0, -1.0),
+                Coordinate::new(0.0, 0.0, 1.0),
+            ],
+        );
+        let layout = compute_layout(&sg, 1.0);
+
+        // The fallback would draw spheres wider than the whole cluster.
+        let radius = suggest_node_radius(&layout, 1.5);
+        assert!(radius < 1.5, "radius {radius} was not pulled below the fallback");
+        assert!(radius > 0.0);
+    }
+
+    #[test]
+    fn single_coord_node_anchor_equals_its_only_coordinate() {
+        let sg = two_layer_graph();
+        let positions = compute_layout(&sg, 10.0);
+
+        for layer in sg.layers() {
+            for node in layer.all_nodes() {
+                let layout = &positions[&node.id];
+                assert_eq!(layout.coords.len(), 1);
+                assert_eq!(layout.coords[0], layout.anchor);
+            }
+        }
     }
 }

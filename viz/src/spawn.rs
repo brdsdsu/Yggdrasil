@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::{
-    components::{LayerTag, NodeSphere, VisPos},
+    components::{CoordIndex, LayerTag, NodeSphere, VisPos},
     resources::{LayerMaterials, LayoutPositions, SceneGraphRes, SphereMeshHandle, VisibilityToggles},
 };
 
@@ -13,12 +13,12 @@ pub fn spawn_camera(mut commands: Commands, layout: Res<LayoutPositions>) {
     let (focus, distance) = if layout.0.is_empty() {
         (Vec3::ZERO, 50.0_f32)
     } else {
-        let sum: Vec3 = layout.0.values().copied().sum();
+        let sum: Vec3 = layout.0.values().map(|l| l.anchor).sum();
         let center = sum / layout.0.len() as f32;
 
         let (y_min, y_max) = layout.0.values().fold(
             (f32::INFINITY, f32::NEG_INFINITY),
-            |(mn, mx), p| (mn.min(p.y), mx.max(p.y)),
+            |(mn, mx), l| (mn.min(l.anchor.y), mx.max(l.anchor.y)),
         );
         // Distance chosen so the full layer stack fits in the default 45° vertical FOV.
         let y_span = (y_max - y_min).max(10.0);
@@ -53,10 +53,15 @@ pub fn spawn_lights(mut commands: Commands, mut ambient: ResMut<AmbientLight>) {
     ));
 }
 
-/// Spawns one sphere mesh entity per scene graph node.
+/// Spawns one sphere mesh entity per node coordinate.
 ///
-/// All nodes within the same layer share a single `StandardMaterial` so the GPU
-/// bind-group count is O(n_layers) instead of O(n_nodes).
+/// A node holds a list of coordinates, so it gets one sphere per coordinate — all of
+/// them tagged with the same [`NodeSphere::node_id`] and distinguished only by their
+/// [`CoordIndex`]. Nodes with no coordinates (semantic and root nodes) get a single
+/// sphere at their anchor, exactly as before.
+///
+/// All spheres within the same layer share a single `StandardMaterial` so the GPU
+/// bind-group count is O(n_layers) instead of O(n_spheres).
 pub fn spawn_node_spheres(
     mut commands: Commands,
     sg_res: Res<SceneGraphRes>,
@@ -85,21 +90,31 @@ pub fn spawn_node_spheres(
         layer_mats.0.insert(layer.id, mat.clone());
 
         for node in layer.all_nodes() {
-            let pos = layout.0.get(&node.id).copied().unwrap_or(Vec3::ZERO);
+            // A coordinate-less node still needs exactly one sphere, placed at its anchor.
+            let anchor = layout.anchor(node.id).unwrap_or(Vec3::ZERO);
+            let coords = layout.coords(node.id);
+            let positions: &[Vec3] = if coords.is_empty() {
+                std::slice::from_ref(&anchor)
+            } else {
+                coords
+            };
 
-            commands.spawn((
-                Mesh3d(sphere_mesh.clone()),
-                MeshMaterial3d(mat.clone()),
-                Transform::from_translation(pos),
-                NodeSphere { node_id: node.id },
-                LayerTag { layer_id: layer.id },
-                VisPos(pos),
-                if initially_visible {
-                    Visibility::Visible
-                } else {
-                    Visibility::Hidden
-                },
-            ));
+            for (index, &pos) in positions.iter().enumerate() {
+                commands.spawn((
+                    Mesh3d(sphere_mesh.clone()),
+                    MeshMaterial3d(mat.clone()),
+                    Transform::from_translation(pos),
+                    NodeSphere { node_id: node.id },
+                    CoordIndex(index),
+                    LayerTag { layer_id: layer.id },
+                    VisPos(pos),
+                    if initially_visible {
+                        Visibility::Visible
+                    } else {
+                        Visibility::Hidden
+                    },
+                ));
+            }
         }
     }
 }
