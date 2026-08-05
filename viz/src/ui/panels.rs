@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
-use crate::components::NodeSphere;
+use crate::components::{CoordIndex, NodeSphere};
 use crate::layout::compute_layout;
 use crate::resources::{LayoutPositions, SceneGraphRes, SphereMeshHandle, VisibilityToggles};
 
@@ -16,7 +16,7 @@ pub fn draw_layer_panel(
     mut vis: ResMut<VisibilityToggles>,
     sg_res: Res<SceneGraphRes>,
     mut layout: ResMut<LayoutPositions>,
-    mut sphere_query: Query<(&NodeSphere, &mut Transform)>,
+    mut sphere_query: Query<(&NodeSphere, &CoordIndex, &mut Transform)>,
     sphere_handle: Res<SphereMeshHandle>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
@@ -46,6 +46,11 @@ pub fn draw_layer_panel(
             ui.separator();
             ui.checkbox(&mut vis.show_aabbs, "Show AABBs");
             ui.checkbox(&mut vis.show_nesting, "Show Hierarchical Edges");
+            ui.checkbox(&mut vis.show_coord_groups, "Show Coordinate Groups")
+                .on_hover_text(
+                    "Thin spokes binding each coordinate of a multi-coordinate node to \
+                     that node's anchor. Not graph edges — they connect a node to itself.",
+                );
 
             ui.separator();
             ui.label("Layer Separation");
@@ -59,10 +64,16 @@ pub fn draw_layer_panel(
 
             if (vis.z_separation - old_z_sep).abs() > 1e-4 {
                 let new_positions = compute_layout(sg, vis.z_separation);
-                for (sphere, mut transform) in &mut sphere_query {
-                    if let Some(&pos) = new_positions.get(&sphere.node_id) {
-                        transform.translation = pos;
-                    }
+                for (sphere, coord_index, mut transform) in &mut sphere_query {
+                    let Some(node_layout) = new_positions.get(&sphere.node_id) else {
+                        continue;
+                    };
+                    // Coordinate-less nodes have a single sphere sitting on the anchor.
+                    transform.translation = node_layout
+                        .coords
+                        .get(coord_index.0)
+                        .copied()
+                        .unwrap_or(node_layout.anchor);
                 }
                 layout.0 = new_positions;
             }

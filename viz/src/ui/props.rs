@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use scene_graph::Bounds;
 
-use crate::resources::{HoverState, SceneGraphRes};
+use crate::resources::{HoverState, LayoutPositions, SceneGraphRes};
 
 /// Draws the properties panel as a floating, draggable egui window that appears
 /// whenever a node is hovered.
@@ -15,6 +15,7 @@ pub fn draw_properties_panel(
     mut contexts: EguiContexts,
     hover: Res<HoverState>,
     sg_res: Res<SceneGraphRes>,
+    layout: Res<LayoutPositions>,
 ) {
     let Some(hovered_id) = hover.hovered_node else {
         return;
@@ -67,24 +68,38 @@ pub fn draw_properties_panel(
 
                 // Coordinates
                 ui.separator();
-                if let Some(coord) = node.coordinates {
-                    ui.label("Coordinates");
-                    egui::Grid::new("coord_grid")
-                        .num_columns(2)
-                        .spacing([8.0, 2.0])
-                        .show(ui, |ui| {
-                            ui.label("x");
-                            ui.label(format!("{:.3}", coord.x));
-                            ui.end_row();
-                            ui.label("y");
-                            ui.label(format!("{:.3}", coord.y));
-                            ui.end_row();
-                            ui.label("z");
-                            ui.label(format!("{:.3}", coord.z));
-                            ui.end_row();
-                        });
-                } else {
+                if node.coordinates.is_empty() {
                     ui.label("Coordinates: none");
+                } else {
+                    ui.label(format!("Coordinates ({})", node.coordinates.len()));
+                    // The anchor is where this node's edges and selection ring attach,
+                    // so mark which coordinate it is.
+                    let anchor_index = layout
+                        .anchor(hovered_id)
+                        .and_then(|a| layout.coords(hovered_id).iter().position(|&c| c == a));
+                    egui::ScrollArea::vertical()
+                        .max_height(120.0)
+                        .id_salt("coords_scroll")
+                        .show(ui, |ui| {
+                            egui::Grid::new("coord_grid")
+                                .num_columns(2)
+                                .spacing([8.0, 2.0])
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    for (i, coord) in node.coordinates.iter().enumerate() {
+                                        if Some(i) == anchor_index {
+                                            ui.label(format!("{i} ⚓"));
+                                        } else {
+                                            ui.label(i.to_string());
+                                        }
+                                        ui.label(format!(
+                                            "({:.3}, {:.3}, {:.3})",
+                                            coord.x, coord.y, coord.z
+                                        ));
+                                        ui.end_row();
+                                    }
+                                });
+                        });
                 }
 
                 // Bounding box

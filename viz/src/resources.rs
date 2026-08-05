@@ -4,6 +4,8 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use scene_graph::{NodeId, SceneGraph};
 
+use crate::layout::NodeLayout;
+
 /// The loaded scene graph shared across all systems.
 ///
 /// Wrapped in `Arc` so it can be cloned cheaply into the query dispatch system
@@ -11,12 +13,27 @@ use scene_graph::{NodeId, SceneGraph};
 #[derive(Resource)]
 pub struct SceneGraphRes(pub Arc<SceneGraph>);
 
-/// Maps every node ID to its computed 3D position in visualization space.
+/// Maps every node ID to its computed 3D positions in visualization space.
 ///
 /// Populated by the layout algorithm at startup and recomputed whenever the
-/// z-separation slider changes.
+/// z-separation slider changes. A node holds one position per coordinate plus a
+/// single anchor; see [`NodeLayout`].
 #[derive(Resource, Default)]
-pub struct LayoutPositions(pub HashMap<NodeId, Vec3>);
+pub struct LayoutPositions(pub HashMap<NodeId, NodeLayout>);
+
+impl LayoutPositions {
+    /// The point that graph edges, nesting lines and the selection ring attach to
+    /// for `nid`, or `None` when the node has no layout entry.
+    pub fn anchor(&self, nid: NodeId) -> Option<Vec3> {
+        self.0.get(&nid).map(|l| l.anchor)
+    }
+
+    /// The visual position of each of `nid`'s coordinates, in coordinate order.
+    /// Empty when the node carries no coordinates or has no layout entry.
+    pub fn coords(&self, nid: NodeId) -> &[Vec3] {
+        self.0.get(&nid).map_or(&[], |l| &l.coords)
+    }
+}
 
 /// One shared `StandardMaterial` per layer, keyed by layer id.
 ///
@@ -64,6 +81,8 @@ pub struct EdgeMeshMaterials {
     pub nesting_base: Option<Handle<StandardMaterial>>,
     /// Highlight material for the global nesting highlight mesh.
     pub nesting_highlight: Option<Handle<StandardMaterial>>,
+    /// Coordinate-group spoke material per layer, keyed by layer id.
+    pub coord_group_by_layer: HashMap<u32, Handle<StandardMaterial>>,
 }
 
 /// Holds the single shared sphere mesh handle so the radius slider can update
@@ -86,6 +105,9 @@ pub struct VisibilityToggles {
     pub node_radius: f32,
     /// When false, the nesting (parent→child) lines are hidden entirely.
     pub show_nesting: bool,
+    /// When false, the spokes binding a node's coordinates to its anchor are hidden.
+    /// These carry no graph meaning — they only make multi-coordinate nodes legible.
+    pub show_coord_groups: bool,
 }
 
 impl Default for VisibilityToggles {
@@ -96,6 +118,7 @@ impl Default for VisibilityToggles {
             z_separation: 1.0,
             node_radius: 0.1,
             show_nesting: true,
+            show_coord_groups: true,
         }
     }
 }

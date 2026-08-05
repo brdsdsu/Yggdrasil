@@ -47,6 +47,10 @@ pub fn update_node_visibility(
 }
 
 /// Draws a bright yellow circle ring around the selected node using Gizmos.
+///
+/// The ring sits on the node's anchor, which for a multi-coordinate node is the
+/// medoid of its coordinates — so the ring always lands on one of the node's spheres
+/// rather than floating in the gap between them.
 pub fn draw_selection_ring(
     mut gizmos: Gizmos,
     selection: Res<SelectionState>,
@@ -56,7 +60,7 @@ pub fn draw_selection_ring(
     let Some(nid) = selection.selected_node else {
         return;
     };
-    let Some(&pos) = layout.0.get(&nid) else {
+    let Some(pos) = layout.anchor(nid) else {
         return;
     };
 
