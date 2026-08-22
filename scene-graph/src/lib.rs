@@ -7,6 +7,7 @@ mod node_id;
 pub mod parse;
 mod pos;
 mod sg;
+mod shortest_path;
 
 pub use bounds::{BoundingBox, Bounds};
 pub use error::{Result, SceneGraphError};
@@ -19,6 +20,7 @@ pub use node::{AnonNode, Coordinate, Edge, Feature, Node};
 pub use node_id::NodeId;
 pub use pos::PosQueryCount;
 pub use sg::SceneGraph;
+pub use shortest_path::ShortestPaths;
 
 use node::IntoNode;
 

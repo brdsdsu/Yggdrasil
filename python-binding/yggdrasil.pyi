@@ -14,14 +14,40 @@ class NodeId:
     Packs the layer id (upper 32 bits) and the in-layer node id (lower 32 bits)
     into a single value, so a node's layer is always recoverable from its id.
     """
+    def __init__(self, layer_id: int, node_id: int) -> None:
+        """Rebuild a NodeId from its two halves (e.g. when restoring a pickle)."""
+        ...
     def layer_id(self) -> int:
         """The id of the layer this node belongs to."""
         ...
     def node_id(self) -> int:
         """The in-layer id of this node."""
         ...
+    def as_u64(self) -> int:
+        """The raw 64-bit encoding (layer id in the high half)."""
+        ...
+    def __getnewargs__(self) -> Tuple[int, int]: ...
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...
+
+
+class ShortestPaths:
+    """
+    Result of a single-source Dijkstra run over one layer's intra-layer edges.
+
+    Owns its data; stays valid regardless of later graph changes. Settled
+    nodes are kept in settle order (equal-cost ties keep first-found order,
+    matching networkx's single_source_dijkstra).
+    """
+    @property
+    def source(self) -> NodeId: ...
+    def items(self) -> List[Tuple[NodeId, float, List[NodeId]]]:
+        """All settled nodes as (node_id, distance, path) in settle order."""
+        ...
+    def distance_to(self, target: NodeId) -> Optional[float]: ...
+    def path_to(self, target: NodeId) -> Optional[List[NodeId]]: ...
+    def __contains__(self, target: NodeId) -> bool: ...
+    def __len__(self) -> int: ...
 
 
 class Feature:
@@ -99,12 +125,12 @@ class __Node:
         ...
 
     @property
-    def coordinates(self) -> Optional[Coordinate]:
-        """Optional 3D coordinates of the node."""
+    def coordinates(self) -> List[Coordinate]:
+        """Coordinates of the node (may hold several points; empty if none)."""
         ...
 
     @coordinates.setter
-    def coordinates(self, coords: Optional[Coordinate]) -> None: ...
+    def coordinates(self, coords: List[Coordinate]) -> None: ...
 
     def has_feature(self, key: str) -> bool:
         """Check if the node has a feature with the specified key."""
@@ -150,12 +176,12 @@ class Node:
         ...
 
     @property
-    def coordinates(self) -> Optional[Coordinate]:
-        """Optional 3D coordinates of the node."""
+    def coordinates(self) -> List[Coordinate]:
+        """Coordinates of the node (may hold several points; empty if none)."""
         ...
 
     @coordinates.setter
-    def coordinates(self, coords: Optional[Coordinate]) -> None: ...
+    def coordinates(self, coords: List[Coordinate]) -> None: ...
 
     def has_feature(self, key: str) -> bool:
         """Check if the node has a feature with the specified key."""
@@ -238,6 +264,18 @@ class Layer:
         ...
     def edges_to(self, dst: NodeId) -> List[Edge]:
         """Get list of all edges to a specific destination node."""
+        ...
+
+    def dijkstra(self, source: NodeId) -> ShortestPaths:
+        """Single-source shortest paths over this layer's intra-layer edges.
+
+        Edge weight = Euclidean distance between the endpoints' first
+        coordinates. Edges are directed: insert both directions for
+        undirected semantics.
+        """
+        ...
+    def dijkstra_to(self, source: NodeId, targets: List[NodeId]) -> ShortestPaths:
+        """Like dijkstra, but stops once every target is settled."""
         ...
 
 
@@ -367,6 +405,15 @@ class SceneGraph:
         """Get list of all edges to a specific destination node."""
         ...
 
+    def node_infos(
+        self,
+        ids: List[NodeId],
+        feature_keys: List[str],
+    ) -> List[Tuple[Coordinate, List[Optional[str]]]]:
+        """Bulk-fetch each node's first coordinate and the requested feature
+        values (None where a node lacks that feature), in one call."""
+        ...
+
 
 __all__ = [
     "SceneGraph",
@@ -378,5 +425,6 @@ __all__ = [
     "Feature",
     "Observer",
     "PosQueryCount",
+    "ShortestPaths",
     "Coordinate",
 ]
