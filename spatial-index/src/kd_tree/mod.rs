@@ -501,8 +501,8 @@ where
     /// stop the traversal rather than filtering a finished result.
     ///
     /// ```
-    /// # use spatial_index::{KdTree, EytzingerAdaptive, VecOfArrays};
-    /// # use spatial_index::region::{RegionMembershipPredicate, RegionMembershipStatus};
+    /// # use kiddo::{KdTree, EytzingerAdaptive, VecOfArrays};
+    /// # use kiddo::region::{RegionMembershipPredicate, RegionMembershipStatus};
     /// /// Everything with a non-negative first coordinate.
     /// struct Upper;
     /// impl RegionMembershipPredicate<f32, 3> for Upper {

@@ -139,15 +139,26 @@ impl PositionQuery for Vec<Node> {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)> {
-        let mut distances: Vec<_> = self
+        let distances = self
             .iter()
             .flat_map(|n| n.coordinates.iter().map(|c| (n.id, c)))
-            .map(|(id, c)| (id, c.distance_squared(*pos).sqrt()))
-            .collect();
-        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        match count {
-            PosQueryCount::All => distances,
-            PosQueryCount::Count(c) => distances.into_iter().take(c).collect(),
+            .map(|(id, c)| (id, c.distance_squared(*pos).sqrt()));
+        // .collect();
+        // distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        if let PosQueryCount::Count(1) = count {
+            distances
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .into_iter()
+                .collect()
+        } else {
+            let mut distances = distances.collect::<Vec<(NodeId, f32)>>();
+
+            distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            match count {
+                // PosQueryCount::Count(c) if (c as f32) < ((distances.len()) as f32).log2() => {
+                PosQueryCount::All => distances,
+                PosQueryCount::Count(c) => distances.into_iter().take(c).collect(),
+            }
         }
     }
 
@@ -180,14 +191,23 @@ impl PositionQuery for Vec<(Coordinate, NodeId)> {
     /// Retrieve at most `count` nearest nodes to the given position.
     /// The list is sorted by distance from nearest to farthest.
     fn nearest_nodes(&self, pos: &super::Coordinate, count: PosQueryCount) -> Vec<(NodeId, f32)> {
-        let mut distances: Vec<(NodeId, f32)> = self
+        let distances = self
             .iter()
-            .map(|(c, id)| (*id, c.distance_squared(*pos).sqrt()))
-            .collect();
-        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        match count {
-            PosQueryCount::All => distances,
-            PosQueryCount::Count(c) => distances.into_iter().take(c).collect(),
+            .map(|(c, id)| (*id, c.distance_squared(*pos).sqrt()));
+
+        if let PosQueryCount::Count(1) = count {
+            distances
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .into_iter()
+                .collect()
+        } else {
+            let mut distances = distances.collect::<Vec<(NodeId, f32)>>();
+
+            distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            match count {
+                PosQueryCount::All => distances,
+                PosQueryCount::Count(c) => distances.into_iter().take(c).collect(),
+            }
         }
     }
 

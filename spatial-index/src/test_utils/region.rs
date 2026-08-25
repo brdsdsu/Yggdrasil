@@ -6,8 +6,8 @@
 //! implementation rather than only the first one.
 //!
 //! ```no_run
-//! # use spatial_index::region::{RegionMembershipPredicate, RegionMembershipStatus};
-//! # use spatial_index::test_utils::region::assert_conservative;
+//! # use kiddo::region::{RegionMembershipPredicate, RegionMembershipStatus};
+//! # use kiddo::test_utils::region::assert_conservative;
 //! # struct Ball;
 //! # impl RegionMembershipPredicate<f32, 3> for Ball {
 //! #     fn classify(&self, _: &[f32; 3], _: &[f32; 3]) -> RegionMembershipStatus {
