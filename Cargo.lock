@@ -5891,6 +5891,7 @@ dependencies = [
  "bevy_egui",
  "bevy_panorbit_camera",
  "clap",
+ "image",
  "rand 0.10.1",
  "scene-graph",
  "serde_json",

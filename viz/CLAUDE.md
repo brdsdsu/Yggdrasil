@@ -41,6 +41,7 @@ viz/src/
 ├── components.rs        # Bevy ECS component types
 ├── resources.rs         # Bevy Resource types (shared mutable state)
 ├── layout.rs            # 3D position assignment algorithm
+├── capture.rs           # Offscreen high-resolution PNG capture of the current view
 ├── loader.rs            # Scene loading (JSON file or built-in demo)
 ├── spawn.rs             # Startup systems: camera, lights, node spheres
 ├── render/
@@ -91,6 +92,7 @@ viz/src/
 | `SelectionState` | `selected_node`, `selected_layer`, `subtree_ids` (BFS descendants) |
 | `VisibilityToggles` | `layer_visible: HashMap<u32, bool>`, `show_aabbs: bool`, `show_nesting: bool`, `show_coord_groups: bool`, `z_separation: f32`, `node_radius: f32` |
 | `QueryPanelState` | All query form fields, `highlighted_nodes`, `highlighted_edges`, `error`, `submitted` |
+| `CaptureState` | `scale` (1/2/4/8×), `dir`, `message: Option<Result<String, String>>`, `window_size`, and a private capture `phase` |
 
 ### `QueryType` enum (8 variants)
 
@@ -239,6 +241,7 @@ System draw order matters — left panel before properties before query, so `ava
 - "Show AABBs" checkbox
 - "Show Hierarchical Edges" checkbox (`VisibilityToggles.show_nesting`)
 - "Show Coordinate Groups" checkbox (`VisibilityToggles.show_coord_groups`)
+- Capture section: scale selector (1×–8×), "📷 Save PNG" button (disabled mid-capture), the resulting pixel size, and the last result or error. Drawn by `draw_capture_section`, a helper in the same file
 - "Z Separation" logarithmic slider (0.1 – 500.0); changing it immediately recomputes layout and updates all sphere transforms in place (no scene rebuild), each sphere reading `coords[CoordIndex]` and falling back to the anchor
 - "Node Radius" logarithmic slider (0.01 – 10.0); changing it replaces the shared sphere mesh asset in place so all spheres resize immediately
 
@@ -269,6 +272,47 @@ Window is resizable and collapsible (min width 200px).
 - "▶ Run Query" sets `submitted = true`; "✕ Clear" clears highlighted sets (grayed when empty)
 - Error message shown in red when `QueryPanelState.error` is set
 - Results section: count label + scrollable list of node/edge IDs (max 200px)
+
+---
+
+## Capture (`capture.rs`)
+
+The "📷 Save PNG" button renders the current view offscreen at a multiple of the window's
+pixel size and writes it to `CaptureState::dir` (the process's working directory) as
+`viz-<unix seconds>[-n].png`.
+
+**It is not a screenshot.** `Screenshot::primary_window()` reads back the swapchain, which
+bounds the output at the window's pixel count and bakes in the egui panels. Instead
+`drive_capture` spawns a second camera carrying the on-screen camera's `Transform` and a
+**clone** of its `Projection` (a fresh one would use the default FOV and stop matching what
+the viewport frames), pointed at a `RenderTarget::Image` of `window_size * scale`, and
+captures that. What follows from the offscreen target: no UI, since `bevy_egui` only draws
+into the window's target; and the gizmo overlays *are* included, since they render for
+every view on the default gizmo layer.
+
+`Phase` is a four-state machine advanced one step per frame, and the frame counts are not
+padding:
+
+| phase | what it waits for |
+|---|---|
+| `Requested` | the button was pressed; the target is built on the next tick |
+| `Warmup` | `WARMUP_FRAMES` (2) of the offscreen camera rendering. `prepare_screenshots` resolves the target through `RenderAssets<GpuImage>`, and an image asset created this frame has no GPU texture yet — capturing immediately is skipped with only a log line |
+| `Capturing` | one frame after the `Screenshot` entity is spawned. Its render pass runs after this system, so despawning the camera immediately would capture an unrendered target |
+| `Idle` | camera despawned, image handle dropped |
+
+Scale is clamped so neither side exceeds `RenderDevice::limits().max_texture_dimension_2d`
+(8192 by default) — 8× on a 4K window would ask for 30,720 pixels across and fail to
+allocate at all.
+
+The PNG is written by `save_png` rather than by bevy's `save_to_disk` observer, so a
+failure reaches the panel instead of only the log; the alpha channel is dropped first,
+because it carries brightness rather than opacity once HDR is on. **PNG** is the format
+because the subject is line art on a flat field — spheres, one-pixel edges, wireframes —
+which is exactly what JPEG's chroma subsampling frays.
+
+The image asset is `RenderAssetUsages::RENDER_WORLD` only: nothing reads the pixels on the
+CPU (the screenshot copies them out of the GPU texture) and at 8× the main-world copy alone
+would be hundreds of megabytes.
 
 ---
 
@@ -308,6 +352,7 @@ Update tick:
   update_node_visibility
   draw_selection_ring
   execute_query
+  drive_capture                                  ← after draw_layer_panel
   draw_layer_panel                               ← must run before props panel
   draw_properties_panel                          ← must run before query panel
   draw_query_panel

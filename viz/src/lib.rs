@@ -1,3 +1,4 @@
+pub mod capture;
 pub mod components;
 pub mod interaction;
 pub mod layout;
@@ -15,6 +16,7 @@ use bevy::prelude::*;
 use bevy_panorbit_camera::{PanOrbitCameraPlugin, PanOrbitCameraSystemSet};
 use scene_graph::SceneGraph;
 
+use capture::CaptureState;
 use layout::UpAxis;
 use resources::{
     EdgeMeshMaterials, HoverState, LayerMaterials, LayoutPositions, QueryPanelState, SceneGraphRes,
@@ -64,6 +66,7 @@ pub fn run(sg: SceneGraph, up: UpAxis) {
         .insert_resource(HoverState::default())
         .insert_resource(SelectionState::default())
         .insert_resource(QueryPanelState::default())
+        .insert_resource(CaptureState::default())
         .add_systems(
             Startup,
             (
@@ -99,6 +102,8 @@ pub fn run(sg: SceneGraph, up: UpAxis) {
                 render::nodes::draw_selection_ring,
                 // Query dispatch.
                 query::dispatch::execute_query,
+                // Capture — after the panel, so a press is acted on the frame it happens.
+                capture::drive_capture.after(ui::panels::draw_layer_panel),
                 // UI panels — must run in this order: left panel first so
                 // available_rect() is correct when the properties window positions itself.
                 ui::panels::draw_layer_panel.before(ui::props::draw_properties_panel),

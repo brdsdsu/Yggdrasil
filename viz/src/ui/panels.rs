@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
+use crate::capture::CaptureState;
 use crate::components::{CoordIndex, NodeSphere};
 use crate::layout::compute_layout;
 use crate::resources::{
@@ -22,6 +23,7 @@ pub fn draw_layer_panel(
     mut sphere_query: Query<(&NodeSphere, &CoordIndex, &mut Transform)>,
     sphere_handle: Res<SphereMeshHandle>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut capture: ResMut<CaptureState>,
 ) {
     let sg = &sg_res.0;
 
@@ -96,5 +98,46 @@ pub fn draw_layer_panel(
                     *mesh = Sphere::new(vis.node_radius).mesh().build();
                 }
             }
+
+            ui.separator();
+            draw_capture_section(ui, &mut capture);
         });
+}
+
+/// The capture button and its scale selector.
+///
+/// Split out of [`draw_layer_panel`] only for length; it draws into that same panel and
+/// has no meaning outside it.
+fn draw_capture_section(ui: &mut egui::Ui, capture: &mut CaptureState) {
+    ui.label("Capture");
+
+    ui.horizontal(|ui| {
+        for scale in CaptureState::SCALES {
+            ui.selectable_value(&mut capture.scale, scale, format!("{scale}×"));
+        }
+    });
+
+    let size = capture.target_size();
+    let button = egui::Button::new("📷  Save PNG");
+    let response = ui.add_enabled(!capture.busy(), button).on_hover_text(
+        "Renders the current view offscreen at the selected multiple of the window \
+         and writes a PNG in the process's working directory. The panels are not \
+         part of it — the capture is the scene alone, framed exactly as the viewport \
+         frames it.",
+    );
+    if response.clicked() {
+        capture.request();
+    }
+
+    ui.small(format!("{} × {} px", size.x, size.y));
+
+    match &capture.message {
+        Some(Ok(text)) => {
+            ui.small(text.as_str());
+        }
+        Some(Err(text)) => {
+            ui.colored_label(egui::Color32::from_rgb(220, 80, 80), text.as_str());
+        }
+        None => {}
+    }
 }
