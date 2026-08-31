@@ -143,7 +143,7 @@ pub fn rebuild_coord_groups(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::compute_layout;
+    use crate::layout::{UpAxis, compute_layout};
     use scene_graph::{Bounds, Coordinate, SceneGraph};
 
     /// A one-layer graph holding a 3-coordinate node, a 1-coordinate node and a
@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn one_spoke_per_coordinate_of_a_multi_coordinate_node() {
         let (sg, multi_id) = mixed_graph();
-        let layout = LayoutPositions(compute_layout(&sg, 1.0));
+        let layout = LayoutPositions(compute_layout(&sg, 1.0, UpAxis::Y));
 
         let positions = build_spoke_positions(&sg, 0, &layout, |_| true);
 
@@ -202,7 +202,7 @@ mod tests {
             let n = sg.new_coordinates(i as f32, 0.0, 0.0, vec![]);
             sg.layer_mut(l0).unwrap().push_node(n).unwrap();
         }
-        let layout = LayoutPositions(compute_layout(&sg, 1.0));
+        let layout = LayoutPositions(compute_layout(&sg, 1.0, UpAxis::Y));
 
         assert!(build_spoke_positions(&sg, 0, &layout, |_| true).is_empty());
     }
@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn excluded_nodes_contribute_no_spokes() {
         let (sg, multi_id) = mixed_graph();
-        let layout = LayoutPositions(compute_layout(&sg, 1.0));
+        let layout = LayoutPositions(compute_layout(&sg, 1.0, UpAxis::Y));
 
         // Mirrors an active set that does not contain the multi-coordinate node, which
         // is how a hover or query on some other node hides its spokes along with its

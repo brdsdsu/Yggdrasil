@@ -6,6 +6,9 @@ Bevy-based interactive 3D visualizer for Yggdrasil scene graphs.
 # Run with a JSON scene file
 cargo run -p viz -- path/to/scene.json
 
+# A scene authored in the renderer's own Y-up frame (the default is Z-up)
+cargo run -p viz -- path/to/scene.json --up y
+
 # Run the built-in 4-layer demo scene
 cargo run -p viz
 
@@ -33,7 +36,7 @@ These behaviors **must be preserved** at all times — during refactoring, featu
 
 ```
 viz/src/
-├── main.rs              # CLI entry: parses optional JSON path, falls back to Demo
+├── main.rs              # CLI entry: parses optional JSON path and --up, falls back to Demo
 ├── lib.rs               # App builder: inserts resources, registers all systems
 ├── components.rs        # Bevy ECS component types
 ├── resources.rs         # Bevy Resource types (shared mutable state)
@@ -79,6 +82,7 @@ viz/src/
 | Resource | Contents |
 |---|---|
 | `SceneGraphRes` | `Arc<SceneGraph>` — shared across all systems |
+| `UpAxisRes` | `UpAxis` — the declared vertical axis of the scene data. Fixed at startup; read by the layer-separation slider (which recomputes the layout) and by the AABB renderer |
 | `LayoutPositions` | `HashMap<NodeId, NodeLayout>` — per-coordinate positions plus one anchor per node. Use the `anchor(nid)` / `coords(nid)` accessors rather than indexing `.0` |
 | `LayerMaterials` | `HashMap<u32, Handle<StandardMaterial>>` — one `StandardMaterial` per layer (shared by all nodes in that layer) |
 | `EdgeMeshMaterials` | `base_by_layer`, `highlight_by_layer` (per-layer edge materials), `nesting_base`, `nesting_highlight`, `coord_group_by_layer` |
@@ -113,7 +117,7 @@ Only `NearestNode` and `VisibleSubgraph` support `QueryScope::Node` (subtree sco
 
 ## Layout (`layout.rs`)
 
-`compute_layout(sg, z_separation) -> HashMap<NodeId, NodeLayout>` assigns visual positions to every node. Layers are processed in **ascending ID order** (children before parents).
+`compute_layout(sg, z_separation, up) -> HashMap<NodeId, NodeLayout>` assigns visual positions to every node. Layers are processed in **ascending ID order** (children before parents).
 
 ```rust
 pub struct NodeLayout {
@@ -123,13 +127,13 @@ pub struct NodeLayout {
 ```
 
 **Three placement rules (priority order):**
-1. Node has coordinates → one position per coordinate, XY from the coordinate, `vis_y = coord_y + layer_id * z_separation`; anchor = **medoid** of those positions
+1. Node has coordinates → one position per coordinate, mapped through `up` into the visual frame, then `vis_y += layer_id * z_separation`; anchor = **medoid** of those positions
 2. Node has no coordinates but has children → `coords` empty, anchor at mean XZ of children's anchors
 3. Node has no coordinates and no children → `coords` empty, anchor placed randomly within global scene footprint, with up to 10 retry attempts to maintain ≥5% of diagonal (min 0.5 units) separation from existing anchors
 
 The anchor is the **medoid** — the node's own coordinate nearest their mean — not the mean itself. The mean of a node whose coordinates form two distant clusters lands in the empty space between them, which would leave edge endpoints and the selection ring detached from every visible sphere. For a single-coordinate node the medoid *is* that coordinate, so behavior is unchanged.
 
-`compute_z_separation(sg) -> f32` computes a default z-sep as `y_range * 1.5 + 1.0` (minimum 1.0), chosen so adjacent layers don't visually overlap.
+`compute_z_separation(sg, up) -> f32` computes a default z-sep as `y_range * 1.5 + 1.0` (minimum 1.0) over the **visual-frame** bounds, so `y_range` is the scene's real height and adjacent layers don't visually overlap.
 
 `suggest_node_radius(layout, fallback) -> f32` picks the initial sphere radius. The `fallback` (`z_sep * 0.05`) sizes spheres against the whole scene's height and so can never resolve the coordinates *within* one node — at that size a multi-coordinate node is one blob with its spokes buried. When any node holds several coordinates this pulls the radius down to a fifth of the median coordinate-to-anchor distance. It returns `fallback` untouched when every node has at most one coordinate, so single-coordinate scenes keep their historical sizing.
 
@@ -314,7 +318,17 @@ Update tick:
 
 ## Coordinate Convention
 
-Y-up, `glam::Vec3`. The visual y-axis is overloaded for layer separation — do not interpret `VisPos.y` as a raw scene coordinate.
+The renderer is Y-up, `glam::Vec3`. The visual y-axis is overloaded for layer separation — do not interpret `VisPos.y` as a raw scene coordinate.
+
+**The scene data need not be Y-up, and by default is assumed not to be.** `UpAxis` (`layout.rs`) names the vertical axis of the incoming coordinates and defaults to `Z`, the ROS REP-103 convention every Spark-DSG export follows (Kimera, Hydra, the uHumans2 corpora). `--up y` selects the pass-through mapping.
+
+`UpAxis::to_visual` is the only place the two frames meet, and everything downstream of it lives in the visual frame: `compute_layout`, `global_bounds`, `compute_z_separation`, and the AABB wireframes (via `to_visual_aabb`, since node bounds are stored in the scene's frame). Z-up is a −90° rotation about X, `(x, y, z) -> (x, z, -y)` — determinant +1, so handedness survives; the tempting `(x, z, y)` mirrors every floor plan.
+
+Reading the wrong axis as up does not merely tilt the view. The scene's *height* feeds `compute_z_separation`, so a floor-plan dimension in its place spreads the layers by that much instead: the office corpus is 50.8 m × 43.1 m × **3.02 m**, so a Y-up reading picks a layer separation of 65.6 instead of 5.5 and — through `suggest_node_radius`'s `z_sep * 0.05` fallback — draws every point as a 3.3 m sphere in a 3 m room.
+
+Two frames stay untouched: `props.rs` shows `Node::coordinates` as stored, and the query panel takes positions in scene coordinates, so both read in the source data's own frame.
+
+One known gap, pre-dating the up axis: the query panel's **"Use Camera"** button copies the camera's *visual*-frame translation and forward vector straight into the observer fields, which `execute_query` then hands to the scene graph as *scene* coordinates. The layer offset alone already made that wrong for anything above layer 0; a non-Y up axis adds the rotation on top. Fixing it needs an inverse mapping and a decision about which layer's offset to subtract, so it is recorded rather than papered over.
 
 `Node::coordinates` is a `Vec<Coordinate>`, so "the position of a node" is not a single value. Two scene-graph semantics follow from that and are worth remembering when reading query results:
 

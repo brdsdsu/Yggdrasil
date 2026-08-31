@@ -3,7 +3,9 @@ use bevy_egui::{egui, EguiContexts};
 
 use crate::components::{CoordIndex, NodeSphere};
 use crate::layout::compute_layout;
-use crate::resources::{LayoutPositions, SceneGraphRes, SphereMeshHandle, VisibilityToggles};
+use crate::resources::{
+    LayoutPositions, SceneGraphRes, SphereMeshHandle, UpAxisRes, VisibilityToggles,
+};
 
 /// Draws the left sidebar panel containing per-layer visibility toggles,
 /// the AABB wireframe toggle, and the z-separation slider.
@@ -16,6 +18,7 @@ pub fn draw_layer_panel(
     mut vis: ResMut<VisibilityToggles>,
     sg_res: Res<SceneGraphRes>,
     mut layout: ResMut<LayoutPositions>,
+    up: Res<UpAxisRes>,
     mut sphere_query: Query<(&NodeSphere, &CoordIndex, &mut Transform)>,
     sphere_handle: Res<SphereMeshHandle>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -63,7 +66,7 @@ pub fn draw_layer_panel(
             );
 
             if (vis.z_separation - old_z_sep).abs() > 1e-4 {
-                let new_positions = compute_layout(sg, vis.z_separation);
+                let new_positions = compute_layout(sg, vis.z_separation, up.0);
                 for (sphere, coord_index, mut transform) in &mut sphere_query {
                     let Some(node_layout) = new_positions.get(&sphere.node_id) else {
                         continue;

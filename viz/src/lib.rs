@@ -15,9 +15,10 @@ use bevy::prelude::*;
 use bevy_panorbit_camera::{PanOrbitCameraPlugin, PanOrbitCameraSystemSet};
 use scene_graph::SceneGraph;
 
+use layout::UpAxis;
 use resources::{
     EdgeMeshMaterials, HoverState, LayerMaterials, LayoutPositions, QueryPanelState, SceneGraphRes,
-    SelectionState, SphereMeshHandle, VisibilityToggles,
+    SelectionState, SphereMeshHandle, UpAxisRes, VisibilityToggles,
 };
 
 /// Launches the visualizer window for the given scene graph.
@@ -25,9 +26,11 @@ use resources::{
 /// This is the library entry point, allowing callers to pass a `SceneGraph`
 /// directly without serializing it to JSON. The function blocks until the
 /// window is closed.
-pub fn run(sg: SceneGraph) {
-    let z_sep = layout::compute_z_separation(&sg);
-    let positions = layout::compute_layout(&sg, z_sep);
+///
+/// `up` names the axis the scene's coordinates treat as vertical; see [`UpAxis`].
+pub fn run(sg: SceneGraph, up: UpAxis) {
+    let z_sep = layout::compute_z_separation(&sg, up);
+    let positions = layout::compute_layout(&sg, z_sep, up);
     let node_radius = layout::suggest_node_radius(&positions, (z_sep * 0.05).max(0.1));
 
     // Initialize all layers as visible.
@@ -46,6 +49,7 @@ pub fn run(sg: SceneGraph) {
         .add_plugins(MeshPickingPlugin)
         .insert_resource(SceneGraphRes(Arc::new(sg)))
         .insert_resource(LayoutPositions(positions))
+        .insert_resource(UpAxisRes(up))
         .insert_resource(LayerMaterials::default())
         .insert_resource(EdgeMeshMaterials::default())
         .insert_resource(SphereMeshHandle::default())

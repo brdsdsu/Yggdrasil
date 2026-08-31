@@ -4,7 +4,16 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use scene_graph::{NodeId, SceneGraph};
 
-use crate::layout::NodeLayout;
+use crate::layout::{NodeLayout, UpAxis};
+
+/// Which axis of the scene data points up, as declared on the command line.
+///
+/// Fixed for the lifetime of the app — unlike [`VisibilityToggles`], nothing in the UI
+/// changes it. It is a resource because the layout has to be recomputed from the raw
+/// coordinates whenever the layer-separation slider moves, and the AABB renderer reads
+/// node bounds straight out of the scene graph.
+#[derive(Resource, Default, Clone, Copy)]
+pub struct UpAxisRes(pub UpAxis);
 
 /// The loaded scene graph shared across all systems.
 ///

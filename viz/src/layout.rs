@@ -4,6 +4,52 @@ use bevy::math::Vec3;
 use rand::{Rng, RngExt};
 use scene_graph::{Bounds, Coordinate, NodeId, SceneGraph};
 
+/// Which axis of the scene data points up.
+///
+/// The renderer is Y-up and overloads the visual Y axis for layer separation, but a scene
+/// graph does not have to arrive that way. Everything from a Spark-DSG pipeline —
+/// Kimera, Hydra, the uHumans2 corpora — follows ROS REP-103, where **Z is up** and X/Y
+/// are the floor plane. Loading such a scene under a Y-up reading stands the room on its
+/// side: the floor plan's Y axis is drawn vertically, and the (small) height range becomes
+/// depth.
+///
+/// The scene graph itself carries no convention, so this cannot be detected reliably — a
+/// flat scene is flat on whichever axis it is flat on, and guessing from extents would
+/// silently flip a room that happens to be tall and narrow. It is a declaration by the
+/// caller instead, defaulting to the convention the data in the wild actually uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UpAxis {
+    /// Scene Y is up, matching the renderer. Coordinates pass through unchanged.
+    Y,
+    /// Scene Z is up (ROS REP-103), as Spark-DSG exports it. The default.
+    #[default]
+    Z,
+}
+
+impl UpAxis {
+    /// Maps a scene coordinate into the renderer's Y-up frame, before the layer offset.
+    ///
+    /// The Z-up case is a -90 degree rotation about X, `(x, y, z) -> (x, z, -y)`. Its
+    /// determinant is +1, so the scene keeps its handedness; the mirror `(x, z, y)` would
+    /// render every floor plan reversed.
+    pub fn to_visual(&self, c: Coordinate) -> Vec3 {
+        match self {
+            Self::Y => Vec3::new(c.x, c.y, c.z),
+            Self::Z => Vec3::new(c.x, c.z, -c.y),
+        }
+    }
+
+    /// Maps an axis-aligned box into the renderer's frame, as `(min, max)`.
+    ///
+    /// An axis permutation maps an AABB onto an AABB exactly, but it can exchange which
+    /// corner is minimal — Z-up negates Y — so the mapped corners are re-sorted rather
+    /// than assumed to stay in order.
+    pub fn to_visual_aabb(&self, min: Coordinate, max: Coordinate) -> (Vec3, Vec3) {
+        let (a, b) = (self.to_visual(min), self.to_visual(max));
+        (a.min(b), a.max(b))
+    }
+}
+
 /// The visual positions assigned to a single node.
 ///
 /// A node holds a list of coordinates rather than a single one, so it renders as
@@ -22,14 +68,20 @@ pub struct NodeLayout {
 
 /// Computes the default layer separation (applied to the Y axis).
 ///
-/// The separation must exceed the full y-range of the scene data so that no node
+/// The separation must exceed the full height of the scene data so that no node
 /// in layer N can visually overlap with a node in layer N+1. We use 1.5× the
-/// y-range plus a minimum padding of 1.0, which gives a 50% visual gap between
+/// height plus a minimum padding of 1.0, which gives a 50% visual gap between
 /// the top of one layer and the bottom of the next.
 ///
+/// The height is measured **after** `up` has been applied, so it is the scene's real
+/// vertical extent. Read off the wrong axis it is a floor-plan dimension instead — for the
+/// office corpus, 43 m rather than 3 m, which spreads the layers twelve times too far
+/// apart and (through `suggest_node_radius`'s fallback) draws every point as a sphere
+/// taller than the room.
+///
 /// Falls back to `1.0` when the scene contains no coordinate nodes.
-pub fn compute_z_separation(sg: &SceneGraph) -> f32 {
-    let (min, max) = global_bounds(sg);
+pub fn compute_z_separation(sg: &SceneGraph, up: UpAxis) -> f32 {
+    let (min, max) = global_bounds(sg, up);
     let y_range = max.y - min.y;
     y_range * 1.5 + 1.0
 }
@@ -43,12 +95,13 @@ pub fn compute_z_separation(sg: &SceneGraph) -> f32 {
 /// vis_y = node_coordinate_y  +  layer.id * layer_separation
 /// ```
 ///
-/// X and Z are taken directly from the node's scene coordinates.
+/// Scene coordinates reach the visual frame through `up` first, so X and Z are the
+/// floor plane and Y is height regardless of which axis the source data called up.
 ///
 /// ## Node placement rules
 ///
-/// 1. **Has coordinates** — one position per coordinate, using its XZ directly and
-///    shifting Y by the layer offset. The anchor is the medoid of those positions.
+/// 1. **Has coordinates** — one position per coordinate, mapped through `up` and
+///    shifted on Y by the layer offset. The anchor is the medoid of those positions.
 /// 2. **No coordinates, has children** — anchor at the mean XZ of already-positioned
 ///    children's anchors (children are in lower-numbered layers, processed first).
 /// 3. **No coordinates, no children** — anchor placed randomly within the global XZ
@@ -56,8 +109,12 @@ pub fn compute_z_separation(sg: &SceneGraph) -> f32 {
 ///
 /// Layers are processed in ascending ID order so that children are always positioned
 /// before their parents, making rule 2 reliable.
-pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, NodeLayout> {
-    let (global_min, global_max) = global_bounds(sg);
+pub fn compute_layout(
+    sg: &SceneGraph,
+    z_separation: f32,
+    up: UpAxis,
+) -> HashMap<NodeId, NodeLayout> {
+    let (global_min, global_max) = global_bounds(sg, up);
     // Minimum XZ distance between randomly placed nodes to reduce visual overlap.
     let min_spacing = {
         let dx = global_max.x - global_min.x;
@@ -76,11 +133,14 @@ pub fn compute_layout(sg: &SceneGraph, z_separation: f32) -> HashMap<NodeId, Nod
         let layer_y = layer.id as f32 * z_separation;
 
         for node in layer.all_nodes() {
-            // Rule 1: coordinate node — XZ from scene, Y offset by layer.
+            // Rule 1: coordinate node — XZ from the scene's floor plane, Y offset by layer.
             let coords: Vec<Vec3> = node
                 .coordinates
                 .iter()
-                .map(|c| Vec3::new(c.x, c.y + layer_y, c.z))
+                .map(|c| {
+                    let v = up.to_visual(*c);
+                    Vec3::new(v.x, v.y + layer_y, v.z)
+                })
                 .collect();
 
             let anchor = match medoid(&coords) {
@@ -168,11 +228,13 @@ fn medoid(coords: &[Vec3]) -> Option<Vec3> {
         .min_by(|a, b| a.distance_squared(mean).total_cmp(&b.distance_squared(mean)))
 }
 
-/// Computes the global axis-aligned bounding box over every coordinate in the scene.
+/// Computes the global axis-aligned bounding box over every coordinate in the scene,
+/// **in the visual frame** — so `.y` is height and `.x`/`.z` are the floor plane, whatever
+/// `up` the source data uses.
 ///
 /// Returns `(Vec3::ZERO, Vec3::ONE)` as a unit fallback when no coordinate
 /// nodes exist, ensuring downstream calculations always have a valid range.
-fn global_bounds(sg: &SceneGraph) -> (Vec3, Vec3) {
+fn global_bounds(sg: &SceneGraph, up: UpAxis) -> (Vec3, Vec3) {
     let coordinates = sg
         .layers()
         .flat_map(|l| l.all_nodes())
@@ -181,15 +243,9 @@ fn global_bounds(sg: &SceneGraph) -> (Vec3, Vec3) {
     let bounds = Bounds::of(&coordinates);
     match bounds {
         Bounds::Unbounded => (Vec3::ZERO, Vec3::ONE),
-        Bounds::Bounded(bounding_box) => {
-            let min = bounding_box.min();
-            let max = bounding_box.max();
-            // TODO: This wierd conversion is only due to bevy's glam and scene-graph's
-            // glam version mismatch.
-            let min = Vec3::new(min.x, min.y, min.z);
-            let max = Vec3::new(max.x, max.y, max.z);
-            (min, max)
-        }
+        // `to_visual_aabb` also absorbs the conversion between scene-graph's glam and
+        // bevy's, which are different versions of the same type.
+        Bounds::Bounded(bounding_box) => up.to_visual_aabb(bounding_box.min(), bounding_box.max()),
     }
 }
 
@@ -234,6 +290,10 @@ mod tests {
     use super::*;
     use scene_graph::{Feature, SceneGraph};
 
+    /// Every test below passes `UpAxis::Y` explicitly. The default is `Z`, which rotates
+    /// coordinates on the way in — these cases assert the placement rules themselves, so
+    /// they use the pass-through axis and leave the rotation to its own tests.
+    ///
     /// Builds a simple 2-layer scene graph:
     /// - Layer 0: two coordinate nodes at (1,2,3) and (3,4,5)
     /// - Layer 1: one coordinate node at (2,3,4), nested under one of the layer-0 nodes
@@ -273,7 +333,7 @@ mod tests {
     fn test_coord_node_y_includes_layer_offset() {
         let sg = two_layer_graph();
         let y_sep = 10.0;
-        let positions = compute_layout(&sg, y_sep);
+        let positions = compute_layout(&sg, y_sep, UpAxis::Y);
 
         // Layer 0 node at (1,2,3): vis_y = 2 + 0*10 = 2, vis_x = 1, vis_z = 3
         let layer0_nodes: Vec<_> = sg.layer(0).unwrap().all_nodes().collect();
@@ -312,7 +372,7 @@ mod tests {
         sg.nest(c0id).under(pid).unwrap();
         sg.nest(c1id).under(pid).unwrap();
 
-        let positions = compute_layout(&sg, 10.0);
+        let positions = compute_layout(&sg, 10.0, UpAxis::Y);
 
         let parent_layout = &positions[&pid];
         // Expected mean XZ = (0+4)/2=2, (0+4)/2=2; y = layer 1 offset = 1*10 = 10
@@ -336,7 +396,7 @@ mod tests {
         let isolated = sg.new_node(vec![Feature::new("type", "ghost")]);
         let iid = sg.layer_mut(l0).unwrap().push_node(isolated).unwrap();
 
-        let positions = compute_layout(&sg, 1.0);
+        let positions = compute_layout(&sg, 1.0, UpAxis::Y);
         let pos = positions[&iid].anchor;
 
         // Must be within the global XZ footprint; y = layer 0 offset = 0
@@ -361,7 +421,7 @@ mod tests {
         let nid = push_multi_coord(&mut sg, l1, coords.clone());
 
         let y_sep = 10.0;
-        let layout = &compute_layout(&sg, y_sep)[&nid];
+        let layout = &compute_layout(&sg, y_sep, UpAxis::Y)[&nid];
 
         assert_eq!(layout.coords.len(), coords.len());
         for (vis, raw) in layout.coords.iter().zip(&coords) {
@@ -386,7 +446,7 @@ mod tests {
         ];
         let nid = push_multi_coord(&mut sg, l0, coords);
 
-        let layout = &compute_layout(&sg, 1.0)[&nid];
+        let layout = &compute_layout(&sg, 1.0, UpAxis::Y)[&nid];
         assert!(
             layout.coords.contains(&layout.anchor),
             "anchor {:?} is not one of the node's own coordinates {:?}",
@@ -398,7 +458,7 @@ mod tests {
     #[test]
     fn single_coordinate_scenes_keep_the_fallback_node_radius() {
         let sg = two_layer_graph();
-        let layout = compute_layout(&sg, 10.0);
+        let layout = compute_layout(&sg, 10.0, UpAxis::Y);
 
         assert_eq!(suggest_node_radius(&layout, 1.5), 1.5);
     }
@@ -417,7 +477,7 @@ mod tests {
                 Coordinate::new(0.0, 0.0, 1.0),
             ],
         );
-        let layout = compute_layout(&sg, 1.0);
+        let layout = compute_layout(&sg, 1.0, UpAxis::Y);
 
         // The fallback would draw spheres wider than the whole cluster.
         let radius = suggest_node_radius(&layout, 1.5);
@@ -428,7 +488,7 @@ mod tests {
     #[test]
     fn single_coord_node_anchor_equals_its_only_coordinate() {
         let sg = two_layer_graph();
-        let positions = compute_layout(&sg, 10.0);
+        let positions = compute_layout(&sg, 10.0, UpAxis::Y);
 
         for layer in sg.layers() {
             for node in layer.all_nodes() {
@@ -438,4 +498,57 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn z_up_rotates_coordinates_into_the_renderers_frame() {
+        let mut sg = SceneGraph::default();
+        let l0 = sg.new_layer().id;
+        // Two metres up in a Z-up scene, four metres along the floor's y axis.
+        let n = sg.new_coordinates(1.0, 4.0, 2.0, vec![]);
+        let nid = sg.layer_mut(l0).unwrap().push_node(n).unwrap();
+
+        let pos = compute_layout(&sg, 10.0, UpAxis::Z)[&nid].anchor;
+
+        // Height becomes visual y; the floor axis becomes depth, negated so the scene
+        // keeps its handedness.
+        assert_eq!(pos, Vec3::new(1.0, 2.0, -4.0));
+    }
+
+    #[test]
+    fn z_up_layer_separation_follows_the_height_not_the_floor_plan() {
+        let mut sg = SceneGraph::default();
+        let l0 = sg.new_layer().id;
+        // A 100 m x 100 m floor plan, 2 m tall — the shape of a real building export,
+        // where reading the separation off a floor axis overshoots by fifty times.
+        for c in [
+            Coordinate::new(0.0, 0.0, 1.0),
+            Coordinate::new(100.0, 100.0, 3.0),
+        ] {
+            let n = sg.new_coordinates(c.x, c.y, c.z, vec![]);
+            sg.layer_mut(l0).unwrap().push_node(n).unwrap();
+        }
+
+        assert_eq!(compute_z_separation(&sg, UpAxis::Z), 2.0 * 1.5 + 1.0);
+        assert_eq!(compute_z_separation(&sg, UpAxis::Y), 100.0 * 1.5 + 1.0);
+    }
+
+    #[test]
+    fn z_up_bounds_map_onto_the_same_box_the_coordinates_land_in() {
+        let coords = [
+            Coordinate::new(-1.0, 2.0, 5.0),
+            Coordinate::new(3.0, 8.0, 7.0),
+        ];
+        let (min, max) = UpAxis::Z.to_visual_aabb(coords[0], coords[1]);
+
+        // Negating y swaps which corner is minimal, so the result must be re-sorted.
+        assert_eq!(min, Vec3::new(-1.0, 5.0, -8.0));
+        assert_eq!(max, Vec3::new(3.0, 7.0, -2.0));
+
+        // And the mapped box must still contain the mapped corners.
+        for c in coords {
+            let v = UpAxis::Z.to_visual(c);
+            assert!(v.cmpge(min).all() && v.cmple(max).all());
+        }
+    }
+
 }

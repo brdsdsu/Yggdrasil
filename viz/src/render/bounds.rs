@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use bevy::prelude::*;
 use scene_graph::Bounds;
 
-use crate::resources::{HoverState, SceneGraphRes, VisibilityToggles};
+use crate::resources::{HoverState, SceneGraphRes, UpAxisRes, VisibilityToggles};
 
 /// Collects the given layer ID plus all layer IDs reachable by following
 /// `child_layer_ids()` downward in the layer DAG (BFS).
@@ -34,11 +34,16 @@ fn descendant_layer_ids(sg: &scene_graph::SceneGraph, root_layer_id: u32) -> Vec
 ///
 /// Each slab is colored with that sub-layer's hue so layers remain visually distinct.
 /// The XZ plane is the horizontal footprint; Y is the layer separation axis.
+///
+/// Node bounds are stored in the scene's own frame, so each box is mapped through the
+/// declared up axis first — the same mapping `compute_layout` applies to coordinates,
+/// without which a wireframe would sit at right angles to the spheres it encloses.
 pub fn draw_aabb_wireframes(
     mut gizmos: Gizmos,
     sg_res: Res<SceneGraphRes>,
     vis: Res<VisibilityToggles>,
     hover: Res<HoverState>,
+    up: Res<UpAxisRes>,
 ) {
     if !vis.show_aabbs {
         return;
@@ -65,8 +70,7 @@ pub fn draw_aabb_wireframes(
                 continue;
             };
 
-            let bb_min = Vec3::new(bb.min().x, bb.min().y, bb.min().z);
-            let bb_max = Vec3::new(bb.max().x, bb.max().y, bb.max().z);
+            let (bb_min, bb_max) = up.0.to_visual_aabb(bb.min(), bb.max());
 
             // Horizontal footprint is XZ; layer separation is on the Y axis.
             let xz_center = Vec2::new((bb_min.x + bb_max.x) * 0.5, (bb_min.z + bb_max.z) * 0.5);
