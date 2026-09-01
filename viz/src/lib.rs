@@ -7,6 +7,7 @@ pub mod query;
 pub mod render;
 pub mod resources;
 pub mod spawn;
+pub mod theme;
 pub mod ui;
 
 use std::collections::HashMap;
@@ -22,6 +23,7 @@ use resources::{
     EdgeMeshMaterials, HoverState, LayerMaterials, LayoutPositions, QueryPanelState, SceneGraphRes,
     SelectionState, SphereMeshHandle, UpAxisRes, VisibilityToggles,
 };
+use theme::Theme;
 
 /// Launches the visualizer window for the given scene graph.
 ///
@@ -67,6 +69,7 @@ pub fn run(sg: SceneGraph, up: UpAxis) {
         .insert_resource(SelectionState::default())
         .insert_resource(QueryPanelState::default())
         .insert_resource(CaptureState::default())
+        .insert_resource(Theme::default())
         .add_systems(
             Startup,
             (
@@ -102,6 +105,9 @@ pub fn run(sg: SceneGraph, up: UpAxis) {
                 render::nodes::draw_selection_ring,
                 // Query dispatch.
                 query::dispatch::execute_query,
+                // Repaint before the capture reads the view, so a theme switched in the
+                // same frame as a capture is the one that lands in the PNG.
+                theme::apply_theme.after(ui::panels::draw_layer_panel),
                 // Capture — after the panel, so a press is acted on the frame it happens.
                 capture::drive_capture.after(ui::panels::draw_layer_panel),
                 // UI panels — must run in this order: left panel first so

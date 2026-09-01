@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::components::CoordGroupMesh;
 use crate::render::edges::{active_node_set, line_list_mesh, v3};
+use crate::theme::{Theme, layer_hue};
 use crate::resources::{
     EdgeMeshMaterials, HoverState, LayoutPositions, QueryPanelState, SceneGraphRes, SelectionState,
     VisibilityToggles,
@@ -45,9 +46,9 @@ pub(crate) fn build_spoke_positions(
 /// Deliberately subordinate to the lines that carry graph meaning: intra-layer edges
 /// use the layer hue at saturation 0.75, nesting lines use white at alpha 0.18–0.45.
 /// Low saturation plus low alpha reads as "same node", not "relationship".
-fn spoke_material(hue: f32) -> StandardMaterial {
+fn spoke_material(theme: Theme, hue: f32) -> StandardMaterial {
     StandardMaterial {
-        base_color: Color::hsla(hue, 0.35, 0.5, 0.35),
+        base_color: theme.coord_spoke(hue),
         unlit: true,
         alpha_mode: AlphaMode::Blend,
         ..default()
@@ -63,14 +64,15 @@ pub fn build_coord_group_meshes(
     vis: Res<VisibilityToggles>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    theme: Res<Theme>,
     mut edge_mats: ResMut<EdgeMeshMaterials>,
 ) {
     let sg = &sg_res.0;
-    let num_layers = sg.layers_count().max(1) as f32;
+    let num_layers = sg.layers_count();
 
     for layer in sg.layers() {
-        let hue = (layer.id as f32 / num_layers) * 360.0;
-        let mat = materials.add(spoke_material(hue));
+        let hue = layer_hue(layer.id, num_layers);
+        let mat = materials.add(spoke_material(*theme, hue));
         edge_mats.coord_group_by_layer.insert(layer.id, mat.clone());
 
         let layer_visible = vis.layer_visible.get(&layer.id).copied().unwrap_or(true);

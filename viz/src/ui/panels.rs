@@ -7,6 +7,7 @@ use crate::layout::compute_layout;
 use crate::resources::{
     LayoutPositions, SceneGraphRes, SphereMeshHandle, UpAxisRes, VisibilityToggles,
 };
+use crate::theme::Theme;
 
 /// Draws the left sidebar panel containing per-layer visibility toggles,
 /// the AABB wireframe toggle, and the z-separation slider.
@@ -24,6 +25,7 @@ pub fn draw_layer_panel(
     sphere_handle: Res<SphereMeshHandle>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut capture: ResMut<CaptureState>,
+    mut theme: ResMut<Theme>,
 ) {
     let sg = &sg_res.0;
 
@@ -100,8 +102,47 @@ pub fn draw_layer_panel(
             }
 
             ui.separator();
+            draw_theme_toggle(ui, &mut theme);
+
+            ui.separator();
             draw_capture_section(ui, &mut capture);
         });
+
+    // egui keeps its own palette, so the panels follow the toggle too — set only on a
+    // change, since `set_visuals` rebuilds the style every call.
+    if theme.is_changed() {
+        let visuals = if theme.is_dark() {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
+        contexts.ctx_mut().set_visuals(visuals);
+    }
+}
+
+/// The dark/light toggle.
+///
+/// It is next to the capture button because that is what it is for: a figure headed for a
+/// white page wants a white background, and the capture takes the view as it stands.
+///
+/// Takes the `ResMut` rather than a `&mut Theme`: writing through the latter every frame
+/// would deref-mut the resource every frame, and bevy's change detection cannot tell that
+/// from a real toggle. `apply_theme` would then repaint — and so re-upload — every material
+/// in the scene on every frame.
+fn draw_theme_toggle(ui: &mut egui::Ui, theme: &mut ResMut<Theme>) {
+    let mut dark = theme.is_dark();
+    if ui
+        .checkbox(&mut dark, "Dark mode")
+        .on_hover_text(
+            "Off gives the scene a white background — and repaints the nesting lines, \
+             wireframes and selection ring, which are drawn in light tones that vanish \
+             against white. Captures take the view as it stands, so switch this off \
+             before saving a PNG for a white page.",
+        )
+        .changed()
+    {
+        **theme = if dark { Theme::Dark } else { Theme::Light };
+    }
 }
 
 /// The capture button and its scale selector.

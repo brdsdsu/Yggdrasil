@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use scene_graph::Bounds;
 
 use crate::resources::{HoverState, SceneGraphRes, UpAxisRes, VisibilityToggles};
+use crate::theme::{Theme, layer_hue};
 
 /// Collects the given layer ID plus all layer IDs reachable by following
 /// `child_layer_ids()` downward in the layer DAG (BFS).
@@ -44,6 +45,7 @@ pub fn draw_aabb_wireframes(
     vis: Res<VisibilityToggles>,
     hover: Res<HoverState>,
     up: Res<UpAxisRes>,
+    theme: Res<Theme>,
 ) {
     if !vis.show_aabbs {
         return;
@@ -90,8 +92,7 @@ pub fn draw_aabb_wireframes(
                     continue;
                 }
 
-                let hue = (sub_id as f32 / num_layers.max(1) as f32) * 360.0;
-                let color = Color::hsla(hue, 0.9, 0.7, 0.8);
+                let color = theme.aabb(layer_hue(sub_id, num_layers));
 
                 let (center_y, size_y) = if sub_id == leaf_layer_id {
                     ((bb_min.y + bb_max.y) * 0.5, (bb_max.y - bb_min.y).max(0.1))

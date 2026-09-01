@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::components::{LayerTag, NodeSphere};
+use crate::theme::Theme;
 use crate::resources::{
     HoverState, LayoutPositions, QueryPanelState, SelectionState, VisibilityToggles,
 };
@@ -56,6 +57,7 @@ pub fn draw_selection_ring(
     selection: Res<SelectionState>,
     layout: Res<LayoutPositions>,
     vis: Res<VisibilityToggles>,
+    theme: Res<Theme>,
 ) {
     let Some(nid) = selection.selected_node else {
         return;
@@ -68,6 +70,6 @@ pub fn draw_selection_ring(
     gizmos.circle(
         Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
         radius,
-        Color::srgb(1.0, 0.9, 0.0),
+        theme.selection_ring(),
     );
 }

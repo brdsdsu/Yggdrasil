@@ -5,6 +5,7 @@ use bevy::render::mesh::PrimitiveTopology;
 use bevy::render::render_asset::RenderAssetUsages;
 use scene_graph::NodeId;
 
+use crate::theme::{Theme, layer_hue};
 use crate::components::{EdgeBaseMesh, EdgeHighlightMesh, NestingBaseMesh, NestingHighlightMesh};
 use crate::resources::{
     EdgeMeshMaterials, HoverState, LayoutPositions, QueryPanelState, SceneGraphRes, SelectionState,
@@ -96,22 +97,23 @@ pub fn build_edge_meshes(
     layout: Res<LayoutPositions>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    theme: Res<Theme>,
     mut edge_mats: ResMut<EdgeMeshMaterials>,
 ) {
     let sg = &sg_res.0;
-    let num_layers = sg.layers_count().max(1) as f32;
+    let num_layers = sg.layers_count();
 
     for layer in sg.layers() {
-        let hue = (layer.id as f32 / num_layers) * 360.0;
+        let hue = layer_hue(layer.id, num_layers);
 
         let base_mat = materials.add(StandardMaterial {
-            base_color: Color::hsla(hue, 0.75, 0.35, 0.85),
+            base_color: theme.edge_base(hue),
             unlit: true,
             alpha_mode: AlphaMode::Blend,
             ..default()
         });
         let highlight_mat = materials.add(StandardMaterial {
-            base_color: Color::hsla(hue, 0.75, 0.65, 0.85),
+            base_color: theme.edge_highlight(hue),
             unlit: true,
             alpha_mode: AlphaMode::Blend,
             ..default()
@@ -145,16 +147,17 @@ pub fn build_nesting_mesh(
     vis: Res<VisibilityToggles>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    theme: Res<Theme>,
     mut edge_mats: ResMut<EdgeMeshMaterials>,
 ) {
     let base_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(1.0, 1.0, 1.0, 0.18),
+        base_color: theme.nesting_base(),
         unlit: true,
         alpha_mode: AlphaMode::Blend,
         ..default()
     });
     let highlight_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(1.0, 1.0, 1.0, 0.45),
+        base_color: theme.nesting_highlight(),
         unlit: true,
         alpha_mode: AlphaMode::Blend,
         ..default()

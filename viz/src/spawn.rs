@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::{
     components::{CoordIndex, LayerTag, NodeSphere, VisPos},
     resources::{LayerMaterials, LayoutPositions, SceneGraphRes, SphereMeshHandle, VisibilityToggles},
+    theme::{Theme, layer_hue},
 };
 
 /// Spawns the 3D camera with orbit/pan/zoom controls centered on the scene.
@@ -69,17 +70,18 @@ pub fn spawn_node_spheres(
     vis: Res<VisibilityToggles>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    theme: Res<Theme>,
     mut layer_mats: ResMut<LayerMaterials>,
     mut sphere_handle: ResMut<SphereMeshHandle>,
 ) {
     let sg = &sg_res.0;
-    let num_layers = sg.layers_count().max(1) as f32;
+    let num_layers = sg.layers_count();
     let sphere_mesh = meshes.add(Sphere::new(vis.node_radius));
     sphere_handle.0 = sphere_mesh.clone();
 
     for layer in sg.layers() {
-        let hue = (layer.id as f32 / num_layers) * 360.0;
-        let layer_color = Color::hsl(hue, 0.75, 0.55);
+        let hue = layer_hue(layer.id, num_layers);
+        let layer_color = theme.node(hue);
         let initially_visible = vis.layer_visible.get(&layer.id).copied().unwrap_or(true);
 
         // One material shared by every node in this layer.

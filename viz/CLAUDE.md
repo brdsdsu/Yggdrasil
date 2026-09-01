@@ -42,6 +42,7 @@ viz/src/
 ├── resources.rs         # Bevy Resource types (shared mutable state)
 ├── layout.rs            # 3D position assignment algorithm
 ├── capture.rs           # Offscreen high-resolution PNG capture of the current view
+├── theme.rs             # Dark/light palette for the 3D view, and the repaint system
 ├── loader.rs            # Scene loading (JSON file or built-in demo)
 ├── spawn.rs             # Startup systems: camera, lights, node spheres
 ├── render/
@@ -92,6 +93,7 @@ viz/src/
 | `SelectionState` | `selected_node`, `selected_layer`, `subtree_ids` (BFS descendants) |
 | `VisibilityToggles` | `layer_visible: HashMap<u32, bool>`, `show_aabbs: bool`, `show_nesting: bool`, `show_coord_groups: bool`, `z_separation: f32`, `node_radius: f32` |
 | `QueryPanelState` | All query form fields, `highlighted_nodes`, `highlighted_edges`, `error`, `submitted` |
+| `Theme` | `Dark` (default) or `Light`. Owns every colour in the 3D view; `apply_theme` repaints the startup-built materials when it changes |
 | `CaptureState` | `scale` (1/2/4/8×), `dir`, `message: Option<Result<String, String>>`, `window_size`, and a private capture `phase` |
 
 ### `QueryType` enum (8 variants)
@@ -241,6 +243,7 @@ System draw order matters — left panel before properties before query, so `ava
 - "Show AABBs" checkbox
 - "Show Hierarchical Edges" checkbox (`VisibilityToggles.show_nesting`)
 - "Show Coordinate Groups" checkbox (`VisibilityToggles.show_coord_groups`)
+- "Dark mode" checkbox (`Theme`). Also switches egui's own visuals, so the panels follow
 - Capture section: scale selector (1×–8×), "📷 Save PNG" button (disabled mid-capture), the resulting pixel size, and the last result or error. Drawn by `draw_capture_section`, a helper in the same file
 - "Z Separation" logarithmic slider (0.1 – 500.0); changing it immediately recomputes layout and updates all sphere transforms in place (no scene rebuild), each sphere reading `coords[CoordIndex]` and falling back to the anchor
 - "Node Radius" logarithmic slider (0.01 – 10.0); changing it replaces the shared sphere mesh asset in place so all spheres resize immediately
@@ -272,6 +275,72 @@ Window is resizable and collapsible (min width 200px).
 - "▶ Run Query" sets `submitted = true`; "✕ Clear" clears highlighted sets (grayed when empty)
 - Error message shown in red when `QueryPanelState.error` is set
 - Results section: count label + scrollable list of node/edge IDs (max 200px)
+
+---
+
+## Theme (`theme.rs`)
+
+`Theme::Dark` (the default) and `Theme::Light` are the two palettes for the 3D view. The
+toggle exists for captures: a figure headed for a white page wants a white background, and
+the capture takes the view as it stands.
+
+**It cannot be a clear-colour swap.** Every colour in the view was written against a dark
+ground, and the nesting lines have no colour of their own at all — they are white at alpha
+0.18/0.45, which on white is nothing. So the palette moves with the background, and it
+lives in one place rather than inline at each call site. `layer_hue` also lives here,
+replacing the four identical copies of `(layer_id / num_layers) * 360.0` that had been
+spread across `spawn.rs`, `edges.rs`, `coord_groups.rs` and `bounds.rs`.
+
+Hue is always the layer's own in both themes; only lightness and alpha move:
+
+| element | dark | light |
+|---|---|---|
+| background | `#2b2c2f` (bevy's default, so dark is exactly what it always was) | white |
+| node spheres | hsl(hue, 0.75, 0.55) | unchanged — a lit, saturated hue reads on either ground |
+| intra-layer edges | L 0.35 base / 0.65 highlight | L 0.45 / 0.30 |
+| nesting lines | white, α 0.18 / 0.45 | **grey 0.65**, α 0.42 / 0.7 |
+| coordinate spokes | hsla(hue, 0.35, 0.5, 0.35) | hsla(hue, 0.35, 0.35, 0.5) |
+| AABB wireframes | hsla(hue, 0.9, 0.7, 0.8) | hsla(hue, 0.9, 0.4, 0.9) |
+| selection ring | pure yellow | amber |
+
+Two rules the tests enforce, both of which were violated by the obvious implementation:
+
+1. **The highlight must out-contrast the base**, which on a light ground means going
+   *darker* rather than lighter — the pair inverts rather than shifting.
+2. **The light alphas are not the dark ones mirrored.** Blending is linear and perception
+   is not: white at α 0.18 over `#2b2c2f` composites to a ~4× larger sRGB step than black
+   at α 0.18 over white, because sRGB spends most of its range on the dark end. Mirroring
+   the number gives a line that is technically present and visually absent — measured at
+   0.31 contrast against dark versus 0.08 against white, and confirmed in a render before
+   the alphas were refitted.
+3. **The light nesting line is a light grey, not an inverted white.** Alpha accumulates
+   where lines cross, and nesting lines cross constantly: every child of one parent fans
+   into the same wedge. A black source drives that wedge to black; a grey source cannot go
+   past the grey however many stack up, so the source tone *is* the floor of the densest
+   region. Measured in a render: a median line of 219 with pile-ups bottoming out at 135.
+
+`composited_contrast` in the tests blends the colour over its own background and measures
+*after* sRGB encoding, because a check on the raw colours passes the invisible case: black
+is the exact opposite of white no matter how little of it there is.
+
+Two different bars, because the elements are not doing the same job:
+
+- **Everything that carries data** — edges, spokes, AABBs — must hold **parity** with its
+  dark counterpart (≥ 0.7×). A fixed threshold cannot express this, since the two grounds
+  are not symmetric, and that asymmetry is the trap rule 2 describes.
+- **Nesting lines are exempt from parity and held to a visibility floor instead.** On a
+  white ground they are meant to be the faintest thing in the scene — hierarchy is context,
+  the edges and spheres are the content — so parity would force them heavier than they
+  should be, and they have since been lightened twice on request. The floor is anchored to
+  the one point on the scale a render has actually settled: the mirrored-alpha line that
+  came back invisible, computed rather than hardcoded, with the bar a margin above it. The
+  base currently sits at 1.6× that anchor, so there is not much room left below.
+
+`apply_theme` repaints on change: the sphere, edge, spoke and nesting colours live in
+`StandardMaterial` assets built once at startup, so a toggle has to reach into them. The
+gizmo colours (AABB slabs, selection ring) are re-issued every frame and need nothing. It
+is ordered **before** `drive_capture`, so a theme switched in the same frame as a capture is
+the one that lands in the PNG.
 
 ---
 
@@ -352,6 +421,7 @@ Update tick:
   update_node_visibility
   draw_selection_ring
   execute_query
+  apply_theme                                    ← after draw_layer_panel, before drive_capture
   drive_capture                                  ← after draw_layer_panel
   draw_layer_panel                               ← must run before props panel
   draw_properties_panel                          ← must run before query panel
