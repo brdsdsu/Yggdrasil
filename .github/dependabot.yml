@@ -1,0 +1,28 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # One Cargo.lock covers the whole workspace, the vendored spatial-index included.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      # Bevy and PyO3 break their APIs on every 0.x minor, which Cargo treats as a
+      # major. Moving viz/ or python-binding/ to a new one is a deliberate migration,
+      # not an auto-bump. Patch releases still flow.
+      - dependency-name: "bevy*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "pyo3"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

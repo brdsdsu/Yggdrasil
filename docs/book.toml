@@ -4,7 +4,9 @@ authors = ["ArshiAAkhavan"]
 language = "en"
 
 [output.html]
+# Served from https://brdsdsu.github.io/Yggdrasil/, so the 404 page needs the prefix.
+site-url = "/Yggdrasil/"
 theme = "theme"
 additional-css = ["ferris.css", "theme/2018-edition.css", "theme/semantic-notes.css", "theme/listing.css"]
 additional-js = ["ferris.js"]
-git-repository-url = "https://github.com/rust-lang/book"
+git-repository-url = "https://github.com/brdsdsu/Yggdrasil"

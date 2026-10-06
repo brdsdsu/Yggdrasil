@@ -1,0 +1,14 @@
+Yggdrasil
+
+Copyright 2025-2026 The Yggdrasil Authors
+
+This product includes software developed by the Yggdrasil Authors
+(https://github.com/brdsdsu/Yggdrasil).
+
+This product includes a modified copy of kiddo 6.0.0-alpha.3
+(https://github.com/sdd/kiddo), vendored under spatial-index/.
+Copyright (c) 2023 Scott Donnelly and the other contributors to Kiddo.
+kiddo is licensed under either the MIT license or the Apache License,
+Version 2.0, at your option; both license texts are kept unchanged in
+spatial-index/LICENSE-MIT and spatial-index/LICENSE-APACHE. The changes
+made to it are listed in spatial-index/README.md.

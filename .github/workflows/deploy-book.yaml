@@ -2,13 +2,10 @@ name: Deploy mdBook to GitHub Pages
 
 on:
   push:
-    branches: ["master"] # Change to your default branch name
+    branches: [master]
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Allow only one concurrent deployment
 concurrency:
@@ -18,28 +15,47 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write # publish the site
+      id-token: write # authenticate the Pages deployment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
+      # Pinned by version and checksum. `releases/latest/download/<asset>` cannot
+      # be combined with a versioned asset name: once a newer mdBook ships, the
+      # URL 404s.
       - name: Install mdBook
+        env:
+          MDBOOK_VERSION: 0.5.2
+          MDBOOK_SHA256: 084e4342ba564db270108763e404a7d1f309d932651a22484e93c0dc1a071f6d
         run: |
-          # Fetch the latest version of mdBook
-          curl -sSL https://github.com/rust-lang/mdBook/releases/latest/download/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+          set -euo pipefail
+          TARBALL="mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors -o "$TARBALL" \
+            "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/${TARBALL}"
+          echo "${MDBOOK_SHA256}  ${TARBALL}" | sha256sum --check --strict -
+          tar -xzf "$TARBALL" mdbook
           sudo mv mdbook /usr/local/bin/
 
       - name: Build with mdBook
-        run: mdbook build docs # Points to your ./docs directory
+        run: mdbook build docs
 
       - name: Setup Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          # Path to the generated HTML (mdBook defaults to "book" inside your source dir)
-          path: './docs/book'
+          # mdBook writes the site to `book` inside the source directory.
+          path: ./docs/book
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

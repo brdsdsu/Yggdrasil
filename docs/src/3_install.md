@@ -1,8 +1,13 @@
 # For Rust Ecosystem
 
-## From crates.io
+## As a Git Dependency
 
-Simply run `cargo add yggdrasil`
+Yggdrasil is not published on crates.io yet (the `yggdrasil` crate there is an
+unrelated project). Depend on the `scene-graph` crate straight from the repository:
+
+```bash
+cargo add scene-graph --git https://github.com/brdsdsu/Yggdrasil
+```
 
 ## Build From Source
 

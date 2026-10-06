@@ -1,0 +1,5 @@
+# Default owner for everything in the repo.
+* @ArshiAAkhavan
+
+# CI/CD, security policy, and repository machinery.
+/.github/ @ArshiAAkhavan
