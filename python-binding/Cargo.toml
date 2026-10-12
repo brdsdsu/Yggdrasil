@@ -12,4 +12,4 @@ crate-type = ["cdylib"]
 [dependencies]
 scene-graph = { path = "../scene-graph" }
 pyo3 = "0.27.0"
-glam = "0.30.9"
+glam = "0.34.1"

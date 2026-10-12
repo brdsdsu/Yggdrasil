@@ -13,7 +13,7 @@ name = "visible_subgraph"
 harness = false
 
 [dependencies]
-glam = { version = "0.30.9", features = ["serde"] }
+glam = { version = "0.34.1", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 # Vendored fork of kiddo. Its lib keeps upstream's `kiddo` name so upstream's own tests and
 # doctests compile unmodified, so it is renamed here instead — code that reads
