@@ -165,7 +165,7 @@ version = "0.1"
 [dev-dependencies]
 assert_float_eq = "1.2"
 rand = "0.10"
-rstest = "0.26"
+rstest = "0.27"
 zzz = "0.3.2"
 trybuild = "1"
 rand_chacha = "0.10"
