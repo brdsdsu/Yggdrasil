@@ -2,11 +2,10 @@
   <img src="./rsc/logo.png" width="34%" alt="Yggdrasil" />
 </p>
 
-<h1 align="center">The world-tree for distributed 3D scene graphs.</h1>
-<p align="center"><em><b>Y</b>et another <b>G</b>ood <b>G</b>raph for <b>D</b>ynamic <b>R</b>e<b>A</b>ltime <b>S</b>cene <b>I</b>nteraction and <b>L</b>earning.</em></p>
+<h1 align="center"><em><b>Y</b>et another <b>G</b>ood <b>G</b>raph for <b>D</b>ynamic <b>R</b>e<b>A</b>ltime <b>S</b>cene <b>I</b>nteraction and <b>L</b>earning.</em></h1>
 
 <p align="center">
-  Like Yggdrasil binding the Nine Realms, this system maintains the ‘world-tree’ of 3D scene data,<br/>
+  Like <a href="https://en.wikipedia.org/wiki/Yggdrasil">Yggdrasil</a> binding the Nine Realms, this system maintains the ‘world-tree’ of 3D scene data,<br/>
   reconciling distributed updates and serving coherent subgraphs across heterogeneous agents.
 </p>
 
