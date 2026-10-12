@@ -2,7 +2,7 @@
   <img src="./rsc/logo.png" width="34%" alt="Yggdrasil" />
 </p>
 
-<h1 align="center"><em><b>Y</b>et another <b>G</b>ood <b>G</b>raph for <b>D</b>ynamic <b>R</b>e<b>A</b>ltime <b>S</b>cene <b>I</b>nteraction and <b>L</b>earning.</em></h1>
+<h1 align="center"><ins>Y</ins>et another <ins>G</ins>ood <ins>G</ins>raph for <ins>D</ins>ynamic <ins>R</ins>e<ins>A</ins>ltime <ins>S</ins>cene <ins>I</ins>nteraction and <ins>L</ins>earning.</h1>
 
 <p align="center">
   Like <a href="https://en.wikipedia.org/wiki/Yggdrasil">Yggdrasil</a> binding the Nine Realms, this system maintains the ‘world-tree’ of 3D scene data,<br/>
