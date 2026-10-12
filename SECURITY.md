@@ -22,8 +22,8 @@ reproduce against the latest `master` before reporting.
 ## Scope
 
 This policy covers the crates in this repository (`scene-graph`,
-`spatial-index`, `engine`, `python-binding`, `viz`, `bench`, `dsg`, `dsg-sys`)
-and the documentation book built from `docs/`.
+`spatial-index`, `engine`, `python-binding`, `viz`, `bench`) and the
+documentation book built from `docs/`.
 
 - `spatial-index` is a vendored fork of [kiddo](https://github.com/sdd/kiddo).
   If the issue also exists upstream, please report it to kiddo as well.

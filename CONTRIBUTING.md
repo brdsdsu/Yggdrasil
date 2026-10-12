@@ -13,8 +13,6 @@
 
 - For `python-binding`: Python 3.8+ and [uv](https://docs.astral.sh/uv/) (or pip and maturin)
 - For the book: [mdBook](https://rust-lang.github.io/mdBook/) 0.5
-- For the experimental `dsg` / `dsg-sys` crates only: CMake, clang and the Spark-DSG
-  dependencies. The [`Dockerfile`](Dockerfile) sets all of these up.
 
 ### Local Setup
 

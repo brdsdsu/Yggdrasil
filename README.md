@@ -128,7 +128,6 @@ exposes the library to Python, and `viz` is an interactive Bevy viewer.
 | [`python-binding`](python-binding/) | PyO3 bindings, packaged as `yggdrasil-3d` and imported as `yggdrasil` |
 | [`viz`](viz/) | Bevy visualizer: layer toggles, node inspection, queries |
 | [`bench`](bench/) | Benchmark harness, `spatial-index` against upstream kiddo |
-| [`dsg`](dsg/), [`dsg-sys`](dsg-sys/) | Experimental bindings to MIT SPARK's [Spark-DSG](https://github.com/MIT-SPARK/Spark-DSG), outside the workspace |
 | [`docs`](docs/) | The Yggdrasil Book (mdBook) |
 
 The book also plans a distributed service for edge deployments and adapters such as ROS 2;
@@ -234,8 +233,7 @@ cargo build --release --workspace
 
   `viz` enables Bevy's Wayland backend alongside X11.
 - **Python**: 3.8 or newer, with maturin 1.10 or newer.
-- **Docker**: the [`Dockerfile`](Dockerfile) builds an Ubuntu 24.04 image with clang, CMake,
-  the Spark-DSG dependencies and Rust, for working on `dsg` / `dsg-sys`.
+- **Docker**: the [`Dockerfile`](Dockerfile) builds an Ubuntu 24.04 image with Rust.
 
 </details>
 
