@@ -334,7 +334,7 @@ Two different bars, because the elements are not doing the same job:
   should be, and they have since been lightened twice on request. The floor is anchored to
   the one point on the scale a render has actually settled: the mirrored-alpha line that
   came back invisible, computed rather than hardcoded, with the bar a margin above it. The
-  base currently sits at 1.6× that anchor, so there is not much room left below.
+  base currently sits at 1.49× that anchor, so there is not much room left below.
 
 `apply_theme` repaints on change: the sphere, edge, spoke and nesting colours live in
 `StandardMaterial` assets built once at startup, so a toggle has to reach into them. The

@@ -103,7 +103,7 @@ impl Theme {
     pub fn nesting_base(self) -> Color {
         match self {
             Self::Dark => Color::srgba(1.0, 1.0, 1.0, 0.18),
-            Self::Light => Color::srgba(0.80, 0.80, 0.80, 0.42),
+            Self::Light => Color::srgba(0.65, 0.65, 0.65, 0.42),
         }
     }
 
