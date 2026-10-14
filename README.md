@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://arxiv.org/abs/2609.38640"><img src="https://img.shields.io/badge/arXiv-2609.38640-b31b1b" alt="arXiv" /></a>
   <img src="https://img.shields.io/github/stars/brdsdsu/Yggdrasil" alt="Stars" />
   <a href="LICENSE"><img src="https://img.shields.io/github/license/brdsdsu/Yggdrasil" alt="License" /></a>
   <a href="https://github.com/brdsdsu/Yggdrasil/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/brdsdsu/Yggdrasil/ci.yml?branch=master&amp;label=CI" alt="CI" /></a>
@@ -18,6 +19,7 @@
 </p>
 
 <p align="center">
+  <a href="https://arxiv.org/abs/2609.38640">Paper</a> ·
   <a href="https://brdsdsu.github.io/Yggdrasil/">Book</a> ·
   <a href="https://github.com/brdsdsu/Yggdrasil/issues">Issues</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
@@ -300,6 +302,28 @@ cargo run --release -p bench            # spatial-index against upstream kiddo
 
 ---
 
+### Citation
+
+If you use Yggdrasil in your research, please cite the paper,
+[*Yggdrasil: a Layer-First 3D Scene Graph for Real-Time Querying*](https://arxiv.org/abs/2609.38640):
+
+```bibtex
+@misc{akhavan2026yggdrasillayerfirst3dscene,
+  title         = {Yggdrasil: a Layer-First 3D Scene Graph for Real-Time Querying},
+  author        = {Arshia Akhavan and Ermanno Bartoli and Afnan Algharbi and Alireza Hoseinpur and Iolanda Leite and Bryan Donyanavard},
+  year          = {2026},
+  eprint        = {2609.38640},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.RO},
+  url           = {https://arxiv.org/abs/2609.38640},
+}
+```
+
+The **Cite this repository** button in the GitHub sidebar gives the same citation in APA
+and BibTeX, from [`CITATION.cff`](CITATION.cff).
+
+---
+
 ### Contributing
 
 Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for local
@@ -307,6 +331,7 @@ setup and conventions, [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community st
 and [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 <p align="center">
+  <a href="https://arxiv.org/abs/2609.38640">Paper</a> ·
   <a href="https://brdsdsu.github.io/Yggdrasil/">Book</a> ·
   <a href="https://github.com/brdsdsu/Yggdrasil/issues">Issues</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>

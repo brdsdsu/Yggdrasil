@@ -1,0 +1,45 @@
+cff-version: 1.2.0
+message: "If you use Yggdrasil in your research, please cite the paper below."
+title: "Yggdrasil"
+abstract: "A layer-first 3D scene graph for real-time querying."
+type: software
+authors:
+  - given-names: Arshia
+    family-names: Akhavan
+  - given-names: Ermanno
+    family-names: Bartoli
+  - given-names: Afnan
+    family-names: Algharbi
+  - given-names: Alireza
+    family-names: Hoseinpur
+  - given-names: Iolanda
+    family-names: Leite
+  - given-names: Bryan
+    family-names: Donyanavard
+repository-code: "https://github.com/brdsdsu/Yggdrasil"
+url: "https://brdsdsu.github.io/Yggdrasil/"
+license: Apache-2.0
+keywords:
+  - 3D scene graph
+  - robotics
+  - spatial queries
+preferred-citation:
+  type: article
+  title: "Yggdrasil: a Layer-First 3D Scene Graph for Real-Time Querying"
+  authors:
+    - given-names: Arshia
+      family-names: Akhavan
+    - given-names: Ermanno
+      family-names: Bartoli
+    - given-names: Afnan
+      family-names: Algharbi
+    - given-names: Alireza
+      family-names: Hoseinpur
+    - given-names: Iolanda
+      family-names: Leite
+    - given-names: Bryan
+      family-names: Donyanavard
+  journal: "arXiv preprint arXiv:2609.38640"
+  year: 2026
+  doi: "10.48550/arXiv.2609.38640"
+  url: "https://arxiv.org/abs/2609.38640"
