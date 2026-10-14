@@ -33,6 +33,10 @@ cargo run --release -p viz                   # explore the built-in demo scene i
 cargo run -p scene-graph --example demo      # the book's walkthrough, as one program
 ```
 
+<p align="center">
+  <img src="./rsc/viz.png" width="90%" alt="A layered 3D scene graph in the Yggdrasil visualizer" />
+</p>
+
 Building a graph and querying it takes a few lines:
 
 ```rust
