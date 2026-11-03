@@ -295,13 +295,30 @@ impl From<&scene_graph::Feature> for PyFeature {
 
 /// Unique identifier for a node in the scene graph.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-#[pyclass(name = "NodeId", str, eq, hash, frozen)]
+#[pyclass(name = "NodeId", module = "yggdrasil", str, eq, hash, frozen)]
 pub struct PyNodeId(NodeId);
 
 #[pymethods]
 impl PyNodeId {
+    /// Rebuild a NodeId from its two halves. Only meaningful for values that
+    /// came out of this graph earlier (e.g. restored from a pickle).
+    #[new]
+    pub fn new(layer_id: u32, node_id: u32) -> Self {
+        PyNodeId(NodeId::new(node_id, layer_id))
+    }
+
+    /// Pickle support: reconstruct via `NodeId(layer_id, node_id)`.
+    pub fn __getnewargs__(&self) -> (u32, u32) {
+        (self.layer_id(), self.node_id())
+    }
+
     pub fn __repr__(&self) -> String {
         self.to_string()
+    }
+
+    /// The raw 64-bit encoding (layer id in the high half).
+    pub fn as_u64(&self) -> u64 {
+        self.0.as_u64()
     }
 
     pub fn layer_id(&self) -> u32 {

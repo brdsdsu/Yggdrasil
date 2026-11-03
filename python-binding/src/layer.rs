@@ -1,6 +1,7 @@
 use crate::error::Result;
 use crate::lazylist::PyLazyNodeDistPairList;
 use crate::node::{PyAnonNode, PyEdge, PyNodeId, PyNodeRef};
+use crate::shortest_path::PyShortestPaths;
 use glam::Vec3;
 
 use pyo3::prelude::*;
@@ -80,15 +81,15 @@ impl PyLayerRef {
         &self,
         coord: (f32, f32, f32),
         count: PyPosQueryCount,
-    ) -> PyLazyNodeDistPairList {
+    ) -> Result<PyLazyNodeDistPairList> {
         let (x, y, z) = coord;
-        PyLazyNodeDistPairList::new(
-            Arc::clone(&self.sg),
-            self.sg
-                .lock()
-                .unwrap()
-                .nearest_nodes(&Coordinate::new(x, y, z), count.into()),
-        )
+        let nodes = self
+            .sg
+            .lock()
+            .unwrap()
+            .layer(self.lid)?
+            .nearest_nodes(&Coordinate::new(x, y, z), count.into());
+        Ok(PyLazyNodeDistPairList::new(Arc::clone(&self.sg), nodes))
     }
 
     /// Retrieve at most `count` nodes within a specified radius to the given position.
@@ -98,15 +99,38 @@ impl PyLayerRef {
         coord: (f32, f32, f32),
         radius: f32,
         count: PyPosQueryCount,
-    ) -> PyLazyNodeDistPairList {
+    ) -> Result<PyLazyNodeDistPairList> {
         let (x, y, z) = coord;
-        PyLazyNodeDistPairList::new(
-            Arc::clone(&self.sg),
-            self.sg
-                .lock()
-                .unwrap()
-                .nodes_within(&Coordinate::new(x, y, z), radius, count.into()),
-        )
+        let nodes = self
+            .sg
+            .lock()
+            .unwrap()
+            .layer(self.lid)?
+            .nodes_within(&Coordinate::new(x, y, z), radius, count.into());
+        Ok(PyLazyNodeDistPairList::new(Arc::clone(&self.sg), nodes))
+    }
+
+    /// Single-source shortest paths over this layer's intra-layer edges,
+    /// following edges in their insertion order. The weight of an edge is the
+    /// Euclidean distance between the first coordinate of its endpoints.
+    /// Edges are directed: insert both directions for undirected semantics.
+    pub fn dijkstra(&self, source: PyNodeId) -> Result<PyShortestPaths> {
+        let sg = self.sg.lock().unwrap();
+        let sp = sg.layer(self.lid)?.dijkstra(source.into())?;
+        Ok(PyShortestPaths::new(sp))
+    }
+
+    /// Same as `dijkstra`, but stops as soon as every node in `targets` has
+    /// been settled. Unreachable targets are absent from the result.
+    pub fn dijkstra_to(
+        &self,
+        source: PyNodeId,
+        targets: Vec<PyNodeId>,
+    ) -> Result<PyShortestPaths> {
+        let targets: Vec<scene_graph::NodeId> = targets.into_iter().map(Into::into).collect();
+        let sg = self.sg.lock().unwrap();
+        let sp = sg.layer(self.lid)?.dijkstra_to(source.into(), &targets)?;
+        Ok(PyShortestPaths::new(sp))
     }
 
     /// Get List of all nodes in the layer.

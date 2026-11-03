@@ -397,6 +397,35 @@ impl PySceneGraphRef {
             .collect()
     }
 
+    /// Bulk-fetch static node attributes in one call: for each id, the node's
+    /// first coordinate and the value of each requested feature key (None where
+    /// the node lacks that feature). One lock acquisition serves the whole
+    /// batch, which matters when a caller needs attributes for every node of a
+    /// long path.
+    #[allow(clippy::type_complexity)]
+    pub fn node_infos(
+        &self,
+        ids: Vec<PyNodeId>,
+        feature_keys: Vec<String>,
+    ) -> Result<Vec<((f32, f32, f32), Vec<Option<String>>)>> {
+        let sg = self.inner.lock().unwrap();
+        ids.into_iter()
+            .map(|id| {
+                let node = sg.node(id.into())?;
+                let c = node
+                    .coordinates
+                    .first()
+                    .copied()
+                    .ok_or(scene_graph::SceneGraphError::CoordinatesRequired)?;
+                let features = feature_keys
+                    .iter()
+                    .map(|k| node.feature(k).ok().map(String::from))
+                    .collect();
+                Ok(((c.x, c.y, c.z), features))
+            })
+            .collect()
+    }
+
     /// Get List of all edges matching a specific description.
     pub fn edges_matching(&self, desc: &str) -> Vec<Vec<PyEdge>> {
         self.inner
