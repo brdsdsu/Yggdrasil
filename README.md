@@ -14,13 +14,15 @@
   <img src="https://img.shields.io/github/stars/brdsdsu/Yggdrasil" alt="Stars" />
   <a href="LICENSE"><img src="https://img.shields.io/github/license/brdsdsu/Yggdrasil" alt="License" /></a>
   <a href="https://github.com/brdsdsu/Yggdrasil/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/brdsdsu/Yggdrasil/ci.yml?branch=master&amp;label=CI" alt="CI" /></a>
-  <a href="#install"><img src="https://img.shields.io/badge/rust-2024%20edition-orange" alt="Rust 2024 edition" /></a>
-  <a href="#python"><img src="https://img.shields.io/badge/python-bindings-3776ab" alt="Python bindings" /></a>
+  <a href="https://crates.io/crates/yggdrasil-3d"><img src="https://img.shields.io/crates/v/yggdrasil-3d" alt="crates.io" /></a>
+  <a href="https://pypi.org/project/yggdrasil-3d/"><img src="https://img.shields.io/pypi/v/yggdrasil-3d" alt="PyPI" /></a>
+  <a href="https://docs.rs/yggdrasil-3d"><img src="https://img.shields.io/docsrs/yggdrasil-3d" alt="docs.rs" /></a>
 </p>
 
 <p align="center">
   <a href="https://arxiv.org/abs/2609.38640">Paper</a> ·
   <a href="https://brdsdsu.github.io/Yggdrasil/">Book</a> ·
+  <a href="https://docs.rs/yggdrasil-3d">API docs</a> ·
   <a href="https://github.com/brdsdsu/Yggdrasil/issues">Issues</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
@@ -28,6 +30,13 @@
 ---
 
 ### Try Yggdrasil
+
+```bash
+cargo add yggdrasil-3d      # Rust
+pip install yggdrasil-3d    # Python
+```
+
+Both import as `yggdrasil`. The visualizer and the book's walkthrough run from a checkout:
 
 ```bash
 git clone https://github.com/brdsdsu/Yggdrasil.git && cd Yggdrasil
@@ -164,9 +173,7 @@ methodology and noise floor.
 #### Python
 
 ```bash
-cd python-binding
-uv sync                              # creates .venv with maturin
-uv run maturin develop --release     # builds the extension into it
+pip install yggdrasil-3d
 ```
 
 ```python
@@ -186,7 +193,8 @@ node, dist = sg.nearest_nodes((0.9, 0.0, 0.0), ygg.PosQueryCount.Count(2))[0]
 ```
 
 The module mirrors the Rust API, and ships type stubs in
-[`yggdrasil.pyi`](python-binding/yggdrasil.pyi) for editor completion.
+[`yggdrasil.pyi`](python-binding/yggdrasil.pyi) for editor completion. To build it from a
+checkout instead, see [From source](#from-source).
 
 #### Visualizer
 
@@ -203,8 +211,11 @@ run queries from the side panel with the results highlighted in the scene.
 
 ### Install
 
-**Rust**: the crate is `yggdrasil-3d` on crates.io (`yggdrasil` there is an unrelated
-project); its library is named `yggdrasil`.
+Yggdrasil is published as `yggdrasil-3d` on both crates.io and PyPI, and imports as
+`yggdrasil` in both languages. (The `yggdrasil` names on both registries belong to unrelated
+projects.)
+
+**Rust**
 
 ```bash
 cargo add yggdrasil-3d
@@ -214,17 +225,46 @@ cargo add yggdrasil-3d
 use yggdrasil::SceneGraph;
 ```
 
-**Python**: the package is `yggdrasil-3d` on PyPI; it imports as `yggdrasil`. Wheels cover
-CPython 3.8+ on Linux, macOS and Windows (x86_64 and arm64); elsewhere pip builds the sdist,
-which needs a Rust toolchain.
+The API reference is on [docs.rs](https://docs.rs/yggdrasil-3d).
+
+**Python**
 
 ```bash
 pip install yggdrasil-3d
 ```
 
-To build the bindings from source instead, see [Python](#python).
+```python
+import yggdrasil as ygg
+```
 
-**From source**:
+Prebuilt wheels cover CPython 3.8 and newer on Linux (glibc and musl) and macOS, each on
+x86_64 and arm64, and on Windows x86_64. Anywhere else, pip compiles the source distribution,
+which needs a Rust toolchain.
+
+#### From source
+
+Track unreleased changes on `master` from Rust:
+
+```bash
+cargo add yggdrasil-3d --git https://github.com/brdsdsu/Yggdrasil
+```
+
+Build and install the Python bindings from a checkout (pip fetches maturin itself):
+
+```bash
+git clone https://github.com/brdsdsu/Yggdrasil.git && cd Yggdrasil
+pip install ./python-binding
+```
+
+When working on the bindings, rebuild them in place with uv instead:
+
+```bash
+cd python-binding
+uv sync                              # creates .venv with maturin
+uv run maturin develop --release     # rebuilds the extension into it
+```
+
+Build everything, including the visualizer, the engine and the benchmarks:
 
 ```bash
 cargo build --release --workspace
@@ -235,7 +275,8 @@ cargo build --release --workspace
 
 <br/>
 
-- **Rust**: stable, edition 2024. The vendored `spatial-index` needs 1.89 or newer.
+- **Rust**: stable, 1.89 or newer (edition 2024; the vendored `spatial-index` sets the
+  floor). This applies to the crates.io package too.
 - **Linux and `viz`**: Bevy needs system libraries. On Debian or Ubuntu:
 
   ```bash
@@ -243,7 +284,8 @@ cargo build --release --workspace
   ```
 
   `viz` enables Bevy's Wayland backend alongside X11.
-- **Python**: 3.8 or newer, with maturin 1.10 or newer.
+- **Python**: 3.8 or newer. Building from source also needs maturin 1.10 or newer, which
+  `pip install` and `uv sync` fetch on their own.
 - **Docker**: the [`Dockerfile`](Dockerfile) builds an Ubuntu 24.04 image with Rust.
 
 </details>
@@ -253,7 +295,8 @@ cargo build --release --workspace
 ### API at a glance
 
 Every call below is on `SceneGraph`; most also run on a single layer
-(`sg.layer(id)?.nearest_nodes(...)`) and exist under the same names in Python.
+(`sg.layer(id)?.nearest_nodes(...)`) and exist under the same names in Python. The full
+reference is on [docs.rs](https://docs.rs/yggdrasil-3d).
 
 **Build the graph**
 
@@ -339,6 +382,7 @@ and [SECURITY.md](SECURITY.md) to report a vulnerability.
 <p align="center">
   <a href="https://arxiv.org/abs/2609.38640">Paper</a> ·
   <a href="https://brdsdsu.github.io/Yggdrasil/">Book</a> ·
+  <a href="https://docs.rs/yggdrasil-3d">API docs</a> ·
   <a href="https://github.com/brdsdsu/Yggdrasil/issues">Issues</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
