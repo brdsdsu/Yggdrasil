@@ -32,11 +32,11 @@ serde = { version = "1.0.228", features = ["derive"] }
 # doctests compile unmodified, so it is renamed here instead — code that reads
 # `spatial_index::` is code that gets this workspace's adaptive split policy, not crates.io
 # kiddo's depth-cycled one.
-spatial_index = { package = "yggdrasil-3d-spatial-index", path = "../spatial-index", version = "0.1.1" }
+spatial_index = { package = "yggdrasil-3d-spatial-index", path = "../spatial-index", version = "0.1.2" }
 thiserror = "2.0.17"
 
 [dev-dependencies]
 criterion = "0.8.2"
 # `test_utils` carries the RegionMembershipPredicate conformance harness.
-spatial_index = { package = "yggdrasil-3d-spatial-index", path = "../spatial-index", version = "0.1.1", features = ["test_utils"] }
+spatial_index = { package = "yggdrasil-3d-spatial-index", path = "../spatial-index", version = "0.1.2", features = ["test_utils"] }
 rand = "0.10.1"

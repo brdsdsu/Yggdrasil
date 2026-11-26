@@ -22,7 +22,7 @@ name = "viz"
 path = "src/lib.rs"
 
 [dependencies]
-scene-graph = { package = "yggdrasil-3d", path = "../scene-graph", version = "0.1.1" }
+scene-graph = { package = "yggdrasil-3d", path = "../scene-graph", version = "0.1.2" }
 bevy = { version = "0.15", features = ["wayland"] }
 bevy_egui   = "0.31"
 bevy_panorbit_camera = "0.22"
