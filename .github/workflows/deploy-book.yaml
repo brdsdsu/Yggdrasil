@@ -12,16 +12,16 @@ concurrency:
   group: "pages"
   cancel-in-progress: true
 
+# Two jobs, not one. When the upload and the deploy shared a job, deploy-pages asked for the
+# `github-pages` artifact a few hundred milliseconds after upload-pages-artifact finalized it,
+# and GitHub's artifact listing had not caught up yet: "Found 0 artifact(s)", three pushes in
+# a row. Starting a second job takes long enough for the artifact to be listed, and it is the
+# layout GitHub's own Pages starter workflow uses.
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pages: write # publish the site
-      id-token: write # authenticate the Pages deployment
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,14 +47,27 @@ jobs:
       - name: Build with mdBook
         run: mdbook build docs
 
-      - name: Setup Pages
-        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           # mdBook writes the site to `book` inside the source directory.
           path: ./docs/book
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write # publish the site
+      id-token: write # authenticate the Pages deployment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Checks that Pages is enabled for the repository. It sits here rather than in `build`
+      # because it reads the repository's Pages settings, which needs the `pages` permission
+      # that only this job holds.
+      - name: Setup Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Deploy to GitHub Pages
         id: deployment
