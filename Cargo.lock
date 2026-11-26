@@ -4523,7 +4523,7 @@ dependencies = [
 
 [[package]]
 name = "python-binding"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "glam 0.34.1",
  "pyo3",
@@ -6989,7 +6989,7 @@ dependencies = [
 
 [[package]]
 name = "yggdrasil-3d"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "criterion",
  "glam 0.34.1",
@@ -7001,7 +7001,7 @@ dependencies = [
 
 [[package]]
 name = "yggdrasil-3d-spatial-index"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aligned-vec",
  "array-init",
