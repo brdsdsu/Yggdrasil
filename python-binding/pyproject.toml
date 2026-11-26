@@ -4,17 +4,35 @@ build-backend = "maturin"
 
 [project]
 name = "yggdrasil-3d"
+description = "Python bindings for Yggdrasil, a layered 3D scene graph for autonomous systems"
+readme = "../README.md"
+license = "Apache-2.0"
 requires-python = ">=3.8"
+keywords = ["scene-graph", "3d", "robotics", "spatial", "kd-tree"]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
+# Taken from python-binding/Cargo.toml, which inherits [workspace.package] version.
 dynamic = ["version"]
-dependencies = [
+
+[project.urls]
+Homepage = "https://brdsdsu.github.io/Yggdrasil/"
+Repository = "https://github.com/brdsdsu/Yggdrasil"
+Issues = "https://github.com/brdsdsu/Yggdrasil/issues"
+
+# Build tooling, not runtime dependencies: anything under [project] dependencies is installed
+# by every `pip install yggdrasil-3d`.
+[dependency-groups]
+dev = [
     "maturin>=1.10.2",
     "patchelf>=0.17.2.4",
 ]
 
 [tool.maturin]
 include = ["yggdrasil.pyi"]
+# One wheel per platform covers CPython 3.8 and later through the stable ABI, so the
+# release matrix grows with platforms, not with Python versions. PyPy has no stable ABI
+# and builds from the sdist.
+features = ["pyo3/abi3-py38"]

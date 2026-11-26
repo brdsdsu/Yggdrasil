@@ -4,7 +4,6 @@ Lets start getting familiar with Yggdrasil Scene Graph and its API by creating a
 
 The following function would create a new demo scene graph which we can use to run some queries on:
 ```rust 
-use scene_graph as yggdrasil;
 use yggdrasil::Feature;
 
 fn create_demo_graph() -> yggdrasil::Result<yggdrasil::SceneGraph> {

@@ -32,9 +32,9 @@
 ///
 /// ```text
 /// # on the current implementation
-/// cargo bench -p scene-graph --bench visible_subgraph -- --save-baseline before
+/// cargo bench -p yggdrasil-3d --bench visible_subgraph -- --save-baseline before
 /// # after rewriting the query
-/// cargo bench -p scene-graph --bench visible_subgraph -- --baseline before
+/// cargo bench -p yggdrasil-3d --bench visible_subgraph -- --baseline before
 /// ```
 ///
 /// The second run prints the percentage change per benchmark along with whether the
@@ -42,7 +42,7 @@
 use std::f32::consts::{PI, TAU};
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use scene_graph::{Coordinate, Feature, NodeId, Observer, Result, SceneGraph};
+use yggdrasil::{Coordinate, Feature, NodeId, Observer, Result, SceneGraph};
 
 /// Half-angle of the observer's cone, in radians.
 const HALF_ANGLE: f32 = 35.0 * PI / 180.0;

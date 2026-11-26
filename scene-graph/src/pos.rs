@@ -503,7 +503,7 @@ mod scale {
     /// Build an indexed layer of ~350,000 lattice points and query it.
     ///
     /// Slow in a debug build, so it is ignored by default:
-    /// `cargo test -p scene-graph --release -- --ignored`
+    /// `cargo test -p yggdrasil-3d --release -- --ignored`
     #[test]
     #[ignore = "350k inserts; run explicitly, ideally in release"]
     fn indexed_layer_holds_350k_lattice_points() {

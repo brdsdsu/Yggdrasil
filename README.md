@@ -32,7 +32,7 @@
 ```bash
 git clone https://github.com/brdsdsu/Yggdrasil.git && cd Yggdrasil
 cargo run --release -p viz                   # explore the built-in demo scene in 3D
-cargo run -p scene-graph --example demo      # the book's walkthrough, as one program
+cargo run -p yggdrasil-3d --example demo     # the book's walkthrough, as one program
 ```
 
 <p align="center">
@@ -42,9 +42,9 @@ cargo run -p scene-graph --example demo      # the book's walkthrough, as one pr
 Building a graph and querying it takes a few lines:
 
 ```rust
-use scene_graph::{Coordinate, Feature, Observer, PosQueryCount, SceneGraph};
+use yggdrasil::{Coordinate, Feature, Observer, PosQueryCount, SceneGraph};
 
-fn main() -> scene_graph::Result<()> {
+fn main() -> yggdrasil::Result<()> {
     let mut sg = SceneGraph::default();
 
     // Layers form a DAG: measured points sit under the objects they belong to.
@@ -110,7 +110,7 @@ through every query family.
                     spatial-index (k-d tree, fork of kiddo)
 ```
 
-`scene-graph` is the core library: layers, nodes, edges, bounds, the `Observer` view
+`scene-graph` is the core library, published as `yggdrasil-3d`: layers, nodes, edges, bounds, the `Observer` view
 frustum, and every query. It is pure Rust. A `SceneGraph` serializes with serde, so a
 graph can be written to JSON and opened in the visualizer.
 
@@ -127,8 +127,8 @@ exposes the library to Python, and `viz` is an interactive Bevy viewer.
 
 | Crate | What it is |
 |---|---|
-| [`scene-graph`](scene-graph/) | Core data structure and queries |
-| [`spatial-index`](spatial-index/) | k-d tree with an adaptive split policy (kiddo fork) |
+| [`scene-graph`](scene-graph/) | Core data structure and queries; the `yggdrasil-3d` crate |
+| [`spatial-index`](spatial-index/) | k-d tree with an adaptive split policy (kiddo fork); the `yggdrasil-3d-spatial-index` crate |
 | [`engine`](engine/) | Update pipeline for merging agents' subgraphs (early) |
 | [`python-binding`](python-binding/) | PyO3 bindings, packaged as `yggdrasil-3d` and imported as `yggdrasil` |
 | [`viz`](viz/) | Bevy visualizer: layer toggles, node inspection, queries |
@@ -203,20 +203,26 @@ run queries from the side panel with the results highlighted in the scene.
 
 ### Install
 
-**Rust**: Yggdrasil is not on crates.io yet (the `yggdrasil` crate there is an unrelated
-project). Depend on it from Git:
+**Rust**: the crate is `yggdrasil-3d` on crates.io (`yggdrasil` there is an unrelated
+project); its library is named `yggdrasil`.
 
 ```bash
-cargo add scene-graph --git https://github.com/brdsdsu/Yggdrasil
+cargo add yggdrasil-3d
 ```
 
 ```rust
-use scene_graph as yggdrasil;   // the book's examples use this alias
+use yggdrasil::SceneGraph;
 ```
 
-**Python**: build the bindings from source as shown under [Python](#python), or build a
-wheel with `uv run maturin build --release` and `pip install` it from the workspace's
-`target/wheels/`.
+**Python**: the package is `yggdrasil-3d` on PyPI; it imports as `yggdrasil`. Wheels cover
+CPython 3.8+ on Linux, macOS and Windows (x86_64 and arm64); elsewhere pip builds the sdist,
+which needs a Rust toolchain.
+
+```bash
+pip install yggdrasil-3d
+```
+
+To build the bindings from source instead, see [Python](#python).
 
 **From source**:
 
@@ -295,7 +301,7 @@ sg.merge(subgraph)?                     // fold an agent's updated subgraph back
 
 ```bash
 cargo test --workspace                  # every crate's tests
-cargo doc -p scene-graph --open         # API reference
+cargo doc -p yggdrasil-3d --open        # API reference
 mdbook serve docs --open                # the book, live-reloading
 cargo run --release -p bench            # spatial-index against upstream kiddo
 ```

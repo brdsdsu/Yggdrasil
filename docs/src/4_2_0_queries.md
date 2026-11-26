@@ -4,7 +4,6 @@ A scene graph is only as useful as its queries! We will explore some of the quer
 
 Let's start by using the function we created in the Bootstrapping section to generate our demo scene graph:
 ```rust 
-use scene_graph as yggdrasil;
 use yggdrasil::Feature;
 
 fn main() -> yggdrasil::Result<()> {

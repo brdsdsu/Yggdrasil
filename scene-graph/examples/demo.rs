@@ -1,4 +1,3 @@
-use scene_graph as yggdrasil;
 use yggdrasil::{Coordinate, Feature, Observer, PosQueryCount};
 
 fn main() -> yggdrasil::Result<()> {
@@ -31,7 +30,7 @@ fn main() -> yggdrasil::Result<()> {
     Ok(())
 }
 
-fn run_common_graph_queries(ygg: &mut scene_graph::SceneGraph) -> yggdrasil::Result<()> {
+fn run_common_graph_queries(ygg: &mut yggdrasil::SceneGraph) -> yggdrasil::Result<()> {
     // Node by id
 
     // Here we first retrieve the root node by matching for its features, and then use its id to
@@ -73,7 +72,7 @@ fn run_common_graph_queries(ygg: &mut scene_graph::SceneGraph) -> yggdrasil::Res
     Ok(())
 }
 
-fn run_field_of_view_queries(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result<()> {
+fn run_field_of_view_queries(ygg: &yggdrasil::SceneGraph) -> yggdrasil::Result<()> {
     // Create a cone observer which can view all the positive space, i.e. the space where none of the
     // x, y, z coordinates are negative. The observer is located at the origin and is looking
     // towards the (1, 1, 1) direction, with a field of view of 90 degrees and a far reach of 6
@@ -151,7 +150,7 @@ fn run_field_of_view_queries(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result
     Ok(())
 }
 
-fn run_nearest_neighbors_queris(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result<()> {
+fn run_nearest_neighbors_queris(ygg: &yggdrasil::SceneGraph) -> yggdrasil::Result<()> {
     // Retrieve the 5 nearest nodes to the (5, 5, 5) coordinates. Nodes returned by this query
     // should all be points of static objects, since the dynamic objects are all located in the
     // (10, 10, 10) to (20, 20, 20) region.
@@ -249,7 +248,7 @@ fn run_nearest_neighbors_queris(ygg: &scene_graph::SceneGraph) -> yggdrasil::Res
     Ok(())
 }
 
-fn run_basic_label_retrieval_queries(ygg: &scene_graph::SceneGraph) -> yggdrasil::Result<()> {
+fn run_basic_label_retrieval_queries(ygg: &yggdrasil::SceneGraph) -> yggdrasil::Result<()> {
     // Retrieve all nodes with the feature "type" equal to "lamp".
 
     // Running this query on the scene graph would return a vector of vector of nodes, each vector

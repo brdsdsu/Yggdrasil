@@ -1,8 +1,21 @@
 [package]
-name = "scene-graph"
-version = "0.1.0"
+# Published to crates.io as `yggdrasil-3d`; the directory keeps its old name. Workspace
+# crates depend on it under the key `scene-graph`, so their code still reads
+# `scene_graph::`. Everyone else, including this crate's own doctests, examples and
+# benches, imports it by its lib name: `yggdrasil::`.
+name = "yggdrasil-3d"
+version.workspace = true
 edition = "2024"
 license = "Apache-2.0"
+description = "A layered 3D scene graph for autonomous systems, with spatial, semantic and field-of-view queries"
+readme = "../README.md"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["scene-graph", "3d", "robotics", "spatial", "kd-tree"]
+categories = ["data-structures", "science::robotics"]
+
+[lib]
+name = "yggdrasil"
 
 [[example]]
 name = "demo"
@@ -19,11 +32,11 @@ serde = { version = "1.0.228", features = ["derive"] }
 # doctests compile unmodified, so it is renamed here instead — code that reads
 # `spatial_index::` is code that gets this workspace's adaptive split policy, not crates.io
 # kiddo's depth-cycled one.
-spatial_index = { package = "spatial-index", path = "../spatial-index" }
+spatial_index = { package = "yggdrasil-3d-spatial-index", path = "../spatial-index", version = "0.1.0" }
 thiserror = "2.0.17"
 
 [dev-dependencies]
 criterion = "0.8.2"
 # `test_utils` carries the RegionMembershipPredicate conformance harness.
-spatial_index = { package = "spatial-index", path = "../spatial-index", features = ["test_utils"] }
+spatial_index = { package = "yggdrasil-3d-spatial-index", path = "../spatial-index", version = "0.1.0", features = ["test_utils"] }
 rand = "0.10.1"

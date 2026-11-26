@@ -1,0 +1,248 @@
+name: Release
+
+# Pushing tag `v<version>` publishes, all at <version>:
+#
+#   crates.io  yggdrasil-3d                 scene-graph/
+#   crates.io  yggdrasil-3d-spatial-index   spatial-index/ (the kiddo fork yggdrasil-3d uses)
+#   PyPI       yggdrasil-3d                 python-binding/ (abi3 wheels and an sdist)
+#
+# <version> is [workspace.package] version in the root Cargo.toml. Nothing is uploaded until
+# the test suite has passed on the tagged commit and every crate, wheel and sdist has built,
+# so a platform that fails to build cannot leave one registry ahead of the other. Both
+# registries authenticate through trusted publishing (OIDC); the repository stores no
+# registry token. One-time setup and the release steps are in CONTRIBUTING.md, "Releasing".
+#
+# Run it by hand (Actions > Release > Run workflow) to do everything except upload, e.g. to
+# check that every wheel still builds before tagging.
+#
+# If an upload fails partway, use "Re-run failed jobs", not "Re-run all jobs": the version
+# check refuses a version that is already on a registry, and a full re-run would find the
+# half that did go out.
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per ref at a time, and never cancelled: a cancelled run can stop between the two
+# registries.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # Pinned so a maturin release cannot change what gets built between two tags.
+  MATURIN_VERSION: v1.16.0
+
+jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Tag, manifests and registries agree
+        id: check
+        env:
+          IS_TAG: ${{ github.ref_type == 'tag' }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          metadata=$(cargo metadata --no-deps --format-version 1)
+          version_of() {
+            jq -r --arg p "$1" '.packages[] | select(.name == $p) | .version' <<<"$metadata"
+          }
+          version=$(version_of yggdrasil-3d)
+          for package in yggdrasil-3d-spatial-index python-binding; do
+            if [ "$(version_of "$package")" != "$version" ]; then
+              echo "::error::$package is at $(version_of "$package") but yggdrasil-3d is at $version; all three ship in lockstep"
+              exit 1
+            fi
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if [ "$IS_TAG" = true ] && [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match [workspace.package] version $version; expected v$version"
+            exit 1
+          fi
+
+          # A version that is already out fails a tag push, and only warns on a manual run,
+          # which uploads nothing.
+          failed=0
+          already_out() {
+            local message="yggdrasil-3d $version is already on $1; bump [workspace.package] version in Cargo.toml"
+            if [ "$IS_TAG" = true ]; then echo "::error::$message"; failed=1; else echo "::warning::$message"; fi
+          }
+
+          # Only yggdrasil-3d is checked. The fork can legitimately be out already: on a re-run
+          # after a partial release, and the publish job skips it then.
+          status=0
+          .github/scripts/crates-io-has-version.sh yggdrasil-3d "$version" || status=$?
+          case $status in
+            0) already_out crates.io ;;
+            1) ;;
+            *) echo "::error::Could not read the crates.io index"; exit 1 ;;
+          esac
+
+          code=$(curl --silent --show-error --retry 3 --retry-all-errors --output /dev/null \
+            --write-out '%{http_code}' "https://pypi.org/pypi/yggdrasil-3d/$version/json")
+          case $code in
+            200) already_out PyPI ;;
+            404) ;;
+            *) echo "::error::PyPI answered HTTP $code"; exit 1 ;;
+          esac
+
+          exit "$failed"
+
+  test:
+    name: Test
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  crates:
+    name: Package crates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      # Packages both crates and builds yggdrasil-3d against the packaged fork rather than
+      # crates.io, so it also passes for a fork version that has not been uploaded yet.
+      - name: Package and verify
+        run: cargo publish --workspace --dry-run --locked
+
+  wheels:
+    name: Wheel (${{ matrix.platform }} ${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      # Every platform reports, so one attempt shows every target that is broken.
+      fail-fast: false
+      matrix:
+        # x86_64 and aarch64 only: the fork's arch-specific code (SIMD kernels, `generator`)
+        # covers those two. Anything else installs from the sdist.
+        include:
+          - { platform: manylinux, target: x86_64, runner: ubuntu-22.04, manylinux: auto }
+          - { platform: manylinux, target: aarch64, runner: ubuntu-22.04, manylinux: auto }
+          - { platform: musllinux, target: x86_64, runner: ubuntu-22.04, manylinux: musllinux_1_2 }
+          - { platform: musllinux, target: aarch64, runner: ubuntu-22.04, manylinux: musllinux_1_2 }
+          - { platform: windows, target: x64, runner: windows-latest }
+          - { platform: macos, target: x86_64, runner: macos-15-intel }
+          - { platform: macos, target: aarch64, runner: macos-latest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Linux wheels build inside maturin's manylinux/musllinux containers, which bring their
+      # own interpreters.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: runner.os != 'Linux'
+        with:
+          python-version: "3.13"
+      # abi3 (pyproject.toml): one wheel per platform serves every CPython from 3.8 on.
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --locked --out dist --manifest-path python-binding/Cargo.toml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheels-${{ matrix.platform }}-${{ matrix.target }}
+          path: dist
+          if-no-files-found: error
+
+  sdist:
+    name: Sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          command: sdist
+          args: --out dist --manifest-path python-binding/Cargo.toml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheels-sdist
+          path: dist
+          if-no-files-found: error
+
+  publish-crates:
+    name: Publish to crates.io
+    if: github.ref_type == 'tag'
+    needs: [version, test, crates, wheels, sdist]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: release
+      url: https://crates.io/crates/yggdrasil-3d
+    permissions:
+      contents: read
+      id-token: write # exchanged for a short-lived crates.io token
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+        id: auth
+      # The fork goes first. cargo waits for each upload to reach the index before it
+      # returns, so yggdrasil-3d then resolves the fork from crates.io.
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          status=0
+          .github/scripts/crates-io-has-version.sh yggdrasil-3d-spatial-index "$VERSION" || status=$?
+          case $status in
+            0) echo "yggdrasil-3d-spatial-index $VERSION is already on crates.io; skipping it" ;;
+            1) cargo publish --locked -p yggdrasil-3d-spatial-index ;;
+            *) echo "::error::Could not read the crates.io index"; exit 1 ;;
+          esac
+          cargo publish --locked -p yggdrasil-3d
+
+  publish-pypi:
+    name: Publish to PyPI
+    if: github.ref_type == 'tag'
+    needs: [version, test, crates, wheels, sdist]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: release
+      url: https://pypi.org/project/yggdrasil-3d/
+    permissions:
+      id-token: write # trusted publishing, and the PEP 740 attestation on every file
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          # Lets a re-run finish an upload that stopped partway. A version that was already
+          # complete never gets this far: the version job refuses it.
+          skip-existing: true

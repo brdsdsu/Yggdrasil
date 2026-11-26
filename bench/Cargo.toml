@@ -6,6 +6,6 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
-fork = { package = "spatial-index", path = "../spatial-index" }
+fork = { package = "yggdrasil-3d-spatial-index", path = "../spatial-index" }
 upstream = { package = "kiddo", version = "6.0.0-alpha.3" }
 rand = "0.10"

@@ -445,7 +445,7 @@ version = "0.1.0"
 dependencies = [
  "kiddo",
  "rand 0.10.3",
- "spatial-index",
+ "yggdrasil-3d-spatial-index",
 ]
 
 [[package]]
@@ -2351,10 +2351,10 @@ name = "engine"
 version = "0.1.0"
 dependencies = [
  "glam 0.34.1",
- "scene-graph",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "yggdrasil-3d",
 ]
 
 [[package]]
@@ -4527,7 +4527,7 @@ version = "0.1.0"
 dependencies = [
  "glam 0.34.1",
  "pyo3",
- "scene-graph",
+ "yggdrasil-3d",
 ]
 
 [[package]]
@@ -4971,18 +4971,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scene-graph"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "glam 0.34.1",
- "rand 0.10.3",
- "serde",
- "spatial-index",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5190,41 +5178,6 @@ name = "sorted-vec"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "238653bedf881fede50103cb7838b029e2b73d3d3d8e70d36f0a96be32a65c7b"
-
-[[package]]
-name = "spatial-index"
-version = "0.1.0"
-dependencies = [
- "aligned-vec",
- "array-init",
- "assert_float_eq",
- "az",
- "bytecheck",
- "cmov",
- "csv",
- "fixed",
- "generator",
- "half",
- "las",
- "libc",
- "log",
- "nonmax",
- "num-traits",
- "ptr_meta",
- "rand 0.10.3",
- "rand_chacha 0.10.0",
- "rayon",
- "rkyv",
- "rstest",
- "serde",
- "smallvec",
- "sorted-vec",
- "test-log",
- "tracing",
- "trybuild",
- "yep-cache-line-size",
- "zzz",
-]
 
 [[package]]
 name = "spirv"
@@ -5892,8 +5845,8 @@ dependencies = [
  "clap",
  "image",
  "rand 0.10.3",
- "scene-graph",
  "serde_json",
+ "yggdrasil-3d",
 ]
 
 [[package]]
@@ -7032,6 +6985,53 @@ checksum = "59dea97e5518f64cbb9468f2cd1ac59c9d0186eeb5ee6198d4bb8adfa1465499"
 dependencies = [
  "libc",
  "raw-cpuid",
+]
+
+[[package]]
+name = "yggdrasil-3d"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "glam 0.34.1",
+ "rand 0.10.3",
+ "serde",
+ "thiserror 2.0.21",
+ "yggdrasil-3d-spatial-index",
+]
+
+[[package]]
+name = "yggdrasil-3d-spatial-index"
+version = "0.1.0"
+dependencies = [
+ "aligned-vec",
+ "array-init",
+ "assert_float_eq",
+ "az",
+ "bytecheck",
+ "cmov",
+ "csv",
+ "fixed",
+ "generator",
+ "half",
+ "las",
+ "libc",
+ "log",
+ "nonmax",
+ "num-traits",
+ "ptr_meta",
+ "rand 0.10.3",
+ "rand_chacha 0.10.0",
+ "rayon",
+ "rkyv",
+ "rstest",
+ "serde",
+ "smallvec",
+ "sorted-vec",
+ "test-log",
+ "tracing",
+ "trybuild",
+ "yep-cache-line-size",
+ "zzz",
 ]
 
 [[package]]

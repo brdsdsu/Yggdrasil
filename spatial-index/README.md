@@ -135,8 +135,8 @@ change to the split policy. The lib count is above upstream's 397 because the fo
 deviations carry tests; nothing upstream was removed or skipped, and no test is `#[ignore]`d:
 
 ```
-cargo test -p spatial-index                     # 420 lib + 13 integration + 7 doctests
-cargo test -p spatial-index --features fuzz     # adds the randomised kd_tree_fuzz_v6 target
+cargo test -p yggdrasil-3d-spatial-index        # 420 lib + 13 integration + 7 doctests
+cargo test -p yggdrasil-3d-spatial-index --features fuzz  # adds the randomised kd_tree_fuzz_v6 target
 ```
 
 ## Known upstream defects this fork exists to address

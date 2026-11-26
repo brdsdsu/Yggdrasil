@@ -49,7 +49,7 @@ impl Observer {
     /// no length, since neither yields a viewing axis.
     ///
     /// ```rust
-    /// # use scene_graph::Observer;
+    /// # use yggdrasil::Observer;
     /// # use glam::Vec3;
     /// // A Z-up scene: look horizontally along +X.
     /// let observer = Observer::new_looking_along(

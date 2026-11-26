@@ -227,8 +227,8 @@ impl SceneGraph {
     /// If the `nestee` node already has a parent, it will be removed from its current parent's list of children.
     ///
     /// ```rust
-    /// # use scene_graph::SceneGraph;
-    /// # use scene_graph::Result;
+    /// # use yggdrasil::SceneGraph;
+    /// # use yggdrasil::Result;
     ///
     /// # fn main() -> Result<()> {
     /// # let mut sg = SceneGraph::default();
@@ -267,8 +267,8 @@ impl SceneGraph {
     /// The function will NoOp if the `nestee` is not nested under `nester` node.
     ///
     /// ```rust
-    /// # use scene_graph::SceneGraph;
-    /// # use scene_graph::Result;
+    /// # use yggdrasil::SceneGraph;
+    /// # use yggdrasil::Result;
     ///
     /// # fn main() -> Result<()> {
     /// # let mut sg = SceneGraph::default();
@@ -534,8 +534,8 @@ impl SceneGraph {
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
     ///
     /// ```rust
-    /// # use scene_graph::SceneGraph;
-    /// # use scene_graph::{Coordinate, PosQueryCount};
+    /// # use yggdrasil::SceneGraph;
+    /// # use yggdrasil::{Coordinate, PosQueryCount};
     ///
     /// let mut sg = SceneGraph::default();
     ///
@@ -577,8 +577,8 @@ impl SceneGraph {
     /// If this function is called frequently, consider creating the Layer with indexing enabled.
     /// ```rust
     ///
-    /// # use scene_graph::SceneGraph;
-    /// # use scene_graph::{Coordinate, PosQueryCount};
+    /// # use yggdrasil::SceneGraph;
+    /// # use yggdrasil::{Coordinate, PosQueryCount};
     ///
     /// let mut sg = SceneGraph::default();
     ///
@@ -622,9 +622,9 @@ impl SceneGraph {
     /// If this function is called frequently, consider creating the Node with indexing enabled.
     /// ```rust
     ///
-    /// # use scene_graph::SceneGraph;
-    /// # use scene_graph::{Coordinate, PosQueryCount};
-    /// # use scene_graph::Result;
+    /// # use yggdrasil::SceneGraph;
+    /// # use yggdrasil::{Coordinate, PosQueryCount};
+    /// # use yggdrasil::Result;
     ///
     /// # fn main() -> Result<()> {
     /// let mut sg = SceneGraph::default();

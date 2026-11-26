@@ -1,15 +1,23 @@
 [package]
 name = "python-binding"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 license = "Apache-2.0"
+description = "PyO3 bindings behind the `yggdrasil-3d` Python package"
+repository.workspace = true
+# Ships to PyPI as the `yggdrasil-3d` wheel (see pyproject.toml), never to crates.io.
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "yggdrasil"
 crate-type = ["cdylib"]
+# `yggdrasil` is also the lib name of the `yggdrasil-3d` crate this wraps, and rustdoc writes
+# both to target/doc/yggdrasil/, which makes `cargo doc --workspace` refuse to run. The
+# Python API is documented in yggdrasil.pyi; nobody reads this crate's rustdoc.
+doc = false
 
 [dependencies]
-scene-graph = { path = "../scene-graph" }
+scene-graph = { package = "yggdrasil-3d", path = "../scene-graph" }
 pyo3 = "0.27.0"
 glam = "0.34.1"

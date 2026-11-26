@@ -26,7 +26,7 @@ cargo build --workspace
 
 ```bash
 cargo test --workspace                        # every crate's unit, integration and doc tests
-cargo run -p scene-graph --example demo       # the book's walkthrough, as one program
+cargo run -p yggdrasil-3d --example demo      # the book's walkthrough, as one program
 cargo run --release -p viz                    # the visualizer on its built-in demo scene
 ```
 
@@ -83,8 +83,8 @@ Use the body to explain *why*, and say so explicitly when a commit changes publi
 
 | What changed | Run |
 |---|---|
-| `scene-graph` | `cargo test -p scene-graph` |
-| `spatial-index` | `cargo test -p spatial-index` (upstream kiddo's suite is the regression net for the fork) |
+| `scene-graph` | `cargo test -p yggdrasil-3d` |
+| `spatial-index` | `cargo test -p yggdrasil-3d-spatial-index` (upstream kiddo's suite is the regression net for the fork) |
 | `python-binding` | `cargo build -p python-binding`, then `maturin develop` and exercise the change from Python |
 | `viz` | `cargo run -p viz`, and check the invariants in [`viz/CLAUDE.md`](viz/CLAUDE.md) still hold |
 | `docs/` | `mdbook build docs` |
@@ -95,13 +95,15 @@ Use the body to explain *why*, and say so explicitly when a commit changes publi
 
 ### Documentation
 - Every public struct, field, enum, variant, trait and function gets a `///` doc comment.
-- Doc examples refer to a crate by its **lib** name, not its package name: `scene_graph`,
-  and `kiddo` inside `spatial-index`.
+- Doc examples refer to a crate by its **lib** name, not its package name: `yggdrasil`
+  inside `scene-graph/` (package `yggdrasil-3d`), and `kiddo` inside `spatial-index/`
+  (package `yggdrasil-3d-spatial-index`). The other workspace crates depend on
+  `yggdrasil-3d` under the key `scene-graph`, so their code says `scene_graph::`.
 - If a change alters behavior the book describes, update the chapter in `docs/src/` in the
   same PR.
 
 ### Errors
-- Library code returns `scene_graph::Result` and adds a `SceneGraphError` variant rather
+- Library code returns `yggdrasil::Result` and adds a `SceneGraphError` variant rather
   than panicking on bad input.
 
 ### Formatting and lints
@@ -134,6 +136,52 @@ same inputs, in the same process. [`bench/BASELINE.md`](bench/BASELINE.md) docum
 methodology and the noise floor: deltas inside it are noise. When a PR claims a speedup,
 paste before-and-after numbers from the same machine and the same session, and say what
 hardware they came from.
+
+## Releasing
+
+Three things ship, always at one shared version, `[workspace.package] version` in the root
+`Cargo.toml`:
+
+| Registry | Name | Built from |
+|---|---|---|
+| crates.io | `yggdrasil-3d` | `scene-graph/` |
+| crates.io | `yggdrasil-3d-spatial-index` | `spatial-index/` |
+| PyPI | `yggdrasil-3d` | `python-binding/` (abi3 wheels and an sdist) |
+
+To release:
+
+1. Set `[workspace.package] version` in the root `Cargo.toml`. When the leading non-zero
+   component changes (0.1 → 0.2, or 1.x → 2.0), also update the `version` on both
+   `spatial_index` entries in `scene-graph/Cargo.toml`; cargo refuses to resolve the
+   workspace until you do.
+2. Merge that to `master`.
+3. Tag the merge commit `v<version>` and push the tag:
+   `git tag v0.2.0 && git push origin v0.2.0`.
+
+[`release.yml`](.github/workflows/release.yml) then checks that the tag matches the
+version and that the version is new on both registries, runs the CI suite on the tagged
+commit, and builds and verifies both crates, every wheel and the sdist. It uploads only once
+all of that passes. If an upload fails partway, use **Re-run failed jobs**, not
+**Re-run all jobs**: a full re-run fails its version check on the half that already went out.
+
+To check that every wheel still builds without releasing, run the workflow by hand from the
+Actions tab: it does everything except upload.
+
+### One-time setup
+
+Neither registry needs a token in this repository: both trust the workflow through OIDC.
+
+- **crates.io**: trusted publishing cannot create a crate. Publish
+  `yggdrasil-3d-spatial-index` once by hand from a clean checkout of `master`
+  (`cargo login`, then `cargo publish -p yggdrasil-3d-spatial-index`). Then, in each
+  crate's **Settings → Trusted Publishing** (`yggdrasil-3d` and
+  `yggdrasil-3d-spatial-index`), add a GitHub publisher: owner `brdsdsu`, repository
+  `Yggdrasil`, workflow `release.yml`, environment `release`.
+- **PyPI**: in the `yggdrasil-3d` project's **Publishing** settings, add a GitHub
+  publisher with the same four values.
+- **GitHub**: the `release` environment is created on the first run. Adding required
+  reviewers to it in **Settings → Environments** makes every upload wait for a manual
+  approval.
 
 ## Reporting Vulnerabilities
 

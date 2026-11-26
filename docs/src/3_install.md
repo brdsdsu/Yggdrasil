@@ -1,12 +1,19 @@
 # For Rust Ecosystem
 
-## As a Git Dependency
+## From crates.io
 
-Yggdrasil is not published on crates.io yet (the `yggdrasil` crate there is an
-unrelated project). Depend on the `scene-graph` crate straight from the repository:
+Yggdrasil is published as `yggdrasil-3d` (the `yggdrasil` crate on crates.io is an
+unrelated project). Its library is named `yggdrasil`, which is how the examples in this
+book import it:
 
 ```bash
-cargo add scene-graph --git https://github.com/brdsdsu/Yggdrasil
+cargo add yggdrasil-3d
+```
+
+To track unreleased changes, depend on the repository instead:
+
+```bash
+cargo add yggdrasil-3d --git https://github.com/brdsdsu/Yggdrasil
 ```
 
 ## Build From Source

@@ -3,19 +3,41 @@
 #
 # Everything under src/, tests/, benches/, examples/ and build.rs is upstream's, byte for
 # byte, except where README.md says otherwise. This manifest is the exception that cannot be
-# verbatim: the package is renamed, upstream's [profile.*] sections are dropped because a
-# workspace member may not define them, and the example/bench targets are dropped because
-# they pull in heavy dev-dependencies (criterion, las, reqwest) that this workspace has no
-# use for. The library keeps upstream's `kiddo` lib name so that upstream's own tests and
-# doctests compile unmodified; dependents rename it at the dependency edge instead.
+# verbatim: the package is renamed (to `yggdrasil-3d-spatial-index`, its crates.io name),
+# publish metadata and an `include` list are added, upstream's [profile.*] sections are
+# dropped because a workspace member may not define them, and the example/bench targets are
+# dropped because they pull in heavy dev-dependencies (criterion, las, reqwest) that this
+# workspace has no use for. The library keeps upstream's `kiddo` lib name so that upstream's
+# own tests and doctests compile unmodified; dependents rename it at the dependency edge
+# instead.
 
 [package]
-name = "spatial-index"
-version = "0.1.0"
+name = "yggdrasil-3d-spatial-index"
+version.workspace = true
 edition = "2021"
 rust-version = "1.89.0"
 license = "MIT OR Apache-2.0"
 description = "Vendored fork of kiddo: a k-d tree with an adaptive split-dimension policy"
+readme = "README.md"
+repository.workspace = true
+keywords = ["kd-tree", "kdtree", "nearest-neighbor", "spatial", "yggdrasil"]
+categories = ["data-structures", "science::geo"]
+# Upstream's tree carries CI, coverage and benchmark scaffolding, plus scratch kernels at the
+# top level, none of which a dependent needs. The one top-level kernel that build.rs pulls in
+# with `mod` has to ship, or the build script stops compiling on x86_64.
+include = [
+    "/Cargo.toml",
+    "/build.rs",
+    "/ultimate_f64_avx512_nearest_one_sq_euc_kernel.rs",
+    "/src/**",
+    "/tests/**",
+    "/README.md",
+    "/README.upstream.md",
+    "/ADAPTIVE_SPLIT.md",
+    "/CHANGELOG.md",
+    "/LICENSE-MIT",
+    "/LICENSE-APACHE",
+]
 build = "build.rs"
 autolib = false
 autobins = false

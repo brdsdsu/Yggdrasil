@@ -23,7 +23,6 @@ returns a `Result`.
 In the following snippet, we create a cone frustum observer that is located at (0, 0, 0) and can view all the positive space.
 We limit this observers view by near and far of (0.001,6.0) to make sure it can only observe the static objects for now.
 ```rust 
-use scene_graph as yggdrasil;
 use yggdrasil::{Coordinate, Observer};
 ```
 ```rust 
