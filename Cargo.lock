@@ -5836,20 +5836,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
-name = "viz"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_egui",
- "bevy_panorbit_camera",
- "clap",
- "image",
- "rand 0.10.3",
- "serde_json",
- "yggdrasil-3d",
-]
-
-[[package]]
 name = "walkdir"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7032,6 +7018,20 @@ dependencies = [
  "trybuild",
  "yep-cache-line-size",
  "zzz",
+]
+
+[[package]]
+name = "yggdrasil-3d-viz"
+version = "0.1.1"
+dependencies = [
+ "bevy",
+ "bevy_egui",
+ "bevy_panorbit_camera",
+ "clap",
+ "image",
+ "rand 0.10.3",
+ "serde_json",
+ "yggdrasil-3d",
 ]
 
 [[package]]

@@ -32,15 +32,17 @@
 ### Try Yggdrasil
 
 ```bash
-cargo add yggdrasil-3d      # Rust
-pip install yggdrasil-3d    # Python
+cargo add yggdrasil-3d            # Rust library
+pip install yggdrasil-3d          # Python bindings
+cargo install yggdrasil-3d-viz    # 3D visualizer
 ```
 
-Both import as `yggdrasil`. The visualizer and the book's walkthrough run from a checkout:
+The library imports as `yggdrasil` in both languages. Run `yggdrasil-3d-viz` to explore the
+built-in demo scene in 3D (on Linux, install Bevy's [system libraries](#install) first). The
+book's walkthrough runs from a checkout:
 
 ```bash
 git clone https://github.com/brdsdsu/Yggdrasil.git && cd Yggdrasil
-cargo run --release -p viz                   # explore the built-in demo scene in 3D
 cargo run -p yggdrasil-3d --example demo     # the book's walkthrough, as one program
 ```
 
@@ -140,7 +142,7 @@ exposes the library to Python, and `viz` is an interactive Bevy viewer.
 | [`spatial-index`](spatial-index/) | k-d tree with an adaptive split policy (kiddo fork); the `yggdrasil-3d-spatial-index` crate |
 | [`engine`](engine/) | Update pipeline for merging agents' subgraphs (early) |
 | [`python-binding`](python-binding/) | PyO3 bindings, packaged as `yggdrasil-3d` and imported as `yggdrasil` |
-| [`viz`](viz/) | Bevy visualizer: layer toggles, node inspection, queries |
+| [`viz`](viz/) | Bevy visualizer: layer toggles, node inspection, queries; the `yggdrasil-3d-viz` crate |
 | [`bench`](bench/) | Benchmark harness, `spatial-index` against upstream kiddo |
 | [`docs`](docs/) | The Yggdrasil Book (mdBook) |
 
@@ -199,9 +201,12 @@ checkout instead, see [From source](#from-source).
 #### Visualizer
 
 ```bash
-cargo run --release -p viz                     # built-in 4-layer demo scene
-cargo run --release -p viz -- --demo-multi     # same scene, one multi-coordinate node per object
-cargo run --release -p viz -- scene.json       # your own graph, saved with serde_json
+cargo install yggdrasil-3d-viz
+
+yggdrasil-3d-viz                        # built-in 4-layer demo scene
+yggdrasil-3d-viz --demo-multi           # same scene, one multi-coordinate node per object
+yggdrasil-3d-viz scene.json             # your own graph, saved with serde_json
+yggdrasil-3d-viz scene.json --up y      # a scene authored Y-up (the default is Z-up)
 ```
 
 Toggle layers, bounding boxes and nesting edges, hover a node to inspect its features, and
@@ -213,7 +218,7 @@ run queries from the side panel with the results highlighted in the scene.
 
 Yggdrasil is published as `yggdrasil-3d` on both crates.io and PyPI, and imports as
 `yggdrasil` in both languages. (The `yggdrasil` names on both registries belong to unrelated
-projects.)
+projects.) The visualizer is a separate crate, `yggdrasil-3d-viz`.
 
 **Rust**
 
@@ -241,6 +246,15 @@ Prebuilt wheels cover CPython 3.8 and newer on Linux (glibc and musl) and macOS,
 x86_64 and arm64, and on Windows x86_64. Anywhere else, pip compiles the source distribution,
 which needs a Rust toolchain.
 
+**Visualizer**
+
+```bash
+cargo install yggdrasil-3d-viz
+```
+
+This installs the `yggdrasil-3d-viz` command. On Linux, Bevy needs system libraries first;
+see the platform notes below.
+
 #### From source
 
 Track unreleased changes on `master` from Rust:
@@ -264,6 +278,13 @@ uv sync                              # creates .venv with maturin
 uv run maturin develop --release     # rebuilds the extension into it
 ```
 
+Run the visualizer from a checkout:
+
+```bash
+cargo run --release -p yggdrasil-3d-viz                 # built-in demo scene
+cargo run --release -p yggdrasil-3d-viz -- scene.json   # flags go after --
+```
+
 Build everything, including the visualizer, the engine and the benchmarks:
 
 ```bash
@@ -277,13 +298,14 @@ cargo build --release --workspace
 
 - **Rust**: stable, 1.89 or newer (edition 2024; the vendored `spatial-index` sets the
   floor). This applies to the crates.io package too.
-- **Linux and `viz`**: Bevy needs system libraries. On Debian or Ubuntu:
+- **Linux and the visualizer**: Bevy needs system libraries, both for `cargo install
+  yggdrasil-3d-viz` and for building from source. On Debian or Ubuntu:
 
   ```bash
   sudo apt-get install pkg-config libx11-dev libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
   ```
 
-  `viz` enables Bevy's Wayland backend alongside X11.
+  The visualizer enables Bevy's Wayland backend alongside X11.
 - **Python**: 3.8 or newer. Building from source also needs maturin 1.10 or newer, which
   `pip install` and `uv sync` fetch on their own.
 - **Docker**: the [`Dockerfile`](Dockerfile) builds an Ubuntu 24.04 image with Rust.

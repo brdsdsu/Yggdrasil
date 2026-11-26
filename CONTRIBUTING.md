@@ -27,7 +27,7 @@ cargo build --workspace
 ```bash
 cargo test --workspace                        # every crate's unit, integration and doc tests
 cargo run -p yggdrasil-3d --example demo      # the book's walkthrough, as one program
-cargo run --release -p viz                    # the visualizer on its built-in demo scene
+cargo run --release -p yggdrasil-3d-viz       # the visualizer on its built-in demo scene
 ```
 
 ### Python Bindings
@@ -86,7 +86,7 @@ Use the body to explain *why*, and say so explicitly when a commit changes publi
 | `scene-graph` | `cargo test -p yggdrasil-3d` |
 | `spatial-index` | `cargo test -p yggdrasil-3d-spatial-index` (upstream kiddo's suite is the regression net for the fork) |
 | `python-binding` | `cargo build -p python-binding`, then `maturin develop` and exercise the change from Python |
-| `viz` | `cargo run -p viz`, and check the invariants in [`viz/CLAUDE.md`](viz/CLAUDE.md) still hold |
+| `viz` | `cargo run -p yggdrasil-3d-viz`, and check the invariants in [`viz/CLAUDE.md`](viz/CLAUDE.md) still hold |
 | `docs/` | `mdbook build docs` |
 | Performance-sensitive code | `cargo run --release -p bench` before and after (see [Performance Work](#performance-work)) |
 | Any change | `cargo test --workspace` before opening a PR |
@@ -139,28 +139,30 @@ hardware they came from.
 
 ## Releasing
 
-Three things ship, always at one shared version, `[workspace.package] version` in the root
+Four things ship, always at one shared version, `[workspace.package] version` in the root
 `Cargo.toml`:
 
 | Registry | Name | Built from |
 |---|---|---|
 | crates.io | `yggdrasil-3d` | `scene-graph/` |
 | crates.io | `yggdrasil-3d-spatial-index` | `spatial-index/` |
+| crates.io | `yggdrasil-3d-viz` | `viz/` (installs the `yggdrasil-3d-viz` command) |
 | PyPI | `yggdrasil-3d` | `python-binding/` (abi3 wheels and an sdist) |
 
 To release:
 
 1. Set `[workspace.package] version` in the root `Cargo.toml`. When the leading non-zero
-   component changes (0.1 → 0.2, or 1.x → 2.0), also update the `version` on both
-   `spatial_index` entries in `scene-graph/Cargo.toml`; cargo refuses to resolve the
-   workspace until you do.
+   component changes (0.1 → 0.2, or 1.x → 2.0), also update the `version` on the
+   dependencies between the published crates: both `spatial_index` entries in
+   `scene-graph/Cargo.toml`, and `scene-graph` in `viz/Cargo.toml`. cargo refuses to
+   resolve the workspace until you do.
 2. Merge that to `master`.
 3. Tag the merge commit `v<version>` and push the tag:
    `git tag v0.2.0 && git push origin v0.2.0`.
 
 [`release.yml`](.github/workflows/release.yml) then checks that the tag matches the
 version and that the version is new on both registries, runs the CI suite on the tagged
-commit, and builds and verifies both crates, every wheel and the sdist. It uploads only once
+commit, and builds and verifies every crate, every wheel and the sdist. It uploads only once
 all of that passes. If an upload fails partway, use **Re-run failed jobs**, not
 **Re-run all jobs**: a full re-run fails its version check on the half that already went out.
 
@@ -171,12 +173,13 @@ Actions tab: it does everything except upload.
 
 Neither registry needs a token in this repository: both trust the workflow through OIDC.
 
-- **crates.io**: trusted publishing cannot create a crate. Publish
-  `yggdrasil-3d-spatial-index` once by hand from a clean checkout of `master`
-  (`cargo login`, then `cargo publish -p yggdrasil-3d-spatial-index`). Then, in each
-  crate's **Settings → Trusted Publishing** (`yggdrasil-3d` and
-  `yggdrasil-3d-spatial-index`), add a GitHub publisher: owner `brdsdsu`, repository
-  `Yggdrasil`, workflow `release.yml`, environment `release`.
+- **crates.io**: trusted publishing cannot create a crate, so a new crate's first version
+  is published by hand from a clean checkout of `master` (`cargo login`, then
+  `cargo publish -p <crate>`); the workflow skips a version that is already out. Then, in
+  each crate's **Settings → Trusted Publishing** (`yggdrasil-3d`,
+  `yggdrasil-3d-spatial-index` and `yggdrasil-3d-viz`), add a GitHub publisher: owner
+  `brdsdsu`, repository `Yggdrasil`, workflow `release.yml`, environment `release`. The
+  repository name must match exactly, capital Y included: PyPI compares it case-sensitively.
 - **PyPI**: in the `yggdrasil-3d` project's **Publishing** settings, add a GitHub
   publisher with the same four values.
 - **GitHub**: the `release` environment is created on the first run. Adding required

@@ -4,6 +4,7 @@ name: Release
 #
 #   crates.io  yggdrasil-3d                 scene-graph/
 #   crates.io  yggdrasil-3d-spatial-index   spatial-index/ (the kiddo fork yggdrasil-3d uses)
+#   crates.io  yggdrasil-3d-viz             viz/ (the visualizer, a `cargo install` binary)
 #   PyPI       yggdrasil-3d                 python-binding/ (abi3 wheels and an sdist)
 #
 # <version> is [workspace.package] version in the root Cargo.toml. Nothing is uploaded until
@@ -62,9 +63,9 @@ jobs:
             jq -r --arg p "$1" '.packages[] | select(.name == $p) | .version' <<<"$metadata"
           }
           version=$(version_of yggdrasil-3d)
-          for package in yggdrasil-3d-spatial-index python-binding; do
+          for package in yggdrasil-3d-spatial-index yggdrasil-3d-viz python-binding; do
             if [ "$(version_of "$package")" != "$version" ]; then
-              echo "::error::$package is at $(version_of "$package") but yggdrasil-3d is at $version; all three ship in lockstep"
+              echo "::error::$package is at $(version_of "$package") but yggdrasil-3d is at $version; they all ship in lockstep"
               exit 1
             fi
           done
@@ -112,17 +113,23 @@ jobs:
   crates:
     name: Package crates
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The visualizer links Bevy, which needs ALSA, udev, X11, Wayland and xkbcommon headers.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libx11-dev libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-      # Packages both crates and builds yggdrasil-3d against the packaged fork rather than
-      # crates.io, so it also passes for a fork version that has not been uploaded yet.
+      # Packages all three crates and builds each against the packaged versions of the
+      # others rather than crates.io, so it also passes before any of them is uploaded.
       - name: Package and verify
         run: cargo publish --workspace --dry-run --locked
 
@@ -190,7 +197,7 @@ jobs:
     if: github.ref_type == 'tag'
     needs: [version, test, crates, wheels, sdist]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     environment:
       name: release
       url: https://crates.io/crates/yggdrasil-3d
@@ -201,28 +208,45 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The visualizer links Bevy, which needs ALSA, udev, X11, Wayland and xkbcommon headers.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libx11-dev libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
       - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         id: auth
-      # The fork goes first. cargo waits for each upload to reach the index before it
-      # returns, so yggdrasil-3d then resolves the fork from crates.io.
+      # Dependency order: the fork, then yggdrasil-3d, then the visualizer. cargo waits for
+      # each upload to reach the index before it returns, so each crate resolves the one
+      # before it from crates.io.
       - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          status=0
-          .github/scripts/crates-io-has-version.sh yggdrasil-3d-spatial-index "$VERSION" || status=$?
-          case $status in
-            0) echo "yggdrasil-3d-spatial-index $VERSION is already on crates.io; skipping it" ;;
-            1) cargo publish --locked -p yggdrasil-3d-spatial-index ;;
-            *) echo "::error::Could not read the crates.io index"; exit 1 ;;
-          esac
-          cargo publish --locked -p yggdrasil-3d
+          # A crate whose $VERSION is already out is skipped, which is what lets "Re-run
+          # failed jobs" finish a release that stopped partway. For yggdrasil-3d that can only
+          # mean this run uploaded it: the version job refuses a tag whose version was out
+          # before. The fork and the visualizer can also have been published by hand, which
+          # is how each crate's first version has to go out (trusted publishing cannot
+          # create a crate).
+          publish() {
+            local status=0
+            .github/scripts/crates-io-has-version.sh "$1" "$VERSION" || status=$?
+            case $status in
+              0) echo "$1 $VERSION is already on crates.io; skipping it" ;;
+              1) cargo publish --locked -p "$1" ;;
+              *) echo "::error::Could not read the crates.io index"; exit 1 ;;
+            esac
+          }
+          publish yggdrasil-3d-spatial-index
+          publish yggdrasil-3d
+          publish yggdrasil-3d-viz
 
   publish-pypi:
     name: Publish to PyPI

@@ -1,12 +1,20 @@
 [package]
-name = "viz"
-version = "0.1.0"
+# Published to crates.io as `yggdrasil-3d-viz`; the directory keeps its old name, and so does
+# the library (`viz`), which only exists to share code between the binary and its tests.
+name = "yggdrasil-3d-viz"
+version.workspace = true
 edition = "2024"
 license = "Apache-2.0"
-publish = false
+description = "Interactive 3D visualizer for Yggdrasil scene graphs"
+readme = "README.md"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["scene-graph", "visualization", "bevy", "3d", "robotics"]
+categories = ["visualization", "science::robotics", "command-line-utilities"]
+include = ["/Cargo.toml", "/README.md", "/src/**"]
 
 [[bin]]
-name = "viz"
+name = "yggdrasil-3d-viz"
 path = "src/main.rs"
 
 [lib]
@@ -14,7 +22,7 @@ name = "viz"
 path = "src/lib.rs"
 
 [dependencies]
-scene-graph = { package = "yggdrasil-3d", path = "../scene-graph" }
+scene-graph = { package = "yggdrasil-3d", path = "../scene-graph", version = "0.1.1" }
 bevy = { version = "0.15", features = ["wayland"] }
 bevy_egui   = "0.31"
 bevy_panorbit_camera = "0.22"

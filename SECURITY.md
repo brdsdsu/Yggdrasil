@@ -23,7 +23,8 @@ reproduce against the latest `master` before reporting.
 
 This policy covers the crates in this repository (`scene-graph`, published as
 `yggdrasil-3d`; `spatial-index`, published as `yggdrasil-3d-spatial-index`; `engine`,
-`python-binding`, published to PyPI as `yggdrasil-3d`; `viz`; `bench`) and the
+`python-binding`, published to PyPI as `yggdrasil-3d`; `viz`, published as
+`yggdrasil-3d-viz`; `bench`) and the
 documentation book built from `docs/`.
 
 - `spatial-index` is a vendored fork of [kiddo](https://github.com/sdd/kiddo).

@@ -4,16 +4,16 @@ Bevy-based interactive 3D visualizer for Yggdrasil scene graphs.
 
 ```bash
 # Run with a JSON scene file
-cargo run -p viz -- path/to/scene.json
+cargo run -p yggdrasil-3d-viz -- path/to/scene.json
 
 # A scene authored in the renderer's own Y-up frame (the default is Z-up)
-cargo run -p viz -- path/to/scene.json --up y
+cargo run -p yggdrasil-3d-viz -- path/to/scene.json --up y
 
 # Run the built-in 4-layer demo scene
-cargo run -p viz
+cargo run -p yggdrasil-3d-viz
 
 # Same demo, but each object's point cloud is one multi-coordinate node
-cargo run -p viz -- --demo-multi
+cargo run -p yggdrasil-3d-viz -- --demo-multi
 ```
 
 ---
